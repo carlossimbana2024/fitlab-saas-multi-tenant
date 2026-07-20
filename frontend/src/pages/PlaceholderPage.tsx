@@ -1,0 +1,2 @@
+import { Construction } from 'lucide-react';
+export function PlaceholderPage({title,description}:{title:string;description:string}){return <div className="page"><div className="page-heading"><div><p className="eyebrow">FITLAB MVP</p><h1>{title}</h1><p>{description}</p></div></div><section className="panel empty"><Construction/><strong>Módulo conectado, interfaz en construcción</strong><span>Esta sección se completará en la siguiente iteración.</span></section></div>}

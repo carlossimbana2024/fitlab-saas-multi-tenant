@@ -1,0 +1,88 @@
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Activity, Bell, CalendarCheck, CheckCircle2, Clock3, CreditCard, Flame, LoaderCircle, LogOut, Mail, MapPin, MessageCircle, Pencil, Phone, QrCode, UserRound, X } from 'lucide-react';
+import { useMemo, useState, type FormEvent } from 'react';
+import { ThemeToggle } from '../components/ThemeToggle';
+import { useAuth } from '../context/AuthContext';
+import { api, apiErrorMessage } from '../services/api';
+
+type Period = { starts_on: string; ends_on: string; status: string };
+type Membership = { id: string; status: string; price_at_purchase: number; currency: string; attendance_mode_snapshot: 'daily' | 'weekly'; weekly_target_snapshot?: number | null; plans?: { name?: string }; membership_periods?: Period[] };
+type Attendance = { id: string; attendance_date: string; checked_in_at: string; status: 'valid' | 'voided'; source: string; counts_toward_streak: boolean };
+type Streak = { status: string; current_streak: number; longest_streak: number; last_attendance_date?: string | null };
+type Payment = { id: string; amount: number; currency: string; payment_method: string; status: string; paid_at: string };
+type WeeklyProgress = { id: string; week_starts_on: string; week_ends_on: string; target_attendances: number; completed_attendances: number; goal_met: boolean; is_grace_week: boolean };
+type Hour = { weekday: number; opens_at: string | null; closes_at: string | null; day_mode: 'required' | 'bonus' | 'closed' };
+type Exception = { calendar_date: string; opens_at: string | null; closes_at: string | null; day_mode: 'required' | 'bonus' | 'closed'; reason?: string | null };
+type Calendar = { gym: { name: string; email?: string | null; phone?: string | null; whatsapp_phone?: string | null; timezone: string }; location: { name: string; address?: string | null; city: string; timezone: string; email?: string | null; phone?: string | null; whatsapp_phone?: string | null }; hours: Hour[]; exceptions: Exception[] };
+
+const localDate = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Guayaquil' }).format(new Date());
+const methodLabel = (method: string) => ({ cash: 'Efectivo', bank_transfer: 'Transferencia', external_card: 'Tarjeta', external_deuna: 'DEUNA', other: 'Otro' } as Record<string, string>)[method] ?? method;
+const daysRemaining = (end?: string) => end ? Math.max(0, Math.ceil((new Date(`${end}T23:59:59`).getTime() - Date.now()) / 86_400_000)) : 0;
+const shortTime = (value: string | null) => value?.slice(0, 5) ?? '—';
+
+function monthRange() {
+  const today = localDate(); const [year, month] = today.split('-').map(Number);
+  const last = new Date(Date.UTC(year!, month!, 0)).getUTCDate();
+  return { today, year: year!, month: month!, from: `${year}-${String(month).padStart(2, '0')}-01`, to: `${year}-${String(month).padStart(2, '0')}-${last}`, last };
+}
+
+export function MemberPortalPage() {
+  const { session, logout, refresh } = useAuth();
+  const queryClient = useQueryClient();
+  const range = useMemo(monthRange, []);
+  const [editing, setEditing] = useState(false);
+  const [profile, setProfile] = useState({ fullName: session?.gymUser?.profiles?.full_name ?? '', phone: session?.gymUser?.profiles?.phone ?? '', avatarUrl: session?.gymUser?.profiles?.avatar_url ?? '' });
+  const memberships = useQuery({ queryKey: ['my-memberships'], queryFn: async () => (await api.get<{ memberships: Membership[] }>('/memberships')).data.memberships });
+  const attendances = useQuery({ queryKey: ['my-attendances'], queryFn: async () => (await api.get<{ attendances: Attendance[] }>('/attendances')).data.attendances });
+  const streaks = useQuery({ queryKey: ['my-streak'], queryFn: async () => (await api.get<{ streaks: Streak[] }>('/attendances/streaks')).data.streaks });
+  const payments = useQuery({ queryKey: ['my-payments'], queryFn: async () => (await api.get<{ payments: Payment[] }>('/member-payments')).data.payments });
+  const weekly = useQuery({ queryKey: ['my-weekly-progress'], queryFn: async () => (await api.get<{ progress: WeeklyProgress[] }>('/attendances/weekly-progress')).data.progress });
+  const calendar = useQuery({ queryKey: ['my-calendar', range.from], queryFn: async () => (await api.get<Calendar>('/calendar', { params: { from: range.from, to: range.to } })).data });
+  const membership = memberships.data?.find((item) => item.status === 'active');
+  const period = membership?.membership_periods?.find((item) => item.status === 'active') ?? membership?.membership_periods?.[0];
+  const streak = streaks.data?.[0]; const currentWeek = weekly.data?.[0]; const remaining = daysRemaining(period?.ends_on); const lastPayment = payments.data?.[0];
+  const hasAttendanceToday = attendances.data?.some((item) => item.status === 'valid' && item.attendance_date === range.today);
+  const todayDate = new Date(`${range.today}T12:00:00`); const todayWeekday = todayDate.getDay() || 7;
+  const todayException = calendar.data?.exceptions.find((item) => item.calendar_date === range.today);
+  const todaySchedule = todayException ?? calendar.data?.hours.find((item) => item.weekday === todayWeekday);
+  const nowTime = new Intl.DateTimeFormat('en-GB', { timeZone: calendar.data?.location.timezone ?? 'America/Guayaquil', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date());
+  const isOpen = Boolean(todaySchedule && todaySchedule.day_mode !== 'closed' && todaySchedule.opens_at && todaySchedule.closes_at && (todaySchedule.closes_at <= todaySchedule.opens_at ? nowTime >= todaySchedule.opens_at || nowTime < todaySchedule.closes_at : nowTime >= todaySchedule.opens_at && nowTime < todaySchedule.closes_at));
+  const checkIn = useMutation({ mutationFn: async () => api.post('/attendances/qr', {}), onSuccess: async () => Promise.all([queryClient.invalidateQueries({ queryKey: ['my-attendances'] }), queryClient.invalidateQueries({ queryKey: ['my-streak'] }), queryClient.invalidateQueries({ queryKey: ['my-weekly-progress'] })]) });
+  const saveProfile = useMutation({ mutationFn: async () => api.put('/members/me/profile', { fullName: profile.fullName, phone: profile.phone || null, avatarUrl: profile.avatarUrl || null }), onSuccess: async () => { await refresh(); setEditing(false); } });
+  const loading = memberships.isLoading || attendances.isLoading || streaks.isLoading;
+
+  const notices = [
+    !membership ? 'No tienes una membresía activa.' : remaining <= 7 ? `Tu membresía vence en ${remaining} día${remaining === 1 ? '' : 's'}.` : '',
+    todaySchedule?.day_mode === 'closed' ? `El gimnasio está cerrado hoy${todayException?.reason ? `: ${todayException.reason}` : '.'}` : '',
+    membership?.attendance_mode_snapshot === 'weekly' && currentWeek && !currentWeek.goal_met ? `Te faltan ${Math.max(0, currentWeek.target_attendances - currentWeek.completed_attendances)} asistencias para completar tu meta semanal.` : '',
+    streak?.current_streak ? `Mantienes una racha de ${streak.current_streak}. ¡Sigue así!` : '',
+  ].filter(Boolean);
+
+  const days = Array.from({ length: range.last }, (_, index) => {
+    const day = index + 1; const date = `${range.year}-${String(range.month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    const weekday = new Date(`${date}T12:00:00`).getDay() || 7;
+    const exception = calendar.data?.exceptions.find((item) => item.calendar_date === date);
+    const schedule = exception ?? calendar.data?.hours.find((item) => item.weekday === weekday);
+    const attendance = attendances.data?.find((item) => item.attendance_date === date);
+    return { day, date, mode: schedule?.day_mode ?? 'closed', attendance };
+  });
+  const firstOffset = (new Date(`${range.from}T12:00:00`).getDay() + 6) % 7;
+  const contactPhone = calendar.data?.location.phone ?? calendar.data?.gym.phone;
+  const whatsappPhone = calendar.data?.location.whatsapp_phone ?? calendar.data?.gym.whatsapp_phone;
+  const whatsapp = whatsappPhone?.replace(/\D/g, '').replace(/^0/, '593');
+  const contactEmail = calendar.data?.location.email ?? calendar.data?.gym.email;
+
+  const submitProfile = (event: FormEvent) => { event.preventDefault(); saveProfile.mutate(); };
+  return <div className="member-portal"><header><div className="brand"><img src="/fitlab-logo.png" alt="FitLab"/><span>FITLAB</span></div><div className="portal-tools"><ThemeToggle/><button className="ghost" onClick={() => void logout()}><LogOut/>Salir</button></div></header><main>
+    <section className="portal-hero"><div className="portal-identity">{session?.gymUser?.profiles?.avatar_url && <img src={session.gymUser.profiles.avatar_url} alt="Foto de perfil"/>}<div><p className="eyebrow">PORTAL DEL MIEMBRO</p><h1>Hola, {session?.gymUser?.profiles?.full_name ?? 'atleta'}</h1><p>Tu membresía, constancia y progreso en un solo lugar.</p></div></div><button className="checkin-button" disabled={!membership || hasAttendanceToday || checkIn.isPending} onClick={() => checkIn.mutate()}>{checkIn.isPending ? <LoaderCircle className="spin"/> : hasAttendanceToday ? <CheckCircle2/> : <QrCode/>}<span>{hasAttendanceToday ? 'Entrada registrada hoy' : 'Registrar entrada'}<small>Modo MVP · sucursal predeterminada</small></span></button></section>
+    {checkIn.isSuccess && <div className="alert success">¡Entrada registrada! Ya aparece en tu historial.</div>}{checkIn.isError && <div className="alert error">{apiErrorMessage(checkIn.error)}</div>}
+    <section className={`today-status ${isOpen ? 'open' : 'closed'}`}><Clock3/><div><strong>{isOpen ? 'Abierto ahora' : 'Cerrado ahora'}</strong><span>{todaySchedule?.day_mode === 'closed' ? todayException?.reason ?? 'No abre hoy' : todaySchedule ? `Horario de hoy: ${shortTime(todaySchedule.opens_at)}–${shortTime(todaySchedule.closes_at)}` : 'Horario no configurado'}</span></div><small>{calendar.data?.location.name}</small></section>
+    {notices.length > 0 && <section className="portal-notices"><div className="panel-title"><div><h2>Avisos</h2><p>Información importante para ti</p></div><Bell/></div>{notices.map((notice) => <div className="notice" key={notice}>{notice}</div>)}</section>}
+    <div className="portal-grid"><article className="portal-card coverage"><CreditCard/><span>Membresía</span><strong>{loading ? 'Cargando…' : membership?.plans?.name ?? 'Sin membresía activa'}</strong><small>{period ? `${period.starts_on} → ${period.ends_on} · ${remaining} días restantes` : 'Sin cobertura vigente'}</small>{membership && <small>{Number(membership.price_at_purchase).toFixed(2)} {membership.currency} · {membership.attendance_mode_snapshot === 'weekly' ? `${membership.weekly_target_snapshot} veces por semana` : 'Asistencia diaria'}</small>}</article><article className="portal-card"><Activity/><span>Asistencias válidas</span><strong>{attendances.data?.filter((item) => item.status === 'valid').length ?? 0}</strong><small>{attendances.data?.[0] ? `Última: ${attendances.data[0].attendance_date}` : 'Aún no hay registros'}</small></article><article className="portal-card streak"><Flame/><span>Racha actual</span><strong>{streak?.current_streak ?? 0}</strong><small>Mejor racha: {streak?.longest_streak ?? 0}</small></article></div>
+    <div className="portal-sections"><section className="panel"><div className="panel-title"><div><h2>Calendario de {new Date(`${range.from}T12:00:00`).toLocaleDateString('es-EC', { month: 'long' })}</h2><p>Verde: asistencia · amarillo: día adicional · rojo: anulada</p></div><CalendarCheck/></div><div className="month-weekdays">{['L','M','X','J','V','S','D'].map((day) => <span key={day}>{day}</span>)}</div><div className="month-grid">{Array.from({ length: firstOffset }, (_, index) => <span key={`empty-${index}`}/>) }{days.map((item) => <div key={item.date} title={`${item.date} · ${item.mode}`} className={`month-day ${item.date === range.today ? 'today' : ''} ${item.attendance?.status ?? item.mode}`}><span>{item.day}</span>{item.attendance && <Activity/>}</div>)}</div></section>
+      <section className="panel"><div className="panel-title"><div><h2>Tu progreso</h2><p>{membership?.attendance_mode_snapshot === 'weekly' ? 'Meta semanal contratada' : 'Asistencia en días abiertos'}</p></div><Flame/></div>{membership?.attendance_mode_snapshot === 'weekly' ? <div className="progress-block"><div><strong>{currentWeek?.completed_attendances ?? 0} de {currentWeek?.target_attendances ?? membership.weekly_target_snapshot ?? 0}</strong><span>{currentWeek?.is_grace_week ? 'Semana de gracia' : currentWeek?.goal_met ? 'Meta completada' : 'Sigue avanzando'}</span></div><progress value={currentWeek?.completed_attendances ?? 0} max={currentWeek?.target_attendances ?? membership.weekly_target_snapshot ?? 1}/></div> : <div className="daily-goal"><CalendarCheck/><div><strong>Plan de asistencia diaria</strong><span>Asiste los días obligatorios. Los días adicionales solamente suman.</span></div></div>}{lastPayment && <div className="last-payment"><CreditCard/><div><span>Último pago</span><strong>{Number(lastPayment.amount).toFixed(2)} {lastPayment.currency}</strong><small>{methodLabel(lastPayment.payment_method)} · {new Date(lastPayment.paid_at).toLocaleDateString('es-EC')}</small></div></div>}</section></div>
+    <div className="portal-sections"><section className="panel"><div className="panel-title"><div><h2>Perfil</h2><p>Información de tu cuenta</p></div><button className="icon-button" onClick={() => setEditing(true)} aria-label="Editar perfil"><Pencil/></button></div><div className="profile-lines"><div><span>Nombre</span><strong>{session?.gymUser?.profiles?.full_name ?? 'Sin nombre'}</strong></div><div><span>Correo</span><strong>{session?.user.email ?? 'Sin correo'}</strong></div><div><span>Teléfono</span><strong>{session?.gymUser?.profiles?.phone ?? 'Sin teléfono'}</strong></div><div><span>Estado</span><strong className="success-text">Activo</strong></div></div></section>
+      <section className="panel"><div className="panel-title"><div><h2>Contacta al gimnasio</h2><p>{calendar.data?.gym.name ?? 'Tu gimnasio'}</p></div><MapPin/></div><div className="contact-info"><span><MapPin/>{calendar.data?.location.address ? `${calendar.data.location.address}, ${calendar.data.location.city}` : calendar.data?.location.city ?? 'Dirección no configurada'}</span>{contactPhone && <a href={`tel:${contactPhone}`}><Phone/>Llamar</a>}{whatsapp && <a href={`https://wa.me/${whatsapp}`} target="_blank" rel="noreferrer"><MessageCircle/>WhatsApp</a>}{contactEmail && <a href={`mailto:${contactEmail}`}><Mail/>Correo</a>}</div></section></div>
+    <div className="portal-sections"><section className="panel"><div className="panel-title"><div><h2>Asistencias recientes</h2><p>Tu historial permanece disponible</p></div><Activity/></div>{attendances.data?.length ? <div className="portal-history">{attendances.data.slice(0, 8).map((item) => <article key={item.id}><div><strong>{item.attendance_date}</strong><small>{item.source === 'qr' ? 'Entrada del miembro' : 'Registrada por recepción'}</small></div><span className={`badge ${item.status}`}>{item.status === 'valid' ? 'Válida' : 'Anulada'}</span></article>)}</div> : <div className="empty compact"><Activity/><strong>Sin asistencias todavía</strong></div>}</section><section className="panel"><div className="panel-title"><div><h2>Pagos</h2><p>Movimientos registrados</p></div><CreditCard/></div>{payments.data?.length ? <div className="portal-history">{payments.data.slice(0, 8).map((item) => <article key={item.id}><div><strong>{Number(item.amount).toFixed(2)} {item.currency}</strong><small>{methodLabel(item.payment_method)} · {new Date(item.paid_at).toLocaleDateString('es-EC')}</small></div><span className={`badge ${item.status}`}>{item.status}</span></article>)}</div> : <div className="empty compact"><CreditCard/><strong>Sin pagos visibles</strong></div>}</section></div>
+  </main>{editing && <div className="modal-backdrop"><form className="modal profile-modal" onSubmit={submitProfile}><div className="modal-heading"><div><p className="eyebrow">TU CUENTA</p><h2>Editar perfil</h2></div><button type="button" className="icon-button" onClick={() => setEditing(false)}><X/></button></div><div className="checkout-form single"><label>Nombre completo<input required minLength={2} maxLength={150} value={profile.fullName} onChange={(event) => setProfile({ ...profile, fullName: event.target.value })}/></label><label>Teléfono<input maxLength={30} value={profile.phone} onChange={(event) => setProfile({ ...profile, phone: event.target.value })}/></label><label>URL de foto opcional<input type="url" value={profile.avatarUrl} onChange={(event) => setProfile({ ...profile, avatarUrl: event.target.value })}/></label>{saveProfile.isError && <div className="alert error">{apiErrorMessage(saveProfile.error)}</div>}<p className="form-note">Para cambiar tu contraseña usa “Olvidé mi contraseña” en la pantalla de acceso.</p><div className="modal-actions"><button type="button" className="ghost" onClick={() => setEditing(false)}>Cancelar</button><button className="primary" disabled={saveProfile.isPending}>{saveProfile.isPending ? 'Guardando…' : 'Guardar cambios'}</button></div></div></form></div>}</div>;
+}

@@ -1,0 +1,30 @@
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Building2, LoaderCircle, Mail, MapPin, MessageCircle, Phone, Save } from 'lucide-react';
+import { useEffect, useState, type FormEvent } from 'react';
+import { api, apiErrorMessage } from '../services/api';
+
+type Gym = { id: string; name: string; email: string | null; phone: string | null; whatsapp_phone: string | null; timezone: string; currency: string };
+type Location = { id: string; name: string; address: string | null; city: string; email: string | null; phone: string | null; whatsapp_phone: string | null; timezone: string; is_main: boolean; is_active: boolean };
+type Settings = { gym: Gym; locations: Location[] };
+
+export function SettingsPage() {
+  const queryClient = useQueryClient();
+  const settings = useQuery({ queryKey: ['settings'], queryFn: async () => (await api.get<Settings>('/settings')).data });
+  const [gym, setGym] = useState({ name: '', email: '', phone: '', whatsappPhone: '' });
+  const [locationId, setLocationId] = useState('');
+  const [location, setLocation] = useState({ name: '', address: '', city: '', email: '', phone: '', whatsappPhone: '' });
+  useEffect(() => { if (settings.data?.gym) setGym({ name: settings.data.gym.name, email: settings.data.gym.email ?? '', phone: settings.data.gym.phone ?? '', whatsappPhone: settings.data.gym.whatsapp_phone ?? '' }); }, [settings.data?.gym]);
+  useEffect(() => { if (!locationId && settings.data?.locations[0]) setLocationId(settings.data.locations[0].id); }, [settings.data?.locations, locationId]);
+  useEffect(() => { const selected = settings.data?.locations.find((item) => item.id === locationId); if (selected) setLocation({ name: selected.name, address: selected.address ?? '', city: selected.city, email: selected.email ?? '', phone: selected.phone ?? '', whatsappPhone: selected.whatsapp_phone ?? '' }); }, [locationId, settings.data?.locations]);
+  const saveGym = useMutation({ mutationFn: async () => api.put('/settings/gym', gym), onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['settings'] }) });
+  const saveLocation = useMutation({ mutationFn: async () => api.put(`/settings/locations/${locationId}`, location), onSuccess: async () => Promise.all([queryClient.invalidateQueries({ queryKey: ['settings'] }), queryClient.invalidateQueries({ queryKey: ['my-calendar'] })]) });
+  const submitGym = (event: FormEvent) => { event.preventDefault(); saveGym.mutate(); };
+  const submitLocation = (event: FormEvent) => { event.preventDefault(); saveLocation.mutate(); };
+  if (settings.isLoading) return <div className="splash"><LoaderCircle className="spin"/></div>;
+  if (settings.isError) return <div className="page"><div className="alert error">{apiErrorMessage(settings.error)}</div></div>;
+
+  return <div className="page"><div className="page-heading"><div><p className="eyebrow">CONFIGURACIÓN</p><h1>Datos de contacto</h1><p>Define cómo pueden comunicarse los miembros con el gimnasio y sus sucursales.</p></div></div>
+    <div className="settings-grid"><form className="panel settings-form" onSubmit={submitGym}><div className="panel-title"><div><h2>Gimnasio</h2><p>Datos generales usados como respaldo</p></div><Building2/></div><label>Nombre<input required minLength={2} value={gym.name} onChange={(event) => setGym({ ...gym, name: event.target.value })}/></label><label><Mail/>Correo general<input type="email" value={gym.email} onChange={(event) => setGym({ ...gym, email: event.target.value })} placeholder="contacto@gimnasio.com"/></label><label><Phone/>Teléfono general<input value={gym.phone} onChange={(event) => setGym({ ...gym, phone: event.target.value })} placeholder="02 000 0000"/></label><label><MessageCircle/>WhatsApp general<input value={gym.whatsappPhone} onChange={(event) => setGym({ ...gym, whatsappPhone: event.target.value })} placeholder="+593 99 000 0000"/></label>{saveGym.isSuccess && <div className="alert success">Datos generales guardados.</div>}{saveGym.isError && <div className="alert error">{apiErrorMessage(saveGym.error)}</div>}<button className="primary" disabled={saveGym.isPending}>{saveGym.isPending ? <LoaderCircle className="spin"/> : <Save/>}Guardar gimnasio</button></form>
+      <form className="panel settings-form" onSubmit={submitLocation}><div className="panel-title"><div><h2>Sucursal</h2><p>Estos datos tienen prioridad en el portal</p></div><MapPin/></div><label>Seleccionar sucursal<select value={locationId} onChange={(event) => setLocationId(event.target.value)}>{settings.data?.locations.map((item) => <option key={item.id} value={item.id}>{item.name}{item.is_main ? ' · Principal' : ''}</option>)}</select></label><label>Nombre<input required minLength={2} value={location.name} onChange={(event) => setLocation({ ...location, name: event.target.value })}/></label><label>Dirección<input value={location.address} onChange={(event) => setLocation({ ...location, address: event.target.value })} placeholder="Calle, número y referencia"/></label><label>Ciudad<input required value={location.city} onChange={(event) => setLocation({ ...location, city: event.target.value })}/></label><label><Mail/>Correo de sucursal<input type="email" value={location.email} onChange={(event) => setLocation({ ...location, email: event.target.value })} placeholder="sucursal@gimnasio.com"/></label><label><Phone/>Teléfono de sucursal<input value={location.phone} onChange={(event) => setLocation({ ...location, phone: event.target.value })}/></label><label><MessageCircle/>WhatsApp de sucursal<input value={location.whatsappPhone} onChange={(event) => setLocation({ ...location, whatsappPhone: event.target.value })} placeholder="+593 99 000 0000"/></label>{saveLocation.isSuccess && <div className="alert success">Datos de la sucursal guardados.</div>}{saveLocation.isError && <div className="alert error">{apiErrorMessage(saveLocation.error)}</div>}<button className="primary" disabled={!locationId || saveLocation.isPending}>{saveLocation.isPending ? <LoaderCircle className="spin"/> : <Save/>}Guardar sucursal</button></form></div>
+  </div>;
+}
