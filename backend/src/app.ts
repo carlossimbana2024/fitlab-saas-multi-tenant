@@ -21,8 +21,13 @@ import { chatRouter } from './routes/chat.routes.js';
 
 export const app = express();
 
+// Vercel resuelve los tipos condicionales ESM/CJS de Helmet de forma distinta
+// al compilador local. La exportación predeterminada sigue siendo la fábrica
+// de middleware en tiempo de ejecución.
+const createHelmetMiddleware = helmet as unknown as () => express.RequestHandler;
+
 app.disable('x-powered-by');
-app.use(helmet());
+app.use(createHelmetMiddleware());
 app.use(cors({
   credentials: true,
   origin(origin, callback) {
