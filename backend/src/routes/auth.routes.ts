@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { acceptInvite, completeOwnerOnboarding, login, logout, me, refresh, registerOwner, requestPasswordReset, resetPassword } from '../controllers/auth.controller.js';
+import { acceptInvite, changePassword, completeOwnerOnboarding, login, logout, me, refresh, registerOwner, requestPasswordReset, resetPassword } from '../controllers/auth.controller.js';
 import { verifyJWT } from '../middlewares/verifyJWT.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 
@@ -12,4 +12,5 @@ authRouter.post('/accept-invite', asyncHandler(acceptInvite));
 authRouter.post('/request-password-reset', asyncHandler(requestPasswordReset));
 authRouter.post('/reset-password', asyncHandler(resetPassword));
 authRouter.get('/me', verifyJWT, asyncHandler(me));
+authRouter.put('/change-password', verifyJWT, asyncHandler(changePassword));
 authRouter.post('/logout', asyncHandler(logout));
