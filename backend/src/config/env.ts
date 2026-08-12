@@ -17,6 +17,7 @@ const environmentSchema = z.object({
   STRIPE_CANCEL_URL: z.string().url(),
   TRIAL_DAYS: z.coerce.number().int().min(1).max(90).default(30),
   SUBSCRIPTION_GRACE_DAYS: z.coerce.number().int().min(0).max(30).default(5),
+  INVITATION_TTL_HOURS: z.coerce.number().int().min(1).max(168).default(24),
   HF_TOKEN: z.string().startsWith('hf_').optional(),
   HF_MODEL: z.string().min(1).default('Qwen/Qwen3-8B'),
   HF_PROVIDER: z.string().min(1).default('auto'),

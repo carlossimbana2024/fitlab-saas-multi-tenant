@@ -4,7 +4,7 @@ import { useState, type FormEvent } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
 
-type Member = { id: string; profiles?: { full_name?: string } };
+type Member = { id: string; account_mode: 'portal' | 'managed'; managed_full_name?: string | null; profiles?: { full_name?: string } | null };
 type Plan = { id: string; name: string; price: number; currency: string };
 type Period = { id: string; starts_on: string; ends_on: string; status: string };
 type Membership = { id: string; member_user_id: string; status: string; price_at_purchase: number; currency: string; plans?: { name?: string }; membership_periods?: Period[] };
@@ -14,6 +14,7 @@ type PlanForm = { name: string; price: string; durationUnit: 'days' | 'weeks' | 
 
 const initialForm: CheckoutForm = { memberUserId: '', planId: '', paymentMethod: 'cash', externalReference: '', notes: '' };
 const initialPlan: PlanForm = { name: '', price: '', durationUnit: 'months', durationValue: '1', attendanceMode: 'daily', weeklyTarget: '3' };
+const memberName = (member: Member) => member.profiles?.full_name ?? member.managed_full_name ?? 'Miembro sin nombre';
 
 function errorMessage(error: unknown) {
   const apiError = error as { response?: { data?: { message?: string } } };
@@ -30,7 +31,7 @@ export function MembershipsPage() {
   const members = useQuery({ queryKey: ['members'], queryFn: async () => (await api.get<{ members: Member[] }>('/members')).data.members });
   const plans = useQuery({ queryKey: ['plans'], queryFn: async () => (await api.get<{ plans: Plan[] }>('/plans')).data.plans });
   const memberships = useQuery({ queryKey: ['memberships'], queryFn: async () => (await api.get<{ memberships: Membership[] }>('/memberships')).data.memberships });
-  const memberNames = new Map((members.data ?? []).map((member) => [member.id, member.profiles?.full_name ?? 'Miembro sin nombre']));
+  const memberNames = new Map((members.data ?? []).map((member) => [member.id, memberName(member)]));
 
   const checkout = useMutation({
     mutationFn: async () => api.post('/memberships/manual-checkout', {
@@ -89,7 +90,7 @@ export function MembershipsPage() {
 
     {open && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setOpen(false); }}><section className="modal" role="dialog" aria-modal="true" aria-labelledby="checkout-title"><div className="modal-heading"><div><p className="eyebrow">NUEVO COBRO</p><h2 id="checkout-title">Registrar pago manual</h2></div><button className="icon-button" onClick={() => setOpen(false)} aria-label="Cerrar"><X/></button></div>
       <form className="checkout-form" onSubmit={submit}>
-        <label>Miembro<select required value={form.memberUserId} onChange={(event) => setForm({ ...form, memberUserId: event.target.value })}><option value="">Selecciona un miembro</option>{members.data?.map((member) => <option key={member.id} value={member.id}>{member.profiles?.full_name ?? 'Sin nombre'}</option>)}</select></label>
+        <label>Miembro<select required value={form.memberUserId} onChange={(event) => setForm({ ...form, memberUserId: event.target.value })}><option value="">Selecciona un miembro</option>{members.data?.map((member) => <option key={member.id} value={member.id}>{memberName(member)}{member.account_mode === 'managed' ? ' · Sin cuenta' : ''}</option>)}</select></label>
         <label>Plan<select required value={form.planId} onChange={(event) => setForm({ ...form, planId: event.target.value })}><option value="">Selecciona un plan</option>{plans.data?.map((plan) => <option key={plan.id} value={plan.id}>{plan.name} — {Number(plan.price).toFixed(2)} {plan.currency}</option>)}</select></label>
         <label>Método de pago<select value={form.paymentMethod} onChange={(event) => setForm({ ...form, paymentMethod: event.target.value as PaymentMethod })}><option value="cash">Efectivo</option><option value="bank_transfer">Transferencia bancaria</option><option value="external_card">Tarjeta externa</option><option value="external_deuna">DEUNA externo</option><option value="other">Otro</option></select></label>
         <label>Referencia opcional<input value={form.externalReference} maxLength={200} onChange={(event) => setForm({ ...form, externalReference: event.target.value })} placeholder="Número de transferencia o comprobante"/></label>

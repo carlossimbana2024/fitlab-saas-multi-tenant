@@ -3,6 +3,7 @@ import { supabaseAdmin } from '../config/supabase.js';
 import { AppError } from '../errors/AppError.js';
 import { fromSupabaseError } from '../utils/supabaseError.js';
 import { voidPaymentSchema } from '../validators/membership.validator.js';
+import { writeAuditLog } from '../services/audit.service.js';
 
 export async function listPayments(request: Request, response: Response) {
   let query = request.supabase!.from('member_payments').select(
@@ -26,5 +27,9 @@ export async function voidPayment(request: Request, response: Response) {
   }).eq('id', id).eq('gym_id', request.tenant!.gymId).eq('status', 'confirmed').select('id,status,voided_at,voided_by,void_reason').maybeSingle();
   if (error) throw fromSupabaseError(error);
   if (!data) throw new AppError(404, 'PAYMENT_NOT_FOUND', 'El pago no existe o no puede anularse.');
+  await writeAuditLog(request, {
+    action: 'payment.voided', entityType: 'member_payment', entityId: data.id,
+    afterData: { status: data.status, reason: data.void_reason },
+  });
   response.json({ payment: data });
 }

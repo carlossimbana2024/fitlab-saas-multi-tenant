@@ -4,6 +4,7 @@ import { AppError } from '../errors/AppError.js';
 import { dateInTimezone } from '../utils/gymDate.js';
 import { fromSupabaseError } from '../utils/supabaseError.js';
 import { attendanceListSchema, qrAttendanceSchema, staffAttendanceSchema, voidAttendanceSchema } from '../validators/attendance.validator.js';
+import { writeAuditLog } from '../services/audit.service.js';
 
 const attendanceFields = 'id,gym_id,location_id,member_user_id,membership_id,attendance_date,checked_in_at,source,counts_toward_streak,status,voided_at,voided_by,void_reason';
 
@@ -51,6 +52,10 @@ export async function registerStaffAttendance(request: Request, response: Respon
     registered_by: request.tenant!.gymUserId,
   }).select(attendanceFields).single();
   if (error) throw fromSupabaseError(error);
+  await writeAuditLog(request, {
+    action: 'attendance.registered_by_staff', entityType: 'attendance', entityId: data.id,
+    afterData: { member_user_id: data.member_user_id, source: data.source },
+  });
   response.status(201).json({ attendance: data });
 }
 
@@ -67,6 +72,10 @@ export async function voidAttendance(request: Request, response: Response) {
   }).eq('id', attendanceId).eq('gym_id', request.tenant!.gymId).eq('status', 'valid').select(attendanceFields).maybeSingle();
   if (error) throw fromSupabaseError(error);
   if (!data) throw new AppError(404, 'ATTENDANCE_NOT_FOUND', 'La asistencia no existe o no puede anularse.');
+  await writeAuditLog(request, {
+    action: 'attendance.voided', entityType: 'attendance', entityId: data.id,
+    afterData: { status: data.status, reason: data.void_reason },
+  });
   response.json({ attendance: data });
 }
 

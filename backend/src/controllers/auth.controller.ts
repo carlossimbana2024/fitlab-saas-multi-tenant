@@ -4,6 +4,7 @@ import { env } from '../config/env.js';
 import { createUserSupabaseClient, supabaseAdmin, supabasePublic } from '../config/supabase.js';
 import { AppError } from '../errors/AppError.js';
 import { stripe } from '../config/stripe.js';
+import { isValidTimeZone } from '../utils/timezone.js';
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -43,7 +44,7 @@ const ownerOnboardingSchema = z.object({
   locationName: z.string().trim().min(2).max(150),
   address: z.string().trim().max(250).default(''),
   city: z.string().trim().min(2).max(120).default('Quito'),
-  timezone: z.string().default('America/Guayaquil'),
+  timezone: z.string().default('America/Guayaquil').refine(isValidTimeZone, 'La zona horaria no es válida.'),
 });
 
 const cookieBase = {
@@ -204,7 +205,17 @@ export async function refresh(request: Request, response: Response) {
   response.json({ user: { id: data.user?.id, email: data.user?.email } });
 }
 
-export async function logout(_request: Request, response: Response) {
+export async function logout(request: Request, response: Response) {
+  const bearer = request.headers.authorization?.startsWith('Bearer ')
+    ? request.headers.authorization.slice(7)
+    : undefined;
+  const accessToken = request.signedCookies?.fitlab_access_token ?? bearer;
+  if (accessToken) {
+    const { error } = await supabaseAdmin.auth.admin.signOut(accessToken, 'local');
+    if (error && ![401, 403, 404].includes(error.status ?? 0)) {
+      console.error('SUPABASE_SESSION_REVOCATION_FAILED', error.message);
+    }
+  }
   response.clearCookie('fitlab_access_token', cookieBase);
   response.clearCookie('fitlab_refresh_token', cookieBase);
   response.status(204).send();
@@ -241,10 +252,20 @@ export async function acceptInvite(request: Request, response: Response) {
   const client = createUserSupabaseClient(input.data.accessToken);
   const { data: userData, error: userError } = await client.auth.getUser(input.data.accessToken);
   if (userError || !userData.user) throw new AppError(401, 'INVALID_INVITATION_TOKEN', 'La invitación es inválida o expiró.');
-  const { data: gymUser, error: membershipError } = await supabaseAdmin.from('gym_users')
-    .select('id,role,status').eq('profile_id', userData.user.id).eq('role', 'member').eq('status', 'invited').maybeSingle();
-  if (membershipError || !gymUser) throw new AppError(409, 'INVITATION_NOT_PENDING', 'La invitación ya fue utilizada o no está pendiente.');
-
+  const { data: pendingMember, error: pendingMemberError } = await supabaseAdmin.from('gym_users')
+    .select('id,invitation_id').eq('profile_id', userData.user.id).eq('role', 'member').eq('status', 'invited').maybeSingle();
+  if (pendingMemberError || !pendingMember?.invitation_id) {
+    throw new AppError(409, 'INVITATION_NOT_PENDING', 'La invitación expiró, fue revocada o ya fue utilizada.');
+  }
+  const { data: pendingInvitation, error: pendingInvitationError } = await supabaseAdmin.from('gym_invitations')
+    .select('id,expires_at').eq('id', pendingMember.invitation_id).eq('auth_user_id', userData.user.id).eq('status', 'pending').maybeSingle();
+  if (pendingInvitationError || !pendingInvitation) {
+    throw new AppError(409, 'INVITATION_NOT_PENDING', 'La invitación expiró, fue revocada o ya fue utilizada.');
+  }
+  if (new Date(pendingInvitation.expires_at).getTime() <= Date.now()) {
+    await supabaseAdmin.rpc('accept_member_invitation', { target_auth_user_id: userData.user.id });
+    throw new AppError(409, 'INVITATION_EXPIRED', 'La invitación expiró. Solicita una nueva invitación al gimnasio.');
+  }
   const { error: sessionError } = await client.auth.setSession({
     access_token: input.data.accessToken,
     refresh_token: input.data.refreshToken,
@@ -253,11 +274,14 @@ export async function acceptInvite(request: Request, response: Response) {
 
   const { error: passwordError } = await client.auth.updateUser({ password: input.data.password });
   if (passwordError) throw new AppError(400, 'PASSWORD_UPDATE_FAILED', 'No se pudo establecer la contraseña.');
-  const { error: activationError } = await supabaseAdmin.from('gym_users').update({ status: 'active', joined_at: new Date().toISOString() }).eq('id', gymUser.id).eq('status', 'invited');
-  if (activationError) throw new AppError(400, 'MEMBER_ACTIVATION_FAILED', 'No se pudo activar el acceso al gimnasio.');
+  const { data: activation, error: activationError } = await supabaseAdmin.rpc('accept_member_invitation', {
+    target_auth_user_id: userData.user.id,
+  });
+  const activated = Array.isArray(activation) ? activation[0] : undefined;
+  if (activationError || !activated) throw new AppError(409, 'INVITATION_NOT_PENDING', 'La invitación expiró, fue revocada o ya fue utilizada.');
   response.cookie('fitlab_access_token', input.data.accessToken, { ...cookieBase, maxAge: 60 * 60 * 1000 });
   response.cookie('fitlab_refresh_token', input.data.refreshToken, { ...cookieBase, maxAge: 30 * 24 * 60 * 60 * 1000 });
-  response.json({ user: { id: userData.user.id, email: userData.user.email }, role: 'member' });
+  response.json({ user: { id: userData.user.id, email: userData.user.email }, role: activated.member_role });
 }
 
 export async function requestPasswordReset(request: Request, response: Response) {

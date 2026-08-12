@@ -27,6 +27,7 @@ export const app = express();
 const createHelmetMiddleware = helmet as unknown as () => express.RequestHandler;
 
 app.disable('x-powered-by');
+app.set('trust proxy', 1);
 app.use(createHelmetMiddleware());
 app.use(cors({
   credentials: true,

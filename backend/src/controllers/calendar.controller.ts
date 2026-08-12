@@ -3,6 +3,7 @@ import { supabaseAdmin } from '../config/supabase.js';
 import { AppError } from '../errors/AppError.js';
 import { fromSupabaseError } from '../utils/supabaseError.js';
 import { exceptionSchema, scheduleSchema } from '../validators/calendar.validator.js';
+import { writeAuditLog } from '../services/audit.service.js';
 
 async function ensureLocation(request: Request, locationId: string) {
   const { data, error } = await request.supabase!.from('gym_locations').select('id,name,address,city,timezone,email,phone,whatsapp_phone,is_main,is_active').eq('id', locationId).maybeSingle();
@@ -36,6 +37,10 @@ export async function saveSchedule(request: Request, response: Response) {
   const rows = input.data.days.map((day) => ({ gym_id: request.tenant!.gymId, location_id: input.data.locationId, weekday: day.weekday, day_mode: day.dayMode, opens_at: day.dayMode === 'closed' ? null : day.opensAt, closes_at: day.dayMode === 'closed' ? null : day.closesAt }));
   const { data, error } = await supabaseAdmin.from('location_opening_hours').upsert(rows, { onConflict: 'location_id,weekday' }).select('id,weekday,opens_at,closes_at,day_mode');
   if (error) throw fromSupabaseError(error);
+  await writeAuditLog(request, {
+    action: 'calendar.schedule_updated', entityType: 'gym_location', entityId: input.data.locationId,
+    afterData: { days: data },
+  });
   response.json({ hours: data });
 }
 
@@ -45,5 +50,9 @@ export async function saveException(request: Request, response: Response) {
   await ensureLocation(request, input.data.locationId);
   const { data, error } = await supabaseAdmin.from('location_calendar_exceptions').upsert({ gym_id: request.tenant!.gymId, location_id: input.data.locationId, calendar_date: input.data.calendarDate, day_mode: input.data.dayMode, opens_at: input.data.dayMode === 'closed' ? null : input.data.opensAt, closes_at: input.data.dayMode === 'closed' ? null : input.data.closesAt, reason: input.data.reason ?? null, created_by: request.tenant!.gymUserId }, { onConflict: 'location_id,calendar_date' }).select('id,calendar_date,day_mode,opens_at,closes_at,reason').single();
   if (error) throw fromSupabaseError(error);
+  await writeAuditLog(request, {
+    action: 'calendar.exception_saved', entityType: 'calendar_exception', entityId: data.id,
+    afterData: data,
+  });
   response.status(201).json({ exception: data });
 }

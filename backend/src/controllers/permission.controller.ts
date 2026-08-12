@@ -2,8 +2,10 @@ import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { supabaseAdmin } from '../config/supabase.js';
 import { AppError } from '../errors/AppError.js';
+import { writeAuditLog } from '../services/audit.service.js';
 
 const elevationSchema = z.object({ permission: z.string().min(3).max(100), pin: z.string().regex(/^\d{4,12}$/) });
+const adminPinSchema = z.object({ pin: z.string().regex(/^\d{4,12}$/) });
 
 export async function createElevation(request: Request, response: Response) {
   const input = elevationSchema.safeParse(request.body);
@@ -20,4 +22,21 @@ export async function createElevation(request: Request, response: Response) {
   const elevation = Array.isArray(data) ? data[0] : undefined;
   if (!elevation) throw new AppError(403, 'INVALID_ADMIN_PIN', 'El PIN administrativo no es válido.');
   response.json({ token: elevation.elevation_token, expiresAt: elevation.elevation_expires_at });
+}
+
+export async function setAdminPin(request: Request, response: Response) {
+  const input = adminPinSchema.safeParse(request.body);
+  if (!input.success) throw new AppError(400, 'INVALID_ADMIN_PIN', 'El PIN debe tener entre 4 y 12 dígitos.');
+  if (request.tenant!.role !== 'owner') throw new AppError(403, 'OWNER_REQUIRED', 'Solo el owner puede cambiar el PIN administrativo.');
+  const { error } = await supabaseAdmin.rpc('set_gym_admin_pin', {
+    target_gym_id: request.tenant!.gymId,
+    new_pin: input.data.pin,
+  });
+  if (error) throw new AppError(400, 'ADMIN_PIN_UPDATE_FAILED', 'No se pudo actualizar el PIN administrativo.');
+  await writeAuditLog(request, {
+    action: 'admin_pin.updated',
+    entityType: 'gym_security',
+    entityId: request.tenant!.gymId,
+  });
+  response.status(204).send();
 }

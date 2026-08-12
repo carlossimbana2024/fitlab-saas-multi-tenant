@@ -1,3 +1,4 @@
+import { createHash, randomBytes } from 'node:crypto';
 import { env } from '../config/env.js';
 import { supabaseAdmin } from '../config/supabase.js';
 import { AppError } from '../errors/AppError.js';
@@ -5,6 +6,9 @@ import { AppError } from '../errors/AppError.js';
 type InviteInput = { gymId: string; invitedBy: string; email: string; fullName: string; phone?: string | null; defaultLocationId?: string | null };
 
 export async function inviteMember(input: InviteInput) {
+  const invitationSecret = randomBytes(32).toString('hex');
+  const tokenHash = createHash('sha256').update(invitationSecret).digest('hex');
+  const expiresAt = new Date(Date.now() + env.INVITATION_TTL_HOURS * 3_600_000).toISOString();
   const { data: authData, error: authError } = await supabaseAdmin.auth.admin.inviteUserByEmail(input.email, {
     data: { full_name: input.fullName },
     redirectTo: `${env.frontendOrigins[0]!}/accept-invite`,
@@ -13,17 +17,30 @@ export async function inviteMember(input: InviteInput) {
 
   const userId = authData.user.id;
   try {
-    const { error: profileError } = await supabaseAdmin.from('profiles').insert({
-      id: userId, full_name: input.fullName, phone: input.phone ?? null,
+    const { data, error } = await supabaseAdmin.rpc('register_member_invitation', {
+      target_gym_id: input.gymId,
+      target_auth_user_id: userId,
+      target_email: input.email,
+      target_full_name: input.fullName,
+      target_phone: input.phone ?? null,
+      target_default_location_id: input.defaultLocationId ?? null,
+      target_invited_by: input.invitedBy,
+      target_token_hash: tokenHash,
+      target_expires_at: expiresAt,
     });
-    if (profileError) throw profileError;
-
-    const { data: gymUser, error: gymUserError } = await supabaseAdmin.from('gym_users').insert({
-      gym_id: input.gymId, profile_id: userId, role: 'member', status: 'invited',
+    if (error) throw error;
+    const created = Array.isArray(data) ? data[0] : undefined;
+    if (!created) throw new Error('INVITATION_EMPTY_RESULT');
+    return {
+      id: created.gym_user_id,
+      gym_id: input.gymId,
+      profile_id: userId,
+      role: 'member' as const,
+      status: 'invited' as const,
+      account_mode: 'portal' as const,
+      invitation_id: created.invitation_id,
       default_location_id: input.defaultLocationId ?? null,
-    }).select('id,gym_id,profile_id,role,status,default_location_id').single();
-    if (gymUserError) throw gymUserError;
-    return gymUser;
+    };
   } catch (error) {
     await supabaseAdmin.auth.admin.deleteUser(userId);
     throw new AppError(400, 'MEMBER_CREATION_FAILED', 'No se pudo completar la creación del miembro.');

@@ -33,3 +33,13 @@ export const inviteMemberSchema = z.object({
   phone: z.string().trim().max(40).nullish(),
   defaultLocationId: uuid.nullish(),
 });
+
+export const managedMemberSchema = z.object({
+  fullName: z.string().trim().min(2).max(150),
+  phone: z.string().trim().min(3).max(40).nullish(),
+  birthDate: z.string().date().nullish(),
+  guardianName: z.string().trim().min(2).max(150).nullish(),
+  guardianPhone: z.string().trim().min(3).max(40).nullish(),
+  notes: z.string().trim().max(1000).nullish(),
+  defaultLocationId: uuid.nullish(),
+});

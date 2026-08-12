@@ -7,7 +7,10 @@ import { asyncHandler } from '../utils/asyncHandler.js';
 export function checkPermission(permissionKey: string): RequestHandler {
   return asyncHandler(async (request, _response, next) => {
     const tenant = request.tenant!;
-    if (decidePermission(tenant.role, null) === 'allow') return next();
+    if (decidePermission(tenant.role, null) === 'allow') {
+      request.permissionContext = { permissionKey, usedPinElevation: false };
+      return next();
+    }
     if (tenant.role !== 'staff') throw new AppError(403, 'PERMISSION_DENIED', 'No tienes permiso para esta operación.');
 
     const { data, error } = await request.supabase!
@@ -18,7 +21,10 @@ export function checkPermission(permissionKey: string): RequestHandler {
       .maybeSingle();
     if (error) throw new AppError(500, 'PERMISSION_LOOKUP_FAILED', 'No se pudo comprobar el permiso.');
     const decision = decidePermission(tenant.role, data?.access_mode);
-    if (decision === 'allow') return next();
+    if (decision === 'allow') {
+      request.permissionContext = { permissionKey, usedPinElevation: false };
+      return next();
+    }
     if (decision === 'deny') throw new AppError(403, 'PERMISSION_DENIED', 'No tienes permiso para esta operación.');
 
     const token = request.header('x-admin-elevation-token');
@@ -31,6 +37,7 @@ export function checkPermission(permissionKey: string): RequestHandler {
       supplied_token: token,
     });
     if (consumeError || consumed !== true) throw new AppError(403, 'INVALID_ADMIN_ELEVATION', 'La autorización temporal es inválida o expiró.');
+    request.permissionContext = { permissionKey, usedPinElevation: true };
     next();
   });
 }

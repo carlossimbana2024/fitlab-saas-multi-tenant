@@ -3,6 +3,7 @@ import { supabaseAdmin } from '../config/supabase.js';
 import { AppError } from '../errors/AppError.js';
 import { fromSupabaseError } from '../utils/supabaseError.js';
 import { gymSettingsSchema, locationSettingsSchema } from '../validators/settings.validator.js';
+import { writeAuditLog } from '../services/audit.service.js';
 
 const nullable = (value: string | null | undefined) => value?.trim() || null;
 
@@ -26,6 +27,9 @@ export async function updateGymSettings(request: Request, response: Response) {
     whatsapp_phone: nullable(input.data.whatsappPhone),
   }).eq('id', request.tenant!.gymId).select('id,name,email,phone,whatsapp_phone,timezone,currency').single();
   if (error) throw fromSupabaseError(error);
+  await writeAuditLog(request, {
+    action: 'settings.gym_updated', entityType: 'gym', entityId: data.id, afterData: data,
+  });
   response.json({ gym: data });
 }
 
@@ -44,5 +48,8 @@ export async function updateLocationSettings(request: Request, response: Respons
   }).eq('id', locationId).eq('gym_id', request.tenant!.gymId).select('id,name,address,city,email,phone,whatsapp_phone,timezone,is_main,is_active').maybeSingle();
   if (error) throw fromSupabaseError(error);
   if (!data) throw new AppError(404, 'LOCATION_NOT_FOUND', 'La sucursal no pertenece al gimnasio.');
+  await writeAuditLog(request, {
+    action: 'settings.location_updated', entityType: 'gym_location', entityId: data.id, afterData: data,
+  });
   response.json({ location: data });
 }

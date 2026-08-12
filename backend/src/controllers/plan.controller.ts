@@ -3,6 +3,7 @@ import { supabaseAdmin } from '../config/supabase.js';
 import { AppError } from '../errors/AppError.js';
 import { fromSupabaseError } from '../utils/supabaseError.js';
 import { createPlanSchema } from '../validators/membership.validator.js';
+import { writeAuditLog } from '../services/audit.service.js';
 
 export async function listPlans(request: Request, response: Response) {
   const includeInactive = request.query.includeInactive === 'true' && request.tenant!.role === 'owner';
@@ -33,5 +34,8 @@ export async function createPlan(request: Request, response: Response) {
     allows_extra_classes: input.data.allowsExtraClasses,
   }).select('id,name,description,price,currency,duration_unit,duration_value,attendance_mode,weekly_target,allows_extra_classes,is_active').single();
   if (error) throw fromSupabaseError(error);
+  await writeAuditLog(request, {
+    action: 'plan.created', entityType: 'plan', entityId: data.id, afterData: data,
+  });
   response.status(201).json({ plan: data });
 }

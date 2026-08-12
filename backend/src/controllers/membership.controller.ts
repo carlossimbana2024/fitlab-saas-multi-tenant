@@ -3,6 +3,7 @@ import { supabaseAdmin } from '../config/supabase.js';
 import { AppError } from '../errors/AppError.js';
 import { fromSupabaseError } from '../utils/supabaseError.js';
 import { manualCheckoutSchema } from '../validators/membership.validator.js';
+import { writeAuditLog } from '../services/audit.service.js';
 
 export async function listMemberships(request: Request, response: Response) {
   let query = request.supabase!.from('memberships').select(
@@ -32,5 +33,9 @@ export async function manualCheckout(request: Request, response: Response) {
   if (error) throw fromSupabaseError(error);
   const checkout = Array.isArray(data) ? data[0] : undefined;
   if (!checkout) throw new AppError(500, 'CHECKOUT_EMPTY_RESULT', 'El cobro no devolvió un resultado.');
+  await writeAuditLog(request, {
+    action: 'membership.manual_checkout', entityType: 'member_payment', entityId: checkout.payment_id,
+    afterData: { membership_id: checkout.membership_id, amount: checkout.charged_amount, currency: checkout.charged_currency },
+  });
   response.status(201).json({ checkout });
 }

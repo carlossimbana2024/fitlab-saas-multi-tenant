@@ -6,6 +6,10 @@ declare global {
       accessToken?: string;
       authUser?: User;
       supabase?: SupabaseClient;
+      permissionContext?: {
+        permissionKey: string;
+        usedPinElevation: boolean;
+      };
       tenant?: {
         gymUserId: string;
         gymId: string;

@@ -3,10 +3,10 @@ import { supabaseAdmin } from '../config/supabase.js';
 import { AppError } from '../errors/AppError.js';
 import { fromSupabaseError } from '../utils/supabaseError.js';
 import { inviteMember as inviteMemberAccount } from '../services/memberInvitation.service.js';
-import { inviteMemberSchema } from '../validators/membership.validator.js';
+import { inviteMemberSchema, managedMemberSchema } from '../validators/membership.validator.js';
 import { z } from 'zod';
 
-const memberFields = 'id,gym_id,profile_id,role,status,default_location_id,joined_at,profiles(full_name,phone,avatar_url,preferred_language)';
+const memberFields = 'id,gym_id,profile_id,role,status,account_mode,invitation_id,default_location_id,joined_at,managed_full_name,managed_phone,managed_birth_date,managed_guardian_name,managed_guardian_phone,managed_notes,profiles(full_name,phone,avatar_url,preferred_language)';
 const profileSchema = z.object({
   fullName: z.string().trim().min(2).max(150),
   phone: z.string().trim().max(30).nullable().optional(),
@@ -69,4 +69,44 @@ export async function inviteMember(request: Request, response: Response) {
     defaultLocationId: input.data.defaultLocationId ?? null,
   });
   response.status(201).json({ member });
+}
+
+export async function createManagedMember(request: Request, response: Response) {
+  const input = managedMemberSchema.safeParse(request.body);
+  if (!input.success) throw new AppError(400, 'INVALID_MANAGED_MEMBER_INPUT', 'Los datos del miembro no son válidos.', input.error.flatten());
+  const { data, error } = await supabaseAdmin.rpc('create_managed_member', {
+    target_gym_id: request.tenant!.gymId,
+    target_created_by: request.tenant!.gymUserId,
+    target_full_name: input.data.fullName,
+    target_phone: input.data.phone ?? null,
+    target_birth_date: input.data.birthDate ?? null,
+    target_guardian_name: input.data.guardianName ?? null,
+    target_guardian_phone: input.data.guardianPhone ?? null,
+    target_notes: input.data.notes ?? null,
+    target_default_location_id: input.data.defaultLocationId ?? null,
+  });
+  if (error) throw fromSupabaseError(error);
+  const created = Array.isArray(data) ? data[0] : undefined;
+  if (!created) throw new AppError(500, 'MANAGED_MEMBER_EMPTY_RESULT', 'No se pudo crear el miembro administrado.');
+  response.status(201).json({ member: created });
+}
+
+export async function revokeInvitation(request: Request, response: Response) {
+  const invitationId = request.params.id;
+  if (!invitationId || !z.string().uuid().safeParse(invitationId).success) {
+    throw new AppError(400, 'INVALID_INVITATION_ID', 'La invitación no es válida.');
+  }
+  const { data, error } = await supabaseAdmin.rpc('revoke_member_invitation', {
+    target_gym_id: request.tenant!.gymId,
+    target_invitation_id: invitationId,
+    target_revoked_by: request.tenant!.gymUserId,
+  });
+  if (error) throw fromSupabaseError(error);
+  const revoked = Array.isArray(data) ? data[0] : undefined;
+  if (!revoked) throw new AppError(404, 'INVITATION_NOT_FOUND', 'La invitación no existe o ya no está pendiente.');
+  if (revoked.auth_user_id) {
+    const { error: deleteError } = await supabaseAdmin.auth.admin.deleteUser(revoked.auth_user_id);
+    if (deleteError) console.error('REVOKED_AUTH_USER_DELETE_FAILED', deleteError.message);
+  }
+  response.status(204).send();
 }
