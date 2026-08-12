@@ -1,4 +1,5 @@
 import type { Request, Response } from 'express';
+import { supabaseAdmin } from '../config/supabase.js';
 import { AppError } from '../errors/AppError.js';
 import { fromSupabaseError } from '../utils/supabaseError.js';
 import { gymSettingsSchema, locationSettingsSchema } from '../validators/settings.validator.js';
@@ -18,7 +19,7 @@ export async function getSettings(request: Request, response: Response) {
 export async function updateGymSettings(request: Request, response: Response) {
   const input = gymSettingsSchema.safeParse(request.body);
   if (!input.success) throw new AppError(400, 'INVALID_GYM_SETTINGS', 'Los datos del gimnasio no son válidos.', input.error.flatten());
-  const { data, error } = await request.supabase!.from('gyms').update({
+  const { data, error } = await supabaseAdmin.from('gyms').update({
     name: input.data.name,
     email: nullable(input.data.email),
     phone: nullable(input.data.phone),
@@ -33,14 +34,14 @@ export async function updateLocationSettings(request: Request, response: Respons
   if (!locationId) throw new AppError(400, 'INVALID_LOCATION_ID', 'La sucursal no es válida.');
   const input = locationSettingsSchema.safeParse(request.body);
   if (!input.success) throw new AppError(400, 'INVALID_LOCATION_SETTINGS', 'Los datos de la sucursal no son válidos.', input.error.flatten());
-  const { data, error } = await request.supabase!.from('gym_locations').update({
+  const { data, error } = await supabaseAdmin.from('gym_locations').update({
     name: input.data.name,
     address: nullable(input.data.address),
     city: input.data.city,
     email: nullable(input.data.email),
     phone: nullable(input.data.phone),
     whatsapp_phone: nullable(input.data.whatsappPhone),
-  }).eq('id', locationId).select('id,name,address,city,email,phone,whatsapp_phone,timezone,is_main,is_active').maybeSingle();
+  }).eq('id', locationId).eq('gym_id', request.tenant!.gymId).select('id,name,address,city,email,phone,whatsapp_phone,timezone,is_main,is_active').maybeSingle();
   if (error) throw fromSupabaseError(error);
   if (!data) throw new AppError(404, 'LOCATION_NOT_FOUND', 'La sucursal no pertenece al gimnasio.');
   response.json({ location: data });

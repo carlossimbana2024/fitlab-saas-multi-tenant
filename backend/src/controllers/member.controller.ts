@@ -1,4 +1,5 @@
 import type { Request, Response } from 'express';
+import { supabaseAdmin } from '../config/supabase.js';
 import { AppError } from '../errors/AppError.js';
 import { fromSupabaseError } from '../utils/supabaseError.js';
 import { inviteMember as inviteMemberAccount } from '../services/memberInvitation.service.js';
@@ -15,7 +16,7 @@ const profileSchema = z.object({
 export async function updateMyProfile(request: Request, response: Response) {
   const input = profileSchema.safeParse(request.body);
   if (!input.success) throw new AppError(400, 'INVALID_PROFILE_INPUT', 'Los datos del perfil no son válidos.', input.error.flatten());
-  const { data, error } = await request.supabase!.from('profiles').update({
+  const { data, error } = await supabaseAdmin.from('profiles').update({
     full_name: input.data.fullName,
     phone: input.data.phone || null,
     avatar_url: input.data.avatarUrl || null,

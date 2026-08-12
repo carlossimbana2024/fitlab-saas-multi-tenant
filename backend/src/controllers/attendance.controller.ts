@@ -1,4 +1,5 @@
 import type { Request, Response } from 'express';
+import { supabaseAdmin } from '../config/supabase.js';
 import { AppError } from '../errors/AppError.js';
 import { dateInTimezone } from '../utils/gymDate.js';
 import { fromSupabaseError } from '../utils/supabaseError.js';
@@ -23,7 +24,7 @@ export async function registerQrAttendance(request: Request, response: Response)
   }
   if (!membershipId) throw new AppError(409, 'ACTIVE_MEMBERSHIP_REQUIRED', 'No existe una membresía activa.');
 
-  const { data, error } = await request.supabase!.from('attendances').insert({
+  const { data, error } = await supabaseAdmin.from('attendances').insert({
     gym_id: request.tenant!.gymId,
     location_id: locationId,
     member_user_id: request.tenant!.gymUserId,
@@ -40,7 +41,7 @@ export async function registerStaffAttendance(request: Request, response: Respon
   const input = staffAttendanceSchema.safeParse(request.body);
   if (!input.success) throw new AppError(400, 'INVALID_ATTENDANCE_INPUT', 'Los datos de asistencia no son válidos.');
 
-  const { data, error } = await request.supabase!.from('attendances').insert({
+  const { data, error } = await supabaseAdmin.from('attendances').insert({
     gym_id: request.tenant!.gymId,
     location_id: input.data.locationId,
     member_user_id: input.data.memberUserId,
@@ -58,12 +59,12 @@ export async function voidAttendance(request: Request, response: Response) {
   const input = voidAttendanceSchema.safeParse(request.body);
   if (!input.success) throw new AppError(400, 'INVALID_VOID_INPUT', 'Debes indicar un motivo válido.');
 
-  const { data, error } = await request.supabase!.from('attendances').update({
+  const { data, error } = await supabaseAdmin.from('attendances').update({
     status: 'voided',
     voided_at: new Date().toISOString(),
     voided_by: request.tenant!.gymUserId,
     void_reason: input.data.reason,
-  }).eq('id', attendanceId).eq('status', 'valid').select(attendanceFields).maybeSingle();
+  }).eq('id', attendanceId).eq('gym_id', request.tenant!.gymId).eq('status', 'valid').select(attendanceFields).maybeSingle();
   if (error) throw fromSupabaseError(error);
   if (!data) throw new AppError(404, 'ATTENDANCE_NOT_FOUND', 'La asistencia no existe o no puede anularse.');
   response.json({ attendance: data });

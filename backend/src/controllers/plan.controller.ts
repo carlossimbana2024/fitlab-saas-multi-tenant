@@ -1,4 +1,5 @@
 import type { Request, Response } from 'express';
+import { supabaseAdmin } from '../config/supabase.js';
 import { AppError } from '../errors/AppError.js';
 import { fromSupabaseError } from '../utils/supabaseError.js';
 import { createPlanSchema } from '../validators/membership.validator.js';
@@ -19,7 +20,7 @@ export async function createPlan(request: Request, response: Response) {
   if (!input.success) throw new AppError(400, 'INVALID_PLAN_INPUT', 'Los datos del plan no son válidos.', input.error.flatten());
   const { data: gym, error: gymError } = await request.supabase!.from('gyms').select('currency').eq('id', request.tenant!.gymId).single();
   if (gymError || !gym) throw new AppError(404, 'GYM_NOT_FOUND', 'No se encontró el gimnasio.');
-  const { data, error } = await request.supabase!.from('plans').insert({
+  const { data, error } = await supabaseAdmin.from('plans').insert({
     gym_id: request.tenant!.gymId,
     name: input.data.name,
     description: input.data.description ?? null,

@@ -1,4 +1,5 @@
 import type { Request, Response } from 'express';
+import { supabaseAdmin } from '../config/supabase.js';
 import { AppError } from '../errors/AppError.js';
 import { fromSupabaseError } from '../utils/supabaseError.js';
 import { voidPaymentSchema } from '../validators/membership.validator.js';
@@ -19,10 +20,10 @@ export async function voidPayment(request: Request, response: Response) {
   const input = voidPaymentSchema.safeParse(request.body);
   if (!input.success) throw new AppError(400, 'INVALID_VOID_INPUT', 'Debes indicar un motivo válido.');
 
-  const { data, error } = await request.supabase!.from('member_payments').update({
+  const { data, error } = await supabaseAdmin.from('member_payments').update({
     status: 'voided', voided_at: new Date().toISOString(),
     voided_by: request.tenant!.gymUserId, void_reason: input.data.reason,
-  }).eq('id', id).eq('status', 'confirmed').select('id,status,voided_at,voided_by,void_reason').maybeSingle();
+  }).eq('id', id).eq('gym_id', request.tenant!.gymId).eq('status', 'confirmed').select('id,status,voided_at,voided_by,void_reason').maybeSingle();
   if (error) throw fromSupabaseError(error);
   if (!data) throw new AppError(404, 'PAYMENT_NOT_FOUND', 'El pago no existe o no puede anularse.');
   response.json({ payment: data });
