@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Ban, CheckCircle2, KeyRound, LoaderCircle, Mail, Save, Search, ShieldCheck, UserPlus, UsersRound, X } from 'lucide-react';
+import { AlertTriangle, Ban, CheckCircle2, KeyRound, LoaderCircle, Mail, Save, Search, ShieldCheck, Trash2, UserPlus, UsersRound, X } from 'lucide-react';
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { api, apiErrorMessage } from '../services/api';
 
@@ -32,6 +32,7 @@ export function StaffPage() {
   const [search, setSearch] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [removeOpen, setRemoveOpen] = useState(false);
   const [inviteForm, setInviteForm] = useState(emptyInvite);
   const [matrix, setMatrix] = useState<Record<string, AccessMode>>({});
   const [message, setMessage] = useState('');
@@ -81,11 +82,20 @@ export function StaffPage() {
     mutationFn: async () => api.delete(`/staff/invitations/${selected?.invitation_id}`),
     onSuccess: async () => { setSelectedId(null); setMessage('La invitación del empleado fue revocada.'); await refreshStaff(); },
   });
+  const remove = useMutation({
+    mutationFn: async () => api.delete(`/staff/${selectedId}`),
+    onSuccess: async () => {
+      setRemoveOpen(false);
+      setSelectedId(null);
+      setMessage('El empleado fue retirado y ya no tiene acceso a FitLab.');
+      await refreshStaff();
+    },
+  });
 
   if (staffQuery.isLoading) return <div className="splash"><LoaderCircle className="spin"/></div>;
   if (staffQuery.isError) return <div className="page"><div className="alert error">{apiErrorMessage(staffQuery.error)}</div></div>;
 
-  const mutationError = savePermissions.error ?? updateStatus.error ?? revoke.error;
+  const mutationError = savePermissions.error ?? updateStatus.error ?? revoke.error ?? remove.error;
   return <div className="page staff-page">
     <div className="page-heading"><div><p className="eyebrow">EQUIPO DEL GIMNASIO</p><h1>Personal</h1><p>Invita empleados y controla exactamente qué puede hacer cada cuenta.</p></div><button className="primary" onClick={() => { setMessage(''); setInviteOpen(true); }}><UserPlus size={18}/>Invitar empleado</button></div>
     {message && <div className="alert success">{message}</div>}
@@ -108,6 +118,7 @@ export function StaffPage() {
             {selected.status === 'invited' && <button className="danger-button" disabled={revoke.isPending} onClick={() => revoke.mutate()}>Revocar invitación</button>}
             {selected.status === 'active' && <button className="ghost" disabled={updateStatus.isPending} onClick={() => updateStatus.mutate('suspended')}>Suspender acceso</button>}
             {selected.status === 'suspended' && <button className="ghost" disabled={updateStatus.isPending} onClick={() => updateStatus.mutate('active')}>Reactivar acceso</button>}
+            {selected.status !== 'invited' && <button className="danger-button" disabled={remove.isPending} onClick={() => setRemoveOpen(true)}><Trash2/>Eliminar empleado</button>}
             <button className="primary" disabled={savePermissions.isPending} onClick={() => savePermissions.mutate()}>{savePermissions.isPending ? <LoaderCircle className="spin"/> : <Save/>}Guardar permisos</button>
           </div>
         </>}
@@ -115,5 +126,6 @@ export function StaffPage() {
     </div>
 
     {inviteOpen && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setInviteOpen(false); }}><section className="modal" role="dialog" aria-modal="true"><div className="modal-heading"><div><p className="eyebrow">NUEVA CUENTA STAFF</p><h2>Invitar empleado</h2></div><button className="icon-button" onClick={() => setInviteOpen(false)}><X/></button></div><form className="checkout-form" onSubmit={(event: FormEvent) => { event.preventDefault(); invite.mutate(); }}><label>Nombre completo<input required minLength={2} maxLength={150} value={inviteForm.fullName} onChange={(event) => setInviteForm({ ...inviteForm, fullName: event.target.value })}/></label><label>Correo electrónico<input required type="email" value={inviteForm.email} onChange={(event) => setInviteForm({ ...inviteForm, email: event.target.value })}/></label><label>Teléfono opcional<input maxLength={40} value={inviteForm.phone} onChange={(event) => setInviteForm({ ...inviteForm, phone: event.target.value })}/></label><label>Sucursal predeterminada<select value={inviteForm.defaultLocationId} onChange={(event) => setInviteForm({ ...inviteForm, defaultLocationId: event.target.value })}><option value="">Sin sucursal predeterminada</option>{staffQuery.data?.locations.map((location) => <option key={location.id} value={location.id}>{location.name}{location.is_main ? ' · Principal' : ''}</option>)}</select></label><p className="form-note">Supabase enviará un enlace seguro. El empleado creará su propia contraseña; FitLab nunca la conoce ni la envía al owner.</p>{invite.isError && <div className="alert error">{apiErrorMessage(invite.error)}</div>}<div className="modal-actions"><button type="button" className="ghost" onClick={() => setInviteOpen(false)}>Cancelar</button><button className="primary" disabled={invite.isPending}>{invite.isPending ? <><LoaderCircle className="spin"/>Enviando…</> : <><Mail/>Enviar invitación</>}</button></div></form></section></div>}
+    {removeOpen && selected && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !remove.isPending) setRemoveOpen(false); }}><section className="modal confirm-remove" role="dialog" aria-modal="true"><div className="modal-heading"><div><p className="eyebrow">RETIRAR ACCESO</p><h2>Eliminar empleado</h2></div><button className="icon-button" disabled={remove.isPending} onClick={() => setRemoveOpen(false)}><X/></button></div><div className="danger-note"><AlertTriangle/><p><strong>{staffName(selected)}</strong> perderá inmediatamente el acceso y todos sus permisos quedarán denegados. Se conservará el historial de operaciones y auditoría.</p></div>{remove.isError && <div className="alert error">{apiErrorMessage(remove.error)}</div>}<div className="modal-actions"><button className="ghost" disabled={remove.isPending} onClick={() => setRemoveOpen(false)}>Cancelar</button><button className="danger-button" disabled={remove.isPending} onClick={() => remove.mutate()}>{remove.isPending ? <><LoaderCircle className="spin"/>Eliminando…</> : <><Trash2/>Eliminar acceso</>}</button></div></section></div>}
   </div>;
 }

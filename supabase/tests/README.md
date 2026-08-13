@@ -30,3 +30,7 @@ y termina con `ROLLBACK`.
 sean exclusivas de `service_role`, que el owner no pueda tratarse como staff y
 que la elevacion por PIN solo se habilite en permisos compatibles. Finaliza con
 `ROLLBACK` y no conserva cambios.
+
+`0022_staff_offboarding.sql` verifica la eliminacion segura del acceso de un
+empleado. Si existe staff activo, invitado o suspendido, comprueba dentro de la
+transaccion que quede inactivo y sin permisos. Siempre finaliza con `ROLLBACK`.

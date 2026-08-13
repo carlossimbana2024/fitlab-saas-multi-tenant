@@ -28,7 +28,12 @@ export function checkPermission(permissionKey: string): RequestHandler {
     if (decision === 'deny') throw new AppError(403, 'PERMISSION_DENIED', 'No tienes permiso para esta operación.');
 
     const token = request.header('x-admin-elevation-token');
-    if (!token) throw new AppError(403, 'REQUIRES_ADMIN_PIN', 'Esta operación requiere autorización del administrador.');
+    if (!token) throw new AppError(
+      403,
+      'REQUIRES_ADMIN_PIN',
+      'Esta operación requiere autorización del administrador.',
+      { permission: permissionKey },
+    );
 
     const { data: consumed, error: consumeError } = await supabaseAdmin.rpc('consume_admin_pin_elevation', {
       target_gym_id: tenant.gymId,

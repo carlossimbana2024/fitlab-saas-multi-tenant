@@ -99,3 +99,19 @@ export async function revokeStaffInvitation(request: Request, response: Response
   }
   response.status(204).send();
 }
+
+export async function removeStaff(request: Request, response: Response) {
+  const staffUserId = request.params.id;
+  if (!staffUserId || !z.string().uuid().safeParse(staffUserId).success) {
+    throw new AppError(400, 'INVALID_STAFF_ID', 'El empleado no es valido.');
+  }
+  const { data, error } = await supabaseAdmin.rpc('remove_staff_backend', {
+    target_gym_id: request.tenant!.gymId,
+    target_staff_user_id: staffUserId,
+    target_removed_by: request.tenant!.gymUserId,
+  });
+  if (error) throw fromSupabaseError(error);
+  const removed = Array.isArray(data) ? data[0] : undefined;
+  if (!removed) throw new AppError(404, 'STAFF_NOT_FOUND', 'El empleado no existe o ya fue eliminado.');
+  response.status(204).send();
+}

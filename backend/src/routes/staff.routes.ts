@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { inviteStaff, listStaff, revokeStaffInvitation, updateStaffPermissions, updateStaffStatus } from '../controllers/staff.controller.js';
+import { inviteStaff, listStaff, removeStaff, revokeStaffInvitation, updateStaffPermissions, updateStaffStatus } from '../controllers/staff.controller.js';
 import { databaseRateLimit } from '../middlewares/rateLimit.js';
 import { requireOwner } from '../middlewares/requireOwner.js';
 import { tenantContext } from '../middlewares/tenantContext.js';
@@ -16,3 +16,4 @@ staffRouter.post('/invite', databaseRateLimit({
 staffRouter.put('/:id/permissions', asyncHandler(updateStaffPermissions));
 staffRouter.patch('/:id/status', asyncHandler(updateStaffStatus));
 staffRouter.delete('/invitations/:id', asyncHandler(revokeStaffInvitation));
+staffRouter.delete('/:id', asyncHandler(removeStaff));

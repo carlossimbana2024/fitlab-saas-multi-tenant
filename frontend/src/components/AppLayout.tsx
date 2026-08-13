@@ -3,6 +3,7 @@ import { NavLink, Outlet } from 'react-router-dom';
 import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { ThemeToggle } from './ThemeToggle';
+import { AdminPinDialog } from './AdminPinDialog';
 
 export function AppLayout() {
   const [open, setOpen] = useState(false); const { session, logout } = useAuth();
@@ -26,5 +27,6 @@ export function AppLayout() {
       <button className="logout" onClick={() => void logout()}><LogOut/>Cerrar sesión</button>
     </aside>
     <main className="main"><header className="topbar"><button className="menu" onClick={() => setOpen(!open)}><Menu/></button><div><strong>{session?.gymUser?.profiles?.full_name ?? session?.user.email}</strong><span>{session?.gymUser?.role}</span></div><ThemeToggle/></header><Outlet/></main>
+    {session?.gymUser?.role === 'staff' && <AdminPinDialog/>}
   </div>;
 }

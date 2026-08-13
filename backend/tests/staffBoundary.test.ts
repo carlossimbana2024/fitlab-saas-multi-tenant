@@ -14,7 +14,7 @@ describe('limite de seguridad del modulo de personal', () => {
 
   it('realiza las mutaciones mediante RPC backend-only', () => {
     const controller = source('backend/src/controllers/staff.controller.ts');
-    for (const rpc of ['update_staff_permissions_backend', 'update_staff_status_backend', 'revoke_staff_invitation']) {
+    for (const rpc of ['update_staff_permissions_backend', 'update_staff_status_backend', 'revoke_staff_invitation', 'remove_staff_backend']) {
       expect(controller).toContain(`rpc('${rpc}'`);
     }
     expect(controller).not.toMatch(/request\.supabase!\s*\.from\([^)]*\)\s*\.(?:insert|update|upsert|delete)\(/s);
@@ -49,5 +49,23 @@ describe('limite de seguridad del modulo de personal', () => {
     expect(source('backend/src/controllers/staff.controller.ts')).toContain(
       'permissions:staff_permissions!staff_permissions_staff_user_id_fkey(permission_key,access_mode)',
     );
+  });
+
+  it('retira staff sin borrar su historico y niega permisos residuales', () => {
+    const migration = source('supabase/migrations/0022_staff_offboarding.sql');
+    expect(migration).toMatch(/update public\.gym_users[\s\S]*set status = 'inactive'/);
+    expect(migration).toMatch(/delete from public\.staff_permissions[\s\S]*staff_user_id = target_staff_user_id/);
+    expect(migration).toContain("'staff.removed'");
+    expect(migration).toMatch(/revoke all on function public\.remove_staff_backend[\s\S]*from public, anon, authenticated;/);
+    expect(migration).toMatch(/grant execute on function public\.remove_staff_backend[\s\S]*to service_role;/);
+  });
+
+  it('reintenta una sola vez con el token de elevacion entregado por el modal', () => {
+    const api = source('frontend/src/services/api.ts');
+    const middleware = source('backend/src/middlewares/checkPermission.ts');
+    expect(middleware).toContain('{ permission: permissionKey }');
+    expect(api).toContain("error.response?.data?.error?.code === 'REQUIRES_ADMIN_PIN'");
+    expect(api).toContain('original._elevationRetried = true');
+    expect(api).toContain("original.headers.set('x-admin-elevation-token', token)");
   });
 });
