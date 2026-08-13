@@ -41,4 +41,13 @@ describe('limite de seguridad del modulo de personal', () => {
     expect(controller).toContain("rpc('accept_portal_invitation'");
     expect(controller).toContain('pendingInvitation.intended_role !== pendingAccount.role');
   });
+
+  it('desambigua las relaciones de permisos usando staff_user_id', () => {
+    expect(source('backend/src/controllers/auth.controller.ts')).toContain(
+      'staff_permissions!staff_permissions_staff_user_id_fkey(permission_key,access_mode)',
+    );
+    expect(source('backend/src/controllers/staff.controller.ts')).toContain(
+      'permissions:staff_permissions!staff_permissions_staff_user_id_fkey(permission_key,access_mode)',
+    );
+  });
 });

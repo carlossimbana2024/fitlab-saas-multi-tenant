@@ -6,7 +6,7 @@ import { inviteStaffAccount } from '../services/staffInvitation.service.js';
 import { fromSupabaseError } from '../utils/supabaseError.js';
 import { inviteStaffSchema, updateStaffPermissionsSchema, updateStaffStatusSchema } from '../validators/staff.validator.js';
 
-const staffFields = 'id,gym_id,status,default_location_id,joined_at,created_at,invitation_id,profiles(full_name,phone,avatar_url),permissions:staff_permissions(permission_key,access_mode),invitation:gym_invitations!gym_users_invitation_id_fkey(email,status,expires_at)';
+const staffFields = 'id,gym_id,status,default_location_id,joined_at,created_at,invitation_id,profiles(full_name,phone,avatar_url),permissions:staff_permissions!staff_permissions_staff_user_id_fkey(permission_key,access_mode),invitation:gym_invitations!gym_users_invitation_id_fkey(email,status,expires_at)';
 
 export async function listStaff(request: Request, response: Response) {
   const [staffResult, catalogResult, locationsResult] = await Promise.all([

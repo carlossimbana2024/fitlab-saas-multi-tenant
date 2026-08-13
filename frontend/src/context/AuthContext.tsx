@@ -9,11 +9,11 @@ const AuthContext = createContext<AuthValue | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
-  const load = async () => { try { setSession((await api.get<Session>('/auth/me')).data); } catch { setSession(null); } finally { setLoading(false); } };
+  const load = async (throwOnError = false) => { try { setSession((await api.get<Session>('/auth/me')).data); } catch (error) { setSession(null); if (throwOnError) throw error; } finally { setLoading(false); } };
   useEffect(() => { void load(); }, []);
-  const login = async (email: string, password: string) => { await api.post('/auth/login', { email, password }); await load(); };
+  const login = async (email: string, password: string) => { await api.post('/auth/login', { email, password }); await load(true); };
   const logout = async () => { await api.post('/auth/logout'); setSession(null); };
-  return <AuthContext.Provider value={useMemo(() => ({ session, loading, login, logout, refresh: load }), [session, loading])}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={useMemo(() => ({ session, loading, login, logout, refresh: () => load() }), [session, loading])}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() { const value = useContext(AuthContext); if (!value) throw new Error('AuthProvider missing'); return value; }
