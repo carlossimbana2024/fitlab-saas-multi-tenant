@@ -12,7 +12,7 @@ export async function listStaff(request: Request, response: Response) {
   const [staffResult, catalogResult, locationsResult] = await Promise.all([
     supabaseAdmin.from('gym_users').select(staffFields)
       .eq('gym_id', request.tenant!.gymId).eq('role', 'staff')
-      .in('status', ['invited', 'active', 'suspended'])
+      .in('status', ['invited', 'active', 'suspended', 'inactive'])
       .order('created_at', { ascending: false }),
     supabaseAdmin.from('permission_catalog')
       .select('key,name,description,supports_pin_elevation,is_sensitive')
@@ -23,8 +23,10 @@ export async function listStaff(request: Request, response: Response) {
   ]);
   const error = staffResult.error ?? catalogResult.error ?? locationsResult.error;
   if (error) throw fromSupabaseError(error);
+  const staffAccounts = staffResult.data ?? [];
   response.json({
-    staff: staffResult.data ?? [],
+    staff: staffAccounts.filter((staff) => staff.status !== 'inactive'),
+    removedStaff: staffAccounts.filter((staff) => staff.status === 'inactive' && staff.joined_at),
     permissionCatalog: catalogResult.data ?? [],
     locations: locationsResult.data ?? [],
   });
@@ -114,4 +116,20 @@ export async function removeStaff(request: Request, response: Response) {
   const removed = Array.isArray(data) ? data[0] : undefined;
   if (!removed) throw new AppError(404, 'STAFF_NOT_FOUND', 'El empleado no existe o ya fue eliminado.');
   response.status(204).send();
+}
+
+export async function reinstateStaff(request: Request, response: Response) {
+  const staffUserId = request.params.id;
+  if (!staffUserId || !z.string().uuid().safeParse(staffUserId).success) {
+    throw new AppError(400, 'INVALID_STAFF_ID', 'El empleado no es valido.');
+  }
+  const { data, error } = await supabaseAdmin.rpc('reinstate_staff_backend', {
+    target_gym_id: request.tenant!.gymId,
+    target_staff_user_id: staffUserId,
+    target_reinstated_by: request.tenant!.gymUserId,
+  });
+  if (error) throw fromSupabaseError(error);
+  const reinstated = Array.isArray(data) ? data[0] : undefined;
+  if (!reinstated) throw new AppError(404, 'REMOVED_STAFF_NOT_FOUND', 'El empleado retirado no existe.');
+  response.json({ staff: reinstated });
 }

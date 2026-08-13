@@ -34,3 +34,8 @@ que la elevacion por PIN solo se habilite en permisos compatibles. Finaliza con
 `0022_staff_offboarding.sql` verifica la eliminacion segura del acceso de un
 empleado. Si existe staff activo, invitado o suspendido, comprueba dentro de la
 transaccion que quede inactivo y sin permisos. Siempre finaliza con `ROLLBACK`.
+
+`0023_staff_reinstatement.sql` verifica que una identidad staff retirada pueda
+volver a activarse sin crear otra cuenta y con todo el catalogo de permisos en
+`denied`. Si no hay personal retirado, valida igualmente los privilegios de la
+RPC. Siempre termina con `ROLLBACK`.

@@ -14,7 +14,7 @@ describe('limite de seguridad del modulo de personal', () => {
 
   it('realiza las mutaciones mediante RPC backend-only', () => {
     const controller = source('backend/src/controllers/staff.controller.ts');
-    for (const rpc of ['update_staff_permissions_backend', 'update_staff_status_backend', 'revoke_staff_invitation', 'remove_staff_backend']) {
+    for (const rpc of ['update_staff_permissions_backend', 'update_staff_status_backend', 'revoke_staff_invitation', 'remove_staff_backend', 'reinstate_staff_backend']) {
       expect(controller).toContain(`rpc('${rpc}'`);
     }
     expect(controller).not.toMatch(/request\.supabase!\s*\.from\([^)]*\)\s*\.(?:insert|update|upsert|delete)\(/s);
@@ -67,5 +67,15 @@ describe('limite de seguridad del modulo de personal', () => {
     expect(api).toContain("error.response?.data?.error?.code === 'REQUIRES_ADMIN_PIN'");
     expect(api).toContain('original._elevationRetried = true');
     expect(api).toContain("original.headers.set('x-admin-elevation-token', token)");
+  });
+
+  it('reincorpora la misma identidad con todos los permisos denegados', () => {
+    const migration = source('supabase/migrations/0023_staff_reinstatement.sql');
+    expect(migration).toMatch(/gu\.status = 'inactive'[\s\S]*gu\.joined_at is not null/);
+    expect(migration).toMatch(/update public\.gym_users[\s\S]*set status = 'active'/);
+    expect(migration).toMatch(/from public\.permission_catalog catalog[\s\S]*access_mode = 'denied'/);
+    expect(migration).toContain("'staff.reinstated'");
+    expect(migration).toMatch(/revoke all on function public\.reinstate_staff_backend[\s\S]*from public, anon, authenticated;/);
+    expect(migration).toMatch(/grant execute on function public\.reinstate_staff_backend[\s\S]*to service_role;/);
   });
 });
