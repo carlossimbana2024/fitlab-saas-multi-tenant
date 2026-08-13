@@ -30,15 +30,15 @@ export function AcceptInvitePage() {
     if (password !== confirmation) return setError('Las contraseñas no coinciden.');
     setLoading(true); setError('');
     try {
-      await api.post('/auth/accept-invite', { accessToken: tokens.accessToken, refreshToken: tokens.refreshToken, password });
+      const accepted = await api.post<{ role: 'member' | 'staff' }>('/auth/accept-invite', { accessToken: tokens.accessToken, refreshToken: tokens.refreshToken, password });
       sessionStorage.removeItem('fitlab_invite_access_token');
       sessionStorage.removeItem('fitlab_invite_refresh_token');
-      window.location.assign('/portal');
+      window.location.assign(accepted.data.role === 'member' ? '/portal' : '/dashboard');
     } catch (caught) {
       const value = caught as { response?: { data?: { error?: { message?: string } } } };
       setError(value.response?.data?.error?.message ?? 'No se pudo aceptar la invitación.');
     } finally { setLoading(false); }
   };
   const validLink = Boolean(tokens.accessToken && tokens.refreshToken);
-  return <div className="invite-page"><div className="login-tools"><ThemeToggle/></div><form className="invite-card" onSubmit={submit}><img src="/fitlab-logo.png" alt="FitLab"/><p className="eyebrow">BIENVENIDO A FITLAB</p><h1>Activa tu cuenta</h1><p className="muted">Crea una contraseña para acceder al portal de tu gimnasio.</p>{!validLink && <div className="alert error">El enlace no contiene una invitación válida. Solicita una nueva invitación al gimnasio.</div>}{error && validLink && <div className="alert error">{error}</div>}<label>Nueva contraseña<input required type="password" minLength={8} maxLength={128} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="new-password"/></label><label>Confirmar contraseña<input required type="password" minLength={8} maxLength={128} value={confirmation} onChange={(event) => setConfirmation(event.target.value)} autoComplete="new-password"/></label><button className="primary" disabled={!validLink || loading}>{loading ? <><LoaderCircle className="spin"/>Activando…</> : <><LockKeyhole/>Activar cuenta</>}</button></form></div>;
+  return <div className="invite-page"><div className="login-tools"><ThemeToggle/></div><form className="invite-card" onSubmit={submit}><img src="/fitlab-logo.png" alt="FitLab"/><p className="eyebrow">BIENVENIDO A FITLAB</p><h1>Activa tu cuenta</h1><p className="muted">Crea una contraseña para acceder de forma segura a FitLab.</p>{!validLink && <div className="alert error">El enlace no contiene una invitación válida. Solicita una nueva invitación al gimnasio.</div>}{error && validLink && <div className="alert error">{error}</div>}<label>Nueva contraseña<input required type="password" minLength={8} maxLength={128} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="new-password"/></label><label>Confirmar contraseña<input required type="password" minLength={8} maxLength={128} value={confirmation} onChange={(event) => setConfirmation(event.target.value)} autoComplete="new-password"/></label><button className="primary" disabled={!validLink || loading}>{loading ? <><LoaderCircle className="spin"/>Activando…</> : <><LockKeyhole/>Activar cuenta</>}</button></form></div>;
 }

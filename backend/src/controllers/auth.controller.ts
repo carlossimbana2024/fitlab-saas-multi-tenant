@@ -175,7 +175,7 @@ export async function completeOwnerOnboarding(request: Request, response: Respon
 export async function me(request: Request, response: Response) {
   const { data, error } = await request.supabase!
     .from('gym_users')
-    .select('id,gym_id,role,status,default_location_id,profiles(full_name,phone,avatar_url)')
+    .select('id,gym_id,role,status,default_location_id,profiles(full_name,phone,avatar_url),staff_permissions(permission_key,access_mode)')
     .eq('profile_id', request.authUser!.id)
     .single();
 
@@ -252,18 +252,21 @@ export async function acceptInvite(request: Request, response: Response) {
   const client = createUserSupabaseClient(input.data.accessToken);
   const { data: userData, error: userError } = await client.auth.getUser(input.data.accessToken);
   if (userError || !userData.user) throw new AppError(401, 'INVALID_INVITATION_TOKEN', 'La invitación es inválida o expiró.');
-  const { data: pendingMember, error: pendingMemberError } = await supabaseAdmin.from('gym_users')
-    .select('id,invitation_id').eq('profile_id', userData.user.id).eq('role', 'member').eq('status', 'invited').maybeSingle();
-  if (pendingMemberError || !pendingMember?.invitation_id) {
+  const { data: pendingAccount, error: pendingAccountError } = await supabaseAdmin.from('gym_users')
+    .select('id,invitation_id,role').eq('profile_id', userData.user.id).in('role', ['member', 'staff']).eq('status', 'invited').maybeSingle();
+  if (pendingAccountError || !pendingAccount?.invitation_id) {
     throw new AppError(409, 'INVITATION_NOT_PENDING', 'La invitación expiró, fue revocada o ya fue utilizada.');
   }
   const { data: pendingInvitation, error: pendingInvitationError } = await supabaseAdmin.from('gym_invitations')
-    .select('id,expires_at').eq('id', pendingMember.invitation_id).eq('auth_user_id', userData.user.id).eq('status', 'pending').maybeSingle();
+    .select('id,expires_at,intended_role').eq('id', pendingAccount.invitation_id).eq('auth_user_id', userData.user.id).eq('status', 'pending').maybeSingle();
   if (pendingInvitationError || !pendingInvitation) {
     throw new AppError(409, 'INVITATION_NOT_PENDING', 'La invitación expiró, fue revocada o ya fue utilizada.');
   }
+  if (pendingInvitation.intended_role !== pendingAccount.role) {
+    throw new AppError(409, 'INVITATION_ROLE_MISMATCH', 'La invitacion no coincide con el acceso asignado.');
+  }
   if (new Date(pendingInvitation.expires_at).getTime() <= Date.now()) {
-    await supabaseAdmin.rpc('accept_member_invitation', { target_auth_user_id: userData.user.id });
+    await supabaseAdmin.rpc('accept_portal_invitation', { target_auth_user_id: userData.user.id });
     throw new AppError(409, 'INVITATION_EXPIRED', 'La invitación expiró. Solicita una nueva invitación al gimnasio.');
   }
   const { error: sessionError } = await client.auth.setSession({
@@ -274,14 +277,14 @@ export async function acceptInvite(request: Request, response: Response) {
 
   const { error: passwordError } = await client.auth.updateUser({ password: input.data.password });
   if (passwordError) throw new AppError(400, 'PASSWORD_UPDATE_FAILED', 'No se pudo establecer la contraseña.');
-  const { data: activation, error: activationError } = await supabaseAdmin.rpc('accept_member_invitation', {
+  const { data: activation, error: activationError } = await supabaseAdmin.rpc('accept_portal_invitation', {
     target_auth_user_id: userData.user.id,
   });
   const activated = Array.isArray(activation) ? activation[0] : undefined;
   if (activationError || !activated) throw new AppError(409, 'INVITATION_NOT_PENDING', 'La invitación expiró, fue revocada o ya fue utilizada.');
   response.cookie('fitlab_access_token', input.data.accessToken, { ...cookieBase, maxAge: 60 * 60 * 1000 });
   response.cookie('fitlab_refresh_token', input.data.refreshToken, { ...cookieBase, maxAge: 30 * 24 * 60 * 60 * 1000 });
-  response.json({ user: { id: userData.user.id, email: userData.user.email }, role: activated.member_role });
+  response.json({ user: { id: userData.user.id, email: userData.user.email }, role: activated.account_role });
 }
 
 export async function requestPasswordReset(request: Request, response: Response) {

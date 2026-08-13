@@ -1,6 +1,6 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { AppLayout } from './components/AppLayout';
-import { AdminRoute, MemberRoute, ProtectedRoute, RoleHome } from './components/ProtectedRoute';
+import { AdminRoute, MemberRoute, OwnerRoute, ProtectedRoute, RoleHome } from './components/ProtectedRoute';
 import { AcceptInvitePage } from './pages/AcceptInvitePage';
 import { AttendancesPage } from './pages/AttendancesPage';
 import { DashboardPage } from './pages/DashboardPage';
@@ -18,6 +18,7 @@ import { BillingPage } from './pages/BillingPage';
 import { BillingResultPage } from './pages/BillingResultPage';
 import { LegalPage } from './pages/LegalPage';
 import { MemberChatWidget } from './components/MemberChatWidget';
+import { StaffPage } from './pages/StaffPage';
 
 export default function App() {
   return <Routes>
@@ -39,6 +40,7 @@ export default function App() {
         <Route path="/attendances" element={<AttendancesPage/>}/>
         <Route path="/memberships" element={<MembershipsPage/>}/>
         <Route path="/calendar" element={<CalendarPage/>}/>
+        <Route element={<OwnerRoute/>}><Route path="/staff" element={<StaffPage/>}/></Route>
         <Route path="/settings" element={<SettingsPage/>}/>
         <Route path="/billing" element={<BillingPage/>}/>
         <Route path="/billing/success" element={<BillingResultPage/>}/>

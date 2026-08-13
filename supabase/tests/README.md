@@ -25,3 +25,8 @@ del gimnasio y de una sucursal mediante las RPC backend-only. También comprueba
 que `authenticated` no pueda ejecutarlas directamente y que las dos operaciones
 creen su auditoría dentro de la misma transacción. Reutiliza los valores actuales
 y termina con `ROLLBACK`.
+
+`0021_staff_accounts_permissions.sql` verifica que las RPC del modulo Personal
+sean exclusivas de `service_role`, que el owner no pueda tratarse como staff y
+que la elevacion por PIN solo se habilite en permisos compatibles. Finaliza con
+`ROLLBACK` y no conserva cambios.

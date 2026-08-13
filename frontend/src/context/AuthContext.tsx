@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { api } from '../services/api';
 
-type GymUser = { id: string; gym_id: string; role: 'owner' | 'staff' | 'member'; status: string; default_location_id?: string | null; profiles?: { full_name?: string; phone?: string | null; avatar_url?: string | null } };
+type GymUser = { id: string; gym_id: string; role: 'owner' | 'staff' | 'member'; status: string; default_location_id?: string | null; profiles?: { full_name?: string; phone?: string | null; avatar_url?: string | null }; staff_permissions?: Array<{ permission_key: string; access_mode: 'allowed' | 'requires_pin' | 'denied' }> };
 type Session = { user: { id: string; email?: string }; gymUser: GymUser | null; onboardingRequired?: boolean };
 type AuthValue = { session: Session | null; loading: boolean; login: (email: string, password: string) => Promise<void>; logout: () => Promise<void>; refresh: () => Promise<void> };
 const AuthContext = createContext<AuthValue | null>(null);

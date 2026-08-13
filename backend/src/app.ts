@@ -18,6 +18,7 @@ import { cronRouter } from './routes/cron.routes.js';
 import { settingsRouter } from './routes/settings.routes.js';
 import { billingRouter, stripeWebhookRouter } from './routes/billing.routes.js';
 import { chatRouter } from './routes/chat.routes.js';
+import { staffRouter } from './routes/staff.routes.js';
 
 export const app = express();
 
@@ -54,6 +55,7 @@ app.use('/api/cron', cronRouter);
 app.use('/api/settings', settingsRouter);
 app.use('/api/billing', billingRouter);
 app.use('/api/chat', chatRouter);
+app.use('/api/staff', staffRouter);
 
 app.use(notFoundHandler);
 app.use(errorHandler);
