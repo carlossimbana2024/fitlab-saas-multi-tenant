@@ -3,9 +3,6 @@ import { supabaseAdmin } from '../config/supabase.js';
 import { AppError } from '../errors/AppError.js';
 import { fromSupabaseError } from '../utils/supabaseError.js';
 import { gymSettingsSchema, locationSettingsSchema } from '../validators/settings.validator.js';
-import { writeAuditLog } from '../services/audit.service.js';
-
-const nullable = (value: string | null | undefined) => value?.trim() || null;
 
 export async function getSettings(request: Request, response: Response) {
   const [gym, locations] = await Promise.all([
@@ -20,17 +17,19 @@ export async function getSettings(request: Request, response: Response) {
 export async function updateGymSettings(request: Request, response: Response) {
   const input = gymSettingsSchema.safeParse(request.body);
   if (!input.success) throw new AppError(400, 'INVALID_GYM_SETTINGS', 'Los datos del gimnasio no son válidos.', input.error.flatten());
-  const { data, error } = await supabaseAdmin.from('gyms').update({
-    name: input.data.name,
-    email: nullable(input.data.email),
-    phone: nullable(input.data.phone),
-    whatsapp_phone: nullable(input.data.whatsappPhone),
-  }).eq('id', request.tenant!.gymId).select('id,name,email,phone,whatsapp_phone,timezone,currency').single();
-  if (error) throw fromSupabaseError(error);
-  await writeAuditLog(request, {
-    action: 'settings.gym_updated', entityType: 'gym', entityId: data.id, afterData: data,
+  const { data, error } = await supabaseAdmin.rpc('update_gym_settings_backend', {
+    target_gym_id: request.tenant!.gymId,
+    target_actor_gym_user_id: request.tenant!.gymUserId,
+    supplied_name: input.data.name,
+    supplied_email: input.data.email || null,
+    supplied_phone: input.data.phone || null,
+    supplied_whatsapp_phone: input.data.whatsappPhone || null,
+    supplied_used_pin_elevation: request.permissionContext?.usedPinElevation ?? false,
   });
-  response.json({ gym: data });
+  if (error) throw fromSupabaseError(error);
+  const gym = Array.isArray(data) ? data[0] : undefined;
+  if (!gym) throw new AppError(500, 'GYM_SETTINGS_EMPTY_RESULT', 'No se pudieron guardar los datos del gimnasio.');
+  response.json({ gym });
 }
 
 export async function updateLocationSettings(request: Request, response: Response) {
@@ -38,18 +37,20 @@ export async function updateLocationSettings(request: Request, response: Respons
   if (!locationId) throw new AppError(400, 'INVALID_LOCATION_ID', 'La sucursal no es válida.');
   const input = locationSettingsSchema.safeParse(request.body);
   if (!input.success) throw new AppError(400, 'INVALID_LOCATION_SETTINGS', 'Los datos de la sucursal no son válidos.', input.error.flatten());
-  const { data, error } = await supabaseAdmin.from('gym_locations').update({
-    name: input.data.name,
-    address: nullable(input.data.address),
-    city: input.data.city,
-    email: nullable(input.data.email),
-    phone: nullable(input.data.phone),
-    whatsapp_phone: nullable(input.data.whatsappPhone),
-  }).eq('id', locationId).eq('gym_id', request.tenant!.gymId).select('id,name,address,city,email,phone,whatsapp_phone,timezone,is_main,is_active').maybeSingle();
-  if (error) throw fromSupabaseError(error);
-  if (!data) throw new AppError(404, 'LOCATION_NOT_FOUND', 'La sucursal no pertenece al gimnasio.');
-  await writeAuditLog(request, {
-    action: 'settings.location_updated', entityType: 'gym_location', entityId: data.id, afterData: data,
+  const { data, error } = await supabaseAdmin.rpc('update_location_settings_backend', {
+    target_gym_id: request.tenant!.gymId,
+    target_location_id: locationId,
+    target_actor_gym_user_id: request.tenant!.gymUserId,
+    supplied_name: input.data.name,
+    supplied_address: input.data.address || null,
+    supplied_city: input.data.city,
+    supplied_email: input.data.email || null,
+    supplied_phone: input.data.phone || null,
+    supplied_whatsapp_phone: input.data.whatsappPhone || null,
+    supplied_used_pin_elevation: request.permissionContext?.usedPinElevation ?? false,
   });
-  response.json({ location: data });
+  if (error) throw fromSupabaseError(error);
+  const location = Array.isArray(data) ? data[0] : undefined;
+  if (!location) throw new AppError(404, 'LOCATION_NOT_FOUND', 'La sucursal no pertenece al gimnasio.');
+  response.json({ location });
 }

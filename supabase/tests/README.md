@@ -19,3 +19,9 @@ transacción que termina con `ROLLBACK`:
 
 Necesita al menos un owner activo y una sucursal activa existentes. Debe
 ejecutarse manualmente después de aplicar la migración `0019`.
+
+`0020_backend_settings_writes.sql` verifica que el owner pueda guardar los datos
+del gimnasio y de una sucursal mediante las RPC backend-only. También comprueba
+que `authenticated` no pueda ejecutarlas directamente y que las dos operaciones
+creen su auditoría dentro de la misma transacción. Reutiliza los valores actuales
+y termina con `ROLLBACK`.
