@@ -43,3 +43,13 @@ export const managedMemberSchema = z.object({
   notes: z.string().trim().max(1000).nullish(),
   defaultLocationId: uuid.nullish(),
 });
+
+export const updateMemberSchema = managedMemberSchema;
+
+export const updateMemberStatusSchema = z.object({
+  status: z.enum(['active', 'suspended']),
+});
+
+export const convertManagedMemberSchema = z.object({
+  email: z.string().trim().email().max(320),
+});
