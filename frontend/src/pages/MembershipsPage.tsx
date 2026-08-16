@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Ban, CreditCard, FileText, LoaderCircle, Plus, Printer, RotateCcw, WalletCards, X } from 'lucide-react';
-import { useState, type FormEvent } from 'react';
+import { AlertTriangle, Ban, CreditCard, Download, FileText, LoaderCircle, Mail, MessageCircle, Plus, Printer, RotateCcw, ShieldCheck, WalletCards, X } from 'lucide-react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { api, apiErrorMessage } from '../services/api';
 
@@ -9,7 +9,7 @@ type Plan = { id: string; name: string; price: number; currency: string };
 type Period = { id: string; starts_on: string; ends_on: string; status: string; charged_amount: number; currency: string };
 type Membership = { id: string; member_user_id: string; plan_id: string; status: string; price_at_purchase: number; currency: string; cancelled_at?: string | null; cancellation_reason?: string | null; plans?: { name?: string; price?: number; currency?: string }; membership_periods?: Period[] };
 type Payment = { id: string; member_name: string; plan_name: string; amount: number; currency: string; payment_method: string; status: 'pending' | 'confirmed' | 'voided' | 'refunded' | 'failed'; paid_at: string; receipt_number: number; external_reference?: string | null; void_reason?: string | null; refund_reason?: string | null };
-type Receipt = { number: number; issuedAt: string; status: Payment['status']; amount: number; currency: string; paymentMethod: string; externalReference?: string | null; notes?: string | null; voidReason?: string | null; refundReason?: string | null; gym: { name: string; legal_name?: string | null; email?: string | null; phone?: string | null }; location: { name: string; address?: string | null; city?: string | null; phone?: string | null }; member: { name: string; phone?: string | null }; plan: { name: string }; coverage?: { starts_on: string; ends_on: string } | null; registeredBy: { name: string } };
+type Receipt = { number: number; issuedAt: string; verificationToken: string; status: Payment['status']; amount: number; currency: string; paymentMethod: string; externalReference?: string | null; notes?: string | null; voidReason?: string | null; refundReason?: string | null; reversedAt?: string | null; concept: string; operationType: 'membership' | 'renewal'; gym: { name: string; legal_name?: string | null; email?: string | null; phone?: string | null; whatsapp_phone?: string | null; logo_url?: string | null }; location: { name: string; address?: string | null; city?: string | null; email?: string | null; phone?: string | null; whatsapp_phone?: string | null }; member: { name: string; phone?: string | null }; plan: { name: string }; coverage?: { starts_on: string; ends_on: string } | null; registeredBy: { name: string } };
 type PaymentMethod = 'cash' | 'bank_transfer' | 'external_card' | 'external_deuna' | 'other';
 type CheckoutForm = { memberUserId: string; planId: string; membershipId: string; paymentMethod: PaymentMethod; externalReference: string; notes: string };
 type PlanForm = { name: string; price: string; durationUnit: 'days' | 'weeks' | 'months'; durationValue: string; attendanceMode: 'daily' | 'weekly'; weeklyTarget: string };
@@ -22,6 +22,29 @@ const memberName = (member: Member) => member.profiles?.full_name ?? member.mana
 const money = (amount: number, currency: string) => new Intl.NumberFormat('es-EC', { style: 'currency', currency }).format(Number(amount));
 const dateTime = (value: string) => new Intl.DateTimeFormat('es-EC', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
 const receiptCode = (number: number) => `REC-${String(number).padStart(6, '0')}`;
+
+async function rasterizeImage(source: string) {
+  try {
+    const response = await fetch(source, { mode: 'cors' });
+    if (!response.ok) return null;
+    const objectUrl = URL.createObjectURL(await response.blob());
+    try {
+      const image = new Image();
+      image.src = objectUrl;
+      await image.decode();
+      const scale = Math.min(1, 800 / Math.max(image.naturalWidth, image.naturalHeight));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+      canvas.getContext('2d')?.drawImage(image, 0, 0, canvas.width, canvas.height);
+      return canvas.toDataURL('image/png');
+    } finally {
+      URL.revokeObjectURL(objectUrl);
+    }
+  } catch {
+    return null;
+  }
+}
 
 export function MembershipsPage() {
   const { session } = useAuth();
@@ -47,8 +70,8 @@ export function MembershipsPage() {
   const members = useQuery({ queryKey: ['members'], queryFn: async () => (await api.get<{ members: Member[] }>('/members')).data.members });
   const plans = useQuery({ queryKey: ['plans'], queryFn: async () => (await api.get<{ plans: Plan[] }>('/plans')).data.plans });
   const memberships = useQuery({ queryKey: ['memberships'], queryFn: async () => (await api.get<{ memberships: Membership[] }>('/memberships')).data.memberships });
-  const payments = useQuery({ queryKey: ['payments'], enabled: canViewFinances, queryFn: async () => (await api.get<{ payments: Payment[] }>('/payments')).data.payments });
-  const receipt = useQuery({ queryKey: ['payment-receipt', receiptId], enabled: Boolean(receiptId), queryFn: async () => (await api.get<{ receipt: Receipt }>(`/payments/${receiptId}/receipt`)).data.receipt });
+  const payments = useQuery({ queryKey: ['payments'], enabled: canViewFinances, queryFn: async () => (await api.get<{ payments: Payment[] }>('/member-payments')).data.payments });
+  const receipt = useQuery({ queryKey: ['payment-receipt', receiptId], enabled: Boolean(receiptId), queryFn: async () => (await api.get<{ receipt: Receipt }>(`/member-payments/${receiptId}/receipt`)).data.receipt });
   const memberNames = new Map((members.data ?? []).map((member) => [member.id, memberName(member)]));
 
   const checkout = useMutation({
@@ -75,7 +98,7 @@ export function MembershipsPage() {
     onSuccess: async () => { setCancelTarget(null); setCancelReason(''); await queryClient.invalidateQueries({ queryKey: ['memberships'] }); },
   });
   const reversePayment = useMutation({
-    mutationFn: async () => api.patch(`/payments/${reverseTarget?.payment.id}/${reverseTarget?.action}`, { reason: reverseReason }),
+    mutationFn: async () => api.patch(`/member-payments/${reverseTarget?.payment.id}/${reverseTarget?.action}`, { reason: reverseReason }),
     onSuccess: async () => { setReverseTarget(null); setReverseReason(''); await Promise.all([queryClient.invalidateQueries({ queryKey: ['payments'] }), queryClient.invalidateQueries({ queryKey: ['memberships'] })]); },
   });
 
@@ -129,5 +152,61 @@ function Modal({ close, eyebrow, title, wide, children }: { close: () => void; e
 function Loading({ text }: { text: string }) { return <div className="empty"><LoaderCircle className="spin"/><strong>{text}</strong></div>; }
 function Empty({ icon, title, text }: { icon: React.ReactNode; title: string; text: string }) { return <div className="empty">{icon}<strong>{title}</strong><span>{text}</span></div>; }
 function ReceiptView({ receipt }: { receipt: Receipt }) {
-  return <><article className="receipt-sheet"><header><div><strong>{receipt.gym.legal_name || receipt.gym.name}</strong><span>{receipt.location.name} · {[receipt.location.address, receipt.location.city].filter(Boolean).join(', ')}</span></div><div><b>{receiptCode(receipt.number)}</b><span>{dateTime(receipt.issuedAt)}</span><span className={`badge ${receipt.status}`}>{statusLabels[receipt.status]}</span></div></header><section className="receipt-party"><div><small>RECIBIDO DE</small><strong>{receipt.member.name}</strong><span>{receipt.member.phone || 'Sin teléfono'}</span></div><div><small>REGISTRADO POR</small><strong>{receipt.registeredBy.name}</strong><span>{methodLabels[receipt.paymentMethod] ?? receipt.paymentMethod}</span></div></section><section className="receipt-line"><div><strong>{receipt.plan.name}</strong><span>{receipt.coverage ? `Cobertura ${receipt.coverage.starts_on} al ${receipt.coverage.ends_on}` : 'Sin período asociado'}</span></div><strong>{money(receipt.amount, receipt.currency)}</strong></section>{receipt.externalReference && <p><small>Referencia:</small> {receipt.externalReference}</p>}{receipt.notes && <p><small>Notas:</small> {receipt.notes}</p>}{(receipt.voidReason || receipt.refundReason) && <div className="receipt-reversal"><strong>{receipt.status === 'voided' ? 'PAGO ANULADO' : 'PAGO REEMBOLSADO'}</strong><span>{receipt.voidReason || receipt.refundReason}</span></div>}<footer>Comprobante interno de FitLab. No reemplaza una factura o comprobante tributario.</footer></article><div className="modal-actions receipt-actions"><button className="primary" onClick={() => window.print()}><Printer/>Imprimir recibo</button></div></>;
+  const [qrDataUrl, setQrDataUrl] = useState('');
+  const [downloading, setDownloading] = useState(false);
+  const verificationUrl = `${window.location.origin}/receipt/verify/${receipt.verificationToken}`;
+  const code = receiptCode(receipt.number);
+  const contact = receipt.location.whatsapp_phone || receipt.location.phone || receipt.location.email || receipt.gym.whatsapp_phone || receipt.gym.phone || receipt.gym.email;
+
+  useEffect(() => {
+    let active = true;
+    import('qrcode').then(({ default: QRCode }) => QRCode.toDataURL(verificationUrl, { width: 220, margin: 1, errorCorrectionLevel: 'M', color: { dark: '#111827', light: '#ffffff' } }))
+      .then((value) => { if (active) setQrDataUrl(value); })
+      .catch(() => { if (active) setQrDataUrl(''); });
+    return () => { active = false; };
+  }, [verificationUrl]);
+
+  const shareText = `Recibo ${code} de ${receipt.gym.name}: ${receipt.concept}, ${money(receipt.amount, receipt.currency)}. Verificar: ${verificationUrl}`;
+  const downloadPdf = async () => {
+    setDownloading(true);
+    try {
+      const [{ jsPDF }, { default: QRCode }] = await Promise.all([import('jspdf'), import('qrcode')]);
+      const pdfQrDataUrl = qrDataUrl || await QRCode.toDataURL(verificationUrl, { width: 220, margin: 1, errorCorrectionLevel: 'M' });
+      const pdf = new jsPDF({ unit: 'mm', format: 'a4' });
+      const left = 18;
+      const logoDataUrl = await rasterizeImage(receipt.gym.logo_url || '/fitlab-logo.png');
+      const businessLeft = logoDataUrl ? 45 : left;
+      let y = 20;
+      if (logoDataUrl) pdf.addImage(logoDataUrl, 'PNG', left, 12, 22, 18);
+      pdf.setTextColor(17, 24, 39);
+      pdf.setFont('helvetica', 'bold'); pdf.setFontSize(18); pdf.text(receipt.gym.legal_name || receipt.gym.name, businessLeft, y);
+      pdf.setFont('helvetica', 'normal'); pdf.setFontSize(10); y += 6;
+      pdf.text(`${receipt.location.name} · ${[receipt.location.address, receipt.location.city].filter(Boolean).join(', ')}`, businessLeft, y);
+      if (contact) { y += 5; pdf.text(`Contacto: ${contact}`, businessLeft, y); }
+      pdf.setFont('helvetica', 'bold'); pdf.setFontSize(16); pdf.text(code, 192, 20, { align: 'right' });
+      pdf.setFont('helvetica', 'normal'); pdf.setFontSize(10); pdf.text(dateTime(receipt.issuedAt), 192, 27, { align: 'right' });
+      pdf.setDrawColor(210); y = Math.max(y + 9, 38); pdf.line(left, y, 192, y); y += 9;
+      pdf.setFont('helvetica', 'bold'); pdf.text('RECIBIDO DE', left, y); pdf.text('REGISTRADO POR', 110, y); y += 6;
+      pdf.setFont('helvetica', 'normal'); pdf.text(receipt.member.name, left, y); pdf.text(receipt.registeredBy.name, 110, y); y += 5;
+      pdf.text(receipt.member.phone || 'Sin teléfono', left, y); pdf.text(methodLabels[receipt.paymentMethod] ?? receipt.paymentMethod, 110, y); y += 11;
+      pdf.setFillColor(241, 245, 249); pdf.roundedRect(left, y - 6, 174, 23, 2, 2, 'F');
+      pdf.setFont('helvetica', 'bold'); pdf.setFontSize(12); pdf.text(receipt.concept, left + 4, y + 1);
+      pdf.text(money(receipt.amount, receipt.currency), 188, y + 1, { align: 'right' });
+      pdf.setFont('helvetica', 'normal'); pdf.setFontSize(9);
+      pdf.text(receipt.coverage ? `Cobertura: ${receipt.coverage.starts_on} al ${receipt.coverage.ends_on}` : 'Sin período asociado', left + 4, y + 8);
+      y += 24;
+      if (receipt.externalReference) { pdf.text(`Referencia: ${receipt.externalReference}`, left, y); y += 6; }
+      pdf.text(`Estado: ${statusLabels[receipt.status] ?? receipt.status}`, left, y); y += 6;
+      const reversalReason = receipt.voidReason || receipt.refundReason;
+      if (reversalReason) { pdf.setTextColor(185, 28, 28); pdf.text(`Motivo: ${reversalReason}`, left, y); pdf.setTextColor(17, 24, 39); y += 8; }
+      pdf.addImage(pdfQrDataUrl, 'PNG', left, y, 34, 34);
+      pdf.setFontSize(9); pdf.text('Escanea para verificar este recibo dentro de FitLab.', left + 40, y + 10);
+      pdf.setTextColor(96, 102, 114); pdf.text('Comprobante interno. No válido como comprobante tributario.', left + 40, y + 17);
+      pdf.save(`${code}.pdf`);
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  return <><article className="receipt-sheet"><header><div className="receipt-brand"><img src={receipt.gym.logo_url || '/fitlab-logo.png'} alt={`Logotipo de ${receipt.gym.name}`} referrerPolicy="no-referrer"/><div><strong>{receipt.gym.name}</strong>{receipt.gym.legal_name && receipt.gym.legal_name !== receipt.gym.name && <span>{receipt.gym.legal_name}</span>}<span>{receipt.location.name} · {[receipt.location.address, receipt.location.city].filter(Boolean).join(', ')}</span>{contact && <span>{contact}</span>}</div></div><div><b>{code}</b><span>{dateTime(receipt.issuedAt)}</span><span className={`badge ${receipt.status}`}>{statusLabels[receipt.status]}</span></div></header><section className="receipt-party"><div><small>RECIBIDO DE</small><strong>{receipt.member.name}</strong><span>{receipt.member.phone || 'Sin teléfono'}</span></div><div><small>REGISTRADO POR</small><strong>{receipt.registeredBy.name}</strong><span>{methodLabels[receipt.paymentMethod] ?? receipt.paymentMethod}</span></div></section><section className="receipt-line"><div><small>CONCEPTO</small><strong>{receipt.concept}</strong><span>{receipt.coverage ? `Cobertura ${receipt.coverage.starts_on} al ${receipt.coverage.ends_on}` : 'Sin período asociado'}</span></div><strong>{money(receipt.amount, receipt.currency)}</strong></section>{receipt.externalReference && <p><small>Referencia:</small> {receipt.externalReference}</p>}{receipt.notes && <p><small>Notas:</small> {receipt.notes}</p>}{(receipt.voidReason || receipt.refundReason) && <div className="receipt-reversal"><strong>{receipt.status === 'voided' ? 'PAGO ANULADO' : 'PAGO REEMBOLSADO'}</strong><span>{receipt.voidReason || receipt.refundReason}</span>{receipt.reversedAt && <small>{dateTime(receipt.reversedAt)}</small>}</div>}<section className="receipt-verification"><div>{qrDataUrl ? <img src={qrDataUrl} alt={`QR de verificación del recibo ${code}`}/> : <LoaderCircle className="spin"/>}</div><div><strong><ShieldCheck/>Verificación FitLab</strong><span>Escanea el QR para comprobar el número, estado, importe y cobertura sin exponer datos privados.</span><small>{verificationUrl}</small></div></section><footer><strong>Comprobante interno. No válido como comprobante tributario.</strong></footer></article><div className="receipt-actions"><button className="small-button" disabled={!qrDataUrl} onClick={() => window.print()}><Printer/>Imprimir</button><button className="small-button" disabled={downloading} onClick={downloadPdf}>{downloading ? <LoaderCircle className="spin"/> : <Download/>}Descargar PDF</button><a className="small-button" href={`mailto:?subject=${encodeURIComponent(`Recibo ${code}`)}&body=${encodeURIComponent(shareText)}`}><Mail/>Enviar enlace por correo</a><a className="small-button whatsapp" href={`https://wa.me/?text=${encodeURIComponent(shareText)}`} target="_blank" rel="noreferrer"><MessageCircle/>Enviar enlace por WhatsApp</a></div></>;
 }

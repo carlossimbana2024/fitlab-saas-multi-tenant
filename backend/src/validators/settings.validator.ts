@@ -10,6 +10,10 @@ export const gymSettingsSchema = z.object({
   whatsappPhone: optionalText(30),
 });
 
+export const receiptBrandingSchema = z.object({
+  logoUrl: z.union([z.string().trim().url().max(2048).refine((value) => value.startsWith('https://')), z.literal(''), z.null()]).optional(),
+});
+
 export const locationSettingsSchema = z.object({
   name: z.string().trim().min(2).max(150),
   address: optionalText(300),

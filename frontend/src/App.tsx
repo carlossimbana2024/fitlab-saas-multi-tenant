@@ -19,6 +19,7 @@ import { BillingResultPage } from './pages/BillingResultPage';
 import { LegalPage } from './pages/LegalPage';
 import { MemberChatWidget } from './components/MemberChatWidget';
 import { StaffPage } from './pages/StaffPage';
+import { ReceiptVerificationPage } from './pages/ReceiptVerificationPage';
 
 export default function App() {
   return <Routes>
@@ -30,6 +31,7 @@ export default function App() {
     <Route path="/owner/confirm" element={<OwnerOnboardingPage/>}/>
     <Route path="/legal/terms" element={<LegalPage/>}/>
     <Route path="/legal/privacy" element={<LegalPage/>}/>
+    <Route path="/receipt/verify/:token" element={<ReceiptVerificationPage/>}/>
     <Route element={<ProtectedRoute/>}>
       <Route path="/owner/setup" element={<OwnerOnboardingPage/>}/>
       <Route index element={<RoleHome/>}/>

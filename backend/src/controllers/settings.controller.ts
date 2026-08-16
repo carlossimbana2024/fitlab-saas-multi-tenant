@@ -2,16 +2,31 @@ import type { Request, Response } from 'express';
 import { supabaseAdmin } from '../config/supabase.js';
 import { AppError } from '../errors/AppError.js';
 import { fromSupabaseError } from '../utils/supabaseError.js';
-import { gymSettingsSchema, locationSettingsSchema } from '../validators/settings.validator.js';
+import { gymSettingsSchema, locationSettingsSchema, receiptBrandingSchema } from '../validators/settings.validator.js';
 
 export async function getSettings(request: Request, response: Response) {
   const [gym, locations] = await Promise.all([
-    request.supabase!.from('gyms').select('id,name,legal_name,email,phone,whatsapp_phone,timezone,currency').eq('id', request.tenant!.gymId).single(),
+    request.supabase!.from('gyms').select('id,name,legal_name,email,phone,whatsapp_phone,logo_url,timezone,currency').eq('id', request.tenant!.gymId).single(),
     request.supabase!.from('gym_locations').select('id,name,address,city,email,phone,whatsapp_phone,timezone,is_main,is_active').order('is_main', { ascending: false }).order('name'),
   ]);
   const error = gym.error ?? locations.error;
   if (error) throw fromSupabaseError(error);
   response.json({ gym: gym.data, locations: locations.data ?? [] });
+}
+
+export async function updateReceiptBranding(request: Request, response: Response) {
+  const input = receiptBrandingSchema.safeParse(request.body);
+  if (!input.success) throw new AppError(400, 'INVALID_RECEIPT_BRANDING', 'El logotipo debe usar una URL HTTPS válida.', input.error.flatten());
+  const { data, error } = await supabaseAdmin.rpc('update_gym_receipt_branding_backend', {
+    target_gym_id: request.tenant!.gymId,
+    target_actor_gym_user_id: request.tenant!.gymUserId,
+    supplied_logo_url: input.data.logoUrl || null,
+    supplied_used_pin_elevation: request.permissionContext?.usedPinElevation ?? false,
+  });
+  if (error) throw fromSupabaseError(error);
+  const gym = Array.isArray(data) ? data[0] : undefined;
+  if (!gym) throw new AppError(500, 'RECEIPT_BRANDING_EMPTY_RESULT', 'No se pudo guardar la marca del recibo.');
+  response.json({ gym });
 }
 
 export async function updateGymSettings(request: Request, response: Response) {
