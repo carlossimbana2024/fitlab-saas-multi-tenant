@@ -62,8 +62,8 @@ export async function getMember(request: Request, response: Response) {
   if (error) throw fromSupabaseError(error);
   if (!data) throw new AppError(404, 'MEMBER_NOT_FOUND', 'El miembro no existe.');
   const [membershipsResult, paymentsResult, attendancesResult, streakResult] = await Promise.all([
-    supabaseAdmin.from('memberships').select('id,status,price_at_purchase,currency,created_at,plans(name),membership_periods(id,starts_on,ends_on,status)').eq('gym_id', request.tenant!.gymId).eq('member_user_id', id).order('created_at', { ascending: false }),
-    supabaseAdmin.from('member_payments').select('id,amount,currency,payment_method,status,paid_at,voided_at').eq('gym_id', request.tenant!.gymId).eq('member_user_id', id).order('paid_at', { ascending: false }),
+    supabaseAdmin.from('memberships').select('id,status,price_at_purchase,currency,created_at,plans(name),membership_periods(id,starts_on,ends_on,status,charged_amount,currency)').eq('gym_id', request.tenant!.gymId).eq('member_user_id', id).order('created_at', { ascending: false }),
+    supabaseAdmin.from('member_payments').select('id,amount,currency,payment_method,status,paid_at,voided_at,refunded_at,receipt_number').eq('gym_id', request.tenant!.gymId).eq('member_user_id', id).order('paid_at', { ascending: false }),
     supabaseAdmin.from('attendances').select('id,attendance_date,checked_in_at,source,status,counts_toward_streak,void_reason').eq('gym_id', request.tenant!.gymId).eq('member_user_id', id).order('checked_in_at', { ascending: false }).limit(50),
     supabaseAdmin.from('user_streaks').select('status,current_streak,longest_streak,last_attendance_date,frozen_at').eq('gym_id', request.tenant!.gymId).eq('member_user_id', id).maybeSingle(),
   ]);
@@ -80,10 +80,9 @@ export async function getMember(request: Request, response: Response) {
     .filter((period) => period.starts_on <= today && period.ends_on >= today && period.status === 'active')
     .sort((a, b) => b.ends_on.localeCompare(a.ends_on))[0];
   const latestPeriod = periods.sort((a, b) => b.ends_on.localeCompare(a.ends_on))[0];
-  const billableMemberships = memberships.filter((membership) => membership.status !== 'cancelled');
-  const currency = billableMemberships[0]?.currency ?? payments[0]?.currency ?? 'USD';
-  const totalCharged = billableMemberships.filter((membership) => membership.currency === currency)
-    .reduce((total, membership) => total + Number(membership.price_at_purchase), 0);
+  const currency = periods[0]?.currency ?? memberships[0]?.currency ?? payments[0]?.currency ?? 'USD';
+  const totalCharged = periods.filter((period) => period.currency === currency)
+    .reduce((total, period) => total + Number(period.charged_amount), 0);
   const totalPaid = payments.filter((payment) => payment.currency === currency && payment.status === 'confirmed')
     .reduce((total, payment) => total + Number(payment.amount), 0);
   const currentPlan = currentPeriod?.membership.plans;

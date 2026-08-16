@@ -18,7 +18,7 @@ export function AppLayout() {
         <NavLink to="/dashboard"><LayoutDashboard/>Dashboard</NavLink>
         {canAccess('members.view') && <NavLink to="/members"><Users/>Miembros</NavLink>}
         {canAccess('attendance.register', 'attendance.void') && <NavLink to="/attendances"><Activity/>Asistencias</NavLink>}
-        {canAccess('payments.register', 'payments.void') && <NavLink to="/memberships"><CreditCard/>Membresías</NavLink>}
+        {canAccess('payments.register', 'payments.void', 'finances.view', 'members.manage') && <NavLink to="/memberships"><CreditCard/>Membresías</NavLink>}
         {canAccess('calendar.manage') && <NavLink to="/calendar"><CalendarDays/>Horarios</NavLink>}
         {isOwner && <NavLink to="/staff"><UserCog/>Personal</NavLink>}
         {canAccess('settings.manage') && <NavLink to="/settings"><Settings/>Configuración</NavLink>}

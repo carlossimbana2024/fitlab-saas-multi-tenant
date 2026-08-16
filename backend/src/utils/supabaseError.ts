@@ -7,6 +7,12 @@ const knownErrors: Record<string, { status: number; message: string }> = {
   ATTENDANCE_REQUIRES_ACTIVE_MEMBERSHIP_COVERAGE: { status: 409, message: 'El miembro no tiene cobertura activa.' },
   ATTENDANCE_LOCATION_IS_CLOSED: { status: 409, message: 'La sucursal está cerrada.' },
   ATTENDANCE_OUTSIDE_OPENING_HOURS: { status: 409, message: 'La sucursal está fuera de su horario de atención.' },
+  ACTIVE_MEMBERSHIP_REQUIRES_RENEWAL: { status: 409, message: 'Este miembro ya tiene una membresía. Usa la opción Renovar.' },
+  INVALID_MEMBERSHIP_FOR_RENEWAL: { status: 409, message: 'La membresía seleccionada ya no puede renovarse.' },
+  CANCELLABLE_MEMBERSHIP_NOT_FOUND: { status: 404, message: 'La membresía no existe o ya fue cancelada.' },
+  REVERSIBLE_PAYMENT_NOT_FOUND: { status: 404, message: 'El pago no existe o ya fue anulado o reembolsado.' },
+  EXTERNAL_REFERENCE_REQUIRED_FOR_PAYMENT_METHOD: { status: 400, message: 'Este método de pago requiere una referencia.' },
+  FINANCIAL_PERMISSION_DENIED: { status: 403, message: 'No tienes permiso para realizar esta operación financiera.' },
 };
 
 export function fromSupabaseError(error: DatabaseError): AppError {

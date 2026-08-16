@@ -25,7 +25,9 @@ export const createPlanSchema = z.object({
   if (value.attendanceMode === 'weekly' && value.weeklyTarget == null) context.addIssue({ code: 'custom', path: ['weeklyTarget'], message: 'La meta semanal es obligatoria.' });
 });
 
-export const voidPaymentSchema = z.object({ reason: z.string().trim().min(3).max(500) });
+export const paymentReversalSchema = z.object({ reason: z.string().trim().min(3).max(500) });
+
+export const cancelMembershipSchema = z.object({ reason: z.string().trim().min(3).max(500) });
 
 export const inviteMemberSchema = z.object({
   email: z.string().email(),
