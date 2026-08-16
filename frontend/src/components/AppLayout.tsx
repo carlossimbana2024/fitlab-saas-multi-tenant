@@ -11,13 +11,14 @@ export function AppLayout() {
   const canAccess = (...permissionKeys: string[]) => isOwner || permissionKeys.some((permissionKey) =>
     session?.gymUser?.staff_permissions?.some((permission) => permission.permission_key === permissionKey && permission.access_mode !== 'denied'),
   );
+  const canUseReception = isOwner || (canAccess('members.view') && canAccess('attendance.register', 'attendance.void'));
   return <div className="app-shell">
     <aside className={open ? 'sidebar open' : 'sidebar'}>
       <div className="brand"><img src="/fitlab-logo.png" alt="FitLab"/><span>FITLAB</span></div>
       <nav>
         <NavLink to="/dashboard"><LayoutDashboard/>Dashboard</NavLink>
         {canAccess('members.view') && <NavLink to="/members"><Users/>Miembros</NavLink>}
-        {canAccess('attendance.register', 'attendance.void') && <NavLink to="/attendances"><Activity/>Asistencias</NavLink>}
+        {canUseReception && <NavLink to="/attendances"><Activity/>Asistencias</NavLink>}
         {canAccess('payments.register', 'payments.void', 'finances.view', 'members.manage') && <NavLink to="/memberships"><CreditCard/>Membresías</NavLink>}
         {canAccess('calendar.manage') && <NavLink to="/calendar"><CalendarDays/>Horarios</NavLink>}
         {isOwner && <NavLink to="/staff"><UserCog/>Personal</NavLink>}

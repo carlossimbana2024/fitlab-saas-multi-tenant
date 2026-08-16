@@ -8,6 +8,132 @@ import { writeAuditLog } from '../services/audit.service.js';
 
 const attendanceFields = 'id,gym_id,location_id,member_user_id,membership_id,attendance_date,checked_in_at,source,counts_toward_streak,status,voided_at,voided_by,void_reason';
 
+function relatedOne<T>(value: T | T[] | null | undefined): T | undefined {
+  return Array.isArray(value) ? value[0] : value ?? undefined;
+}
+
+function receptionMemberName(member: { managed_full_name?: string | null; profiles?: { full_name?: string | null } | Array<{ full_name?: string | null }> | null }) {
+  return relatedOne(member.profiles)?.full_name ?? member.managed_full_name ?? 'Miembro sin nombre';
+}
+
+function receptionMemberPhone(member: { managed_phone?: string | null; profiles?: { phone?: string | null } | Array<{ phone?: string | null }> | null }) {
+  return relatedOne(member.profiles)?.phone ?? member.managed_phone ?? null;
+}
+
+export async function getReceptionOverview(request: Request, response: Response) {
+  const today = dateInTimezone(request.tenant!.timezone);
+  const [membersResult, membershipsResult, locationsResult, attendancesResult, streaksResult] = await Promise.all([
+    supabaseAdmin.from('gym_users')
+      .select('id,status,account_mode,default_location_id,managed_full_name,managed_phone,profiles(full_name,phone)')
+      .eq('gym_id', request.tenant!.gymId).eq('role', 'member')
+      .in('status', ['invited', 'active', 'suspended', 'inactive'])
+      .order('created_at', { ascending: false }).limit(250),
+    supabaseAdmin.from('memberships')
+      .select('id,member_user_id,status,created_at,plans(name),membership_periods(id,starts_on,ends_on,status)')
+      .eq('gym_id', request.tenant!.gymId).order('created_at', { ascending: false }).limit(500),
+    supabaseAdmin.from('gym_locations').select('id,name,is_active')
+      .eq('gym_id', request.tenant!.gymId),
+    supabaseAdmin.from('attendances').select(attendanceFields)
+      .eq('gym_id', request.tenant!.gymId).eq('attendance_date', today)
+      .order('checked_in_at', { ascending: false }).limit(500),
+    supabaseAdmin.from('user_streaks')
+      .select('member_user_id,current_streak,longest_streak,last_attendance_date')
+      .eq('gym_id', request.tenant!.gymId).limit(250),
+  ]);
+  const error = membersResult.error ?? membershipsResult.error ?? locationsResult.error ?? attendancesResult.error ?? streaksResult.error;
+  if (error) throw fromSupabaseError(error);
+
+  const members = membersResult.data ?? [];
+  const memberships = membershipsResult.data ?? [];
+  const locations = new Map((locationsResult.data ?? []).map((location) => [location.id, location]));
+  const validAttendanceByMember = new Map((attendancesResult.data ?? [])
+    .filter((attendance) => attendance.status === 'valid')
+    .map((attendance) => [attendance.member_user_id, attendance]));
+  const streaks = new Map((streaksResult.data ?? []).map((streak) => [streak.member_user_id, streak]));
+
+  const receptionMembers = members.map((member) => {
+    const memberMemberships = memberships.filter((membership) => membership.member_user_id === member.id);
+    const periods = memberMemberships.flatMap((membership) => (membership.membership_periods ?? []).map((period) => ({
+      ...period,
+      membership,
+    }))).filter((period) => period.status !== 'cancelled');
+    const currentPeriod = periods
+      .filter((period) => period.membership.status === 'active' && period.status === 'active' && period.starts_on <= today && period.ends_on >= today)
+      .sort((left, right) => right.ends_on.localeCompare(left.ends_on))[0];
+    const scheduledPeriod = periods
+      .filter((period) => period.membership.status === 'active' && period.status === 'active' && period.starts_on > today)
+      .sort((left, right) => left.starts_on.localeCompare(right.starts_on))[0];
+    const latestPeriod = [...periods].sort((left, right) => right.ends_on.localeCompare(left.ends_on))[0];
+    const displayPeriod = currentPeriod ?? scheduledPeriod ?? latestPeriod;
+    const latestIsExpired = Boolean(latestPeriod && latestPeriod.ends_on < today);
+    const attendanceToday = validAttendanceByMember.get(member.id);
+    const location = member.default_location_id ? locations.get(member.default_location_id) : undefined;
+    let blockCode: string | null = null;
+    let blockMessage = 'Puede registrar su asistencia.';
+
+    if (member.status === 'suspended') {
+      blockCode = 'MEMBER_SUSPENDED';
+      blockMessage = 'Miembro suspendido. Reactívalo antes de registrar asistencia.';
+    } else if (member.status === 'inactive') {
+      blockCode = 'MEMBER_RETIRED';
+      blockMessage = 'Miembro retirado. Debe reincorporarse antes de registrar asistencia.';
+    } else if (member.status === 'invited') {
+      blockCode = 'MEMBER_INVITED';
+      blockMessage = 'La invitación del miembro aún no ha sido aceptada.';
+    } else if (attendanceToday) {
+      blockCode = 'ATTENDANCE_ALREADY_REGISTERED_TODAY';
+      blockMessage = 'Ya registró una asistencia válida hoy.';
+    } else if (!currentPeriod) {
+      blockCode = scheduledPeriod ? 'COVERAGE_NOT_STARTED' : latestIsExpired ? 'COVERAGE_EXPIRED' : 'ACTIVE_COVERAGE_REQUIRED';
+      blockMessage = scheduledPeriod
+        ? `La cobertura inicia el ${scheduledPeriod.starts_on}.`
+        : latestIsExpired && latestPeriod
+          ? `La membresía venció el ${latestPeriod.ends_on}.`
+          : 'No tiene una cobertura vigente.';
+    }
+
+    return {
+      id: member.id,
+      name: receptionMemberName(member),
+      phone: receptionMemberPhone(member),
+      status: member.status,
+      accountMode: member.account_mode,
+      location: location ? { id: location.id, name: location.name, isActive: location.is_active } : null,
+      membership: displayPeriod ? {
+        id: displayPeriod.membership.id,
+        status: displayPeriod.membership.status,
+        planName: relatedOne(displayPeriod.membership.plans)?.name ?? 'Plan',
+        coverageStatus: currentPeriod ? 'active' : scheduledPeriod ? 'scheduled' : latestIsExpired ? 'expired' : 'none',
+        startsOn: displayPeriod.starts_on,
+        endsOn: displayPeriod.ends_on,
+      } : null,
+      attendanceToday: attendanceToday ? {
+        id: attendanceToday.id,
+        checkedInAt: attendanceToday.checked_in_at,
+        source: attendanceToday.source,
+      } : null,
+      canCheckIn: blockCode === null,
+      blockCode,
+      blockMessage,
+    };
+  }).sort((left, right) => left.name.localeCompare(right.name, 'es'));
+
+  const names = new Map(members.map((member) => [member.id, receptionMemberName(member)]));
+  response.json({
+    today,
+    receptionLocation: request.tenant!.defaultLocationId
+      ? locations.get(request.tenant!.defaultLocationId) ?? null
+      : null,
+    members: receptionMembers,
+    attendances: (attendancesResult.data ?? []).map((attendance) => ({
+      ...attendance,
+      memberName: names.get(attendance.member_user_id) ?? 'Miembro',
+      currentStreak: streaks.get(attendance.member_user_id)?.current_streak ?? 0,
+    })),
+    bestStreak: Math.max(0, ...[...streaks.values()].map((streak) => streak.longest_streak)),
+  });
+}
+
 export async function registerQrAttendance(request: Request, response: Response) {
   if (request.tenant!.role !== 'member') throw new AppError(403, 'MEMBER_ONLY', 'El registro QR es exclusivo para miembros.');
   const input = qrAttendanceSchema.safeParse(request.body ?? {});
