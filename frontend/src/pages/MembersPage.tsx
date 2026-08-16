@@ -75,7 +75,10 @@ export function MembersPage() {
   const [conversionEmail, setConversionEmail] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [message, setMessage] = useState('');
-  const members = useQuery({ queryKey: ['members'], queryFn: async () => (await api.get<MembersPayload>('/members')).data });
+  // Esta consulta devuelve un objeto con directorios y sucursales. No debe
+  // compartir cache con Dashboard/Asistencias/Membresias, donde ['members']
+  // contiene exclusivamente Member[].
+  const members = useQuery({ queryKey: ['members-directory'], queryFn: async () => (await api.get<MembersPayload>('/members')).data });
   const detail = useQuery({ queryKey: ['member-detail', selectedId], queryFn: async () => (await api.get<MemberDetail>(`/members/${selectedId}`)).data, enabled: Boolean(selectedId) });
   const directory = directoryView === 'current' ? members.data?.members ?? [] : members.data?.retiredMembers ?? [];
   const visibleMembers = useMemo(() => {
@@ -90,6 +93,7 @@ export function MembersPage() {
   }, [detail.data?.member]);
 
   const refresh = async () => Promise.all([
+    queryClient.invalidateQueries({ queryKey: ['members-directory'] }),
     queryClient.invalidateQueries({ queryKey: ['members'] }),
     queryClient.invalidateQueries({ queryKey: ['member-detail', selectedId] }),
   ]);

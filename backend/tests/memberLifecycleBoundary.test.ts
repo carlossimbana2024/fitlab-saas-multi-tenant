@@ -37,4 +37,13 @@ describe('ciclo de vida seguro de miembros', () => {
     expect(controller).toContain("rpc('change_member_status_backend'");
     expect(controller).not.toMatch(/request\.supabase!\s*\.from\([^)]*\)\s*\.(?:insert|update|upsert|delete)\(/s);
   });
+
+  it('separa el directorio enriquecido del cache de listas usado por el dashboard', () => {
+    const membersPage = source('frontend/src/pages/MembersPage.tsx');
+    const dashboard = source('frontend/src/pages/DashboardPage.tsx');
+    expect(membersPage).toContain("queryKey: ['members-directory']");
+    expect(membersPage).toContain("queryClient.invalidateQueries({ queryKey: ['members-directory'] })");
+    expect(dashboard).toContain("queryKey: ['members']");
+    expect(membersPage).not.toMatch(/useQuery\(\{ queryKey: \['members'\]/);
+  });
 });
