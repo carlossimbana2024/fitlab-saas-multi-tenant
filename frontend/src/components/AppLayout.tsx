@@ -1,4 +1,4 @@
-import { Activity, CalendarDays, CircleDollarSign, CreditCard, LayoutDashboard, LogOut, Menu, Settings, UserCog, Users } from 'lucide-react';
+import { Activity, BarChart3, CalendarDays, CircleDollarSign, CreditCard, LayoutDashboard, LogOut, Menu, Settings, UserCog, Users } from 'lucide-react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
@@ -21,6 +21,7 @@ export function AppLayout() {
         {canUseReception && <NavLink to="/attendances"><Activity/>Asistencias</NavLink>}
         {canAccess('payments.register', 'payments.void', 'finances.view', 'members.manage') && <NavLink to="/memberships"><CreditCard/>Membresías</NavLink>}
         {canAccess('calendar.manage') && <NavLink to="/calendar"><CalendarDays/>Horarios</NavLink>}
+        {isOwner && <NavLink to="/owner-control"><BarChart3/>Control owner</NavLink>}
         {isOwner && <NavLink to="/staff"><UserCog/>Personal</NavLink>}
         {canAccess('settings.manage') && <NavLink to="/settings"><Settings/>Configuración</NavLink>}
         {isOwner && <NavLink to="/billing"><CircleDollarSign/>Plan FitLab</NavLink>}

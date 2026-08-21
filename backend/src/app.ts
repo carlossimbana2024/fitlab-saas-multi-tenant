@@ -19,6 +19,7 @@ import { settingsRouter } from './routes/settings.routes.js';
 import { billingRouter, stripeWebhookRouter } from './routes/billing.routes.js';
 import { chatRouter } from './routes/chat.routes.js';
 import { staffRouter } from './routes/staff.routes.js';
+import { ownerControlRouter } from './routes/ownerControl.routes.js';
 
 export const app = express();
 
@@ -56,6 +57,7 @@ app.use('/api/settings', settingsRouter);
 app.use('/api/billing', billingRouter);
 app.use('/api/chat', chatRouter);
 app.use('/api/staff', staffRouter);
+app.use('/api/owner-control', ownerControlRouter);
 
 app.use(notFoundHandler);
 app.use(errorHandler);
