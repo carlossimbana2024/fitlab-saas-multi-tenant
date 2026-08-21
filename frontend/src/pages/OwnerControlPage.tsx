@@ -28,6 +28,8 @@ type AuditItem = {
   action: string;
   entityType: string;
   entityId: string | null;
+  entityName: string | null;
+  entityRole: string | null;
   permissionKey: string | null;
   usedPinElevation: boolean;
   beforeData: unknown;
@@ -36,8 +38,53 @@ type AuditItem = {
 };
 type AuditResponse = {
   items: AuditItem[];
+  permissionCatalog: Array<{ key: string; name: string; description: string | null }>;
   pagination: { page: number; pageSize: number; total: number; totalPages: number };
 };
+
+type PermissionMode = 'allowed' | 'requires_pin' | 'denied';
+
+const ACTION_LABELS: Record<string, string> = {
+  'staff.permissions_updated': 'Actualizó los permisos de un empleado',
+  'staff.status_updated': 'Cambió el estado de un empleado',
+  'staff.invitation_created': 'Invitó a un empleado',
+  'staff.invitation_revoked': 'Revocó una invitación de empleado',
+  'staff.removed': 'Retiró el acceso de un empleado',
+  'staff.reinstated': 'Reincorporó a un empleado',
+  'member.managed_created': 'Registró un miembro sin cuenta',
+  'member.details_updated': 'Actualizó los datos de un miembro',
+  'member.suspended': 'Suspendió a un miembro',
+  'member.reactivated': 'Reactivó a un miembro',
+  'member.retired': 'Retiró a un miembro',
+  'member.reinstated': 'Reincorporó a un miembro',
+  'member.converted_to_portal': 'Concedió acceso al portal a un miembro',
+  'membership.created_with_payment': 'Creó una membresía y registró su pago',
+  'membership.renewed': 'Renovó una membresía',
+  'membership.cancelled': 'Canceló una membresía',
+  'payment.voided': 'Anuló un pago',
+  'payment.refunded': 'Registró un reembolso',
+  'attendance.registered_by_staff': 'Registró una asistencia manual',
+  'attendance.voided': 'Anuló una asistencia',
+  'calendar.schedule_updated': 'Actualizó el horario semanal',
+  'calendar.exception_saved': 'Registró una excepción de horario',
+  'settings.gym_updated': 'Actualizó los datos del gimnasio',
+  'settings.location_updated': 'Actualizó los datos de una sucursal',
+  'settings.receipt_branding_updated': 'Actualizó la marca de los recibos',
+  'admin_pin.updated': 'Actualizó el PIN administrativo',
+  'admin_pin.elevation_created': 'Autorizó una acción mediante PIN',
+  'admin_pin.attempt_failed': 'Registró un intento de PIN incorrecto',
+  'admin_pin.attempt_blocked': 'Bloqueó temporalmente los intentos de PIN',
+  'plan.created': 'Creó un plan de membresía',
+};
+
+const ENTITY_LABELS: Record<string, string> = {
+  gym_user: 'Usuario del gimnasio', member: 'Miembro', membership: 'Membresía',
+  payment: 'Pago', attendance: 'Asistencia', gym: 'Gimnasio',
+  gym_location: 'Sucursal', staff_invitation: 'Invitación de empleado', plan: 'Plan',
+};
+
+const ROLE_LABELS: Record<string, string> = { owner: 'Owner', staff: 'Empleado', member: 'Miembro', system: 'Sistema' };
+const MODE_LABELS: Record<PermissionMode, string> = { allowed: 'Permitido', requires_pin: 'Requiere PIN', denied: 'Denegado' };
 
 function todayInGuayaquil() {
   return new Intl.DateTimeFormat('en-CA', {
@@ -56,11 +103,34 @@ function moneyLabel(summary: MoneySummary) {
 }
 
 function readableAction(action: string) {
-  return action.split('.').map((part) => part.replaceAll('_', ' ')).join(' · ');
+  return ACTION_LABELS[action] ?? action.split('.').map((part) => part.replaceAll('_', ' ')).join(' · ');
 }
 
 function JsonValue({ label, value }: { label: string; value: unknown }) {
-  return <div className="audit-json"><strong>{label}</strong><pre>{value == null ? 'Sin datos' : JSON.stringify(value, null, 2)}</pre></div>;
+  return <div className="audit-json"><strong>{label}</strong><pre>{value == null ? 'No se registró este estado.' : JSON.stringify(value, null, 2)}</pre></div>;
+}
+
+function permissionMatrix(value: unknown): Record<string, PermissionMode> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const entries = Object.entries(value).filter((entry): entry is [string, PermissionMode] =>
+    entry[1] === 'allowed' || entry[1] === 'requires_pin' || entry[1] === 'denied');
+  return entries.length ? Object.fromEntries(entries) : null;
+}
+
+function PermissionAudit({ item, catalog }: { item: AuditItem; catalog: AuditResponse['permissionCatalog'] }) {
+  if (item.action !== 'staff.permissions_updated') return null;
+  const before = permissionMatrix(item.beforeData);
+  const after = permissionMatrix(item.afterData);
+  if (!after) return null;
+  const names = new Map(catalog.map((permission) => [permission.key, permission.name]));
+
+  if (!before) {
+    return <div className="permission-audit"><div className="audit-context-note"><ShieldCheck/><span><strong>Estado registrado después del cambio</strong><small>Este evento antiguo no guardó el estado anterior, por lo que no es posible reconstruir las diferencias.</small></span></div><div className="permission-snapshot">{Object.entries(after).sort(([left], [right]) => left.localeCompare(right)).map(([key, mode]) => <div key={key}><span>{names.get(key) ?? key}</span><b className={`permission-state ${mode}`}>{MODE_LABELS[mode]}</b></div>)}</div></div>;
+  }
+
+  const changedKeys = [...new Set([...Object.keys(before), ...Object.keys(after)])]
+    .filter((key) => before[key] !== after[key]).sort();
+  return <div className="permission-audit"><strong className="permission-audit-title">Cambios realizados</strong>{changedKeys.length ? <div className="permission-change-list">{changedKeys.map((key) => <div className="permission-change" key={key}><span>{names.get(key) ?? key}</span><b className={`permission-state ${before[key] ?? 'denied'}`}>{MODE_LABELS[before[key] ?? 'denied']}</b><span className="permission-arrow">→</span><b className={`permission-state ${after[key] ?? 'denied'}`}>{MODE_LABELS[after[key] ?? 'denied']}</b></div>)}</div> : <div className="audit-context-note"><ShieldCheck/><span><strong>Sin cambios efectivos</strong><small>Se guardó la misma configuración que ya tenía el empleado.</small></span></div>}</div>;
 }
 
 export function OwnerControlPage() {
@@ -140,11 +210,19 @@ export function OwnerControlPage() {
 
     {audit.isError && <div className="alert error">{apiErrorMessage(audit.error)}</div>}
     <section className="panel audit-panel">
-      {audit.isLoading ? <div className="owner-loading"><LoaderCircle className="spin"/><strong>Cargando auditoría…</strong></div> : audit.data?.items.length ? <div className="audit-list">{audit.data.items.map((item) => <article className="audit-row" key={item.id}>
-        <div className="audit-main"><span className="audit-icon"><ShieldCheck/></span><div><strong>{readableAction(item.action)}</strong><small>{item.actorName} · {item.actorRole} · {item.entityType}</small></div><time>{new Date(item.createdAt).toLocaleString('es-EC')}</time></div>
-        <div className="audit-metadata"><span>Entidad: <strong>{item.entityId ?? 'Sin identificador'}</strong></span><span>Permiso: <strong>{item.permissionKey ?? 'No aplica'}</strong></span><span className={item.usedPinElevation ? 'pin-used' : ''}><KeyRound/>{item.usedPinElevation ? 'Usó PIN' : 'Sin PIN'}</span></div>
-        {(item.beforeData != null || item.afterData != null) && <details><summary>Ver valores anteriores y posteriores</summary><div className="audit-json-grid"><JsonValue label="Antes" value={item.beforeData}/><JsonValue label="Después" value={item.afterData}/></div></details>}
-      </article>)}</div> : <div className="empty compact"><ShieldCheck/><strong>No hay acciones para estos filtros</strong></div>}
+      {audit.isLoading ? <div className="owner-loading"><LoaderCircle className="spin"/><strong>Cargando auditoría…</strong></div> : audit.data?.items.length ? <div className="audit-list">{audit.data.items.map((item) => {
+        const permissionName = audit.data.permissionCatalog.find((permission) => permission.key === item.permissionKey)?.name;
+        return <article className="audit-row" key={item.id}>
+          <div className="audit-main"><span className="audit-icon"><ShieldCheck/></span><div><strong>{readableAction(item.action)}</strong><small>{item.actorName} · {ROLE_LABELS[item.actorRole] ?? item.actorRole}</small></div><time>{new Date(item.createdAt).toLocaleString('es-EC')}</time></div>
+          <div className="audit-metadata">
+            {item.entityName ? <span>{item.entityRole ? ROLE_LABELS[item.entityRole] ?? 'Usuario' : 'Usuario'}: <strong>{item.entityName}</strong></span> : <span>Entidad: <strong>{ENTITY_LABELS[item.entityType] ?? item.entityType}</strong></span>}
+            {permissionName && <span>Operación: <strong>{permissionName}</strong></span>}
+            <span className={item.usedPinElevation ? 'pin-used' : ''}><KeyRound/>{item.usedPinElevation ? 'Autorizado con PIN' : 'No utilizó PIN'}</span>
+          </div>
+          <PermissionAudit item={item} catalog={audit.data.permissionCatalog}/>
+          {(item.beforeData != null || item.afterData != null) && <details className="audit-technical"><summary>Ver datos técnicos (JSON)</summary><div className="audit-technical-metadata"><span>Tipo: {item.entityType}</span><span>ID: {item.entityId ?? 'No disponible'}</span><span>Acción: {item.action}</span></div><div className="audit-json-grid"><JsonValue label="Estado anterior técnico" value={item.beforeData}/><JsonValue label="Estado posterior técnico" value={item.afterData}/></div></details>}
+        </article>;
+      })}</div> : <div className="empty compact"><ShieldCheck/><strong>No hay acciones para estos filtros</strong></div>}
       {audit.data && <div className="audit-pagination"><span>{audit.data.pagination.total} registros · Página {audit.data.pagination.page} de {audit.data.pagination.totalPages}</span><div><button className="small-button" disabled={auditPage <= 1} onClick={() => setAuditPage((current) => Math.max(1, current - 1))}><ChevronLeft/> Anterior</button><button className="small-button" disabled={auditPage >= audit.data.pagination.totalPages} onClick={() => setAuditPage((current) => current + 1)}>Siguiente <ChevronRight/></button></div></div>}
     </section>
   </div>;

@@ -286,25 +286,40 @@ export async function listOwnerAudit(request: Request, response: Response) {
   if (auditResult.error) throw fromSupabaseError(auditResult.error);
   const items = auditResult.data ?? [];
   const actorIds = [...new Set(items.map((item) => item.actor_gym_user_id).filter((id): id is string => Boolean(id)))];
-  const actorsResult = actorIds.length
+  const entityGymUserIds = items
+    .filter((item) => item.entity_type === 'gym_user')
+    .map((item) => item.entity_id)
+    .filter((id): id is string => Boolean(id));
+  const relatedGymUserIds = [...new Set([...actorIds, ...entityGymUserIds])];
+  const [actorsResult, catalogResult] = await Promise.all([
+    relatedGymUserIds.length
     ? await client.from('gym_users').select('id,role,managed_full_name,profiles(full_name)')
-      .eq('gym_id', request.tenant!.gymId).in('id', actorIds)
-    : { data: [], error: null };
-  if (actorsResult.error) throw fromSupabaseError(actorsResult.error);
+      .eq('gym_id', request.tenant!.gymId).in('id', relatedGymUserIds)
+    : Promise.resolve({ data: [], error: null }),
+    client.from('permission_catalog').select('key,name,description').order('key'),
+  ]);
+  const relatedError = actorsResult.error ?? catalogResult.error;
+  if (relatedError) throw fromSupabaseError(relatedError);
   const actors = new Map(((actorsResult.data ?? []) as ActorRow[]).map((actor) => [actor.id, actor]));
   const total = auditResult.count ?? 0;
 
   response.json({
     items: items.map((item) => {
       const actor = item.actor_gym_user_id ? actors.get(item.actor_gym_user_id) : undefined;
+      const entityUser = item.entity_type === 'gym_user' && item.entity_id
+        ? actors.get(item.entity_id)
+        : undefined;
       return {
         id: item.id, actorGymUserId: item.actor_gym_user_id, actorName: actorName(actor),
         actorRole: actor?.role ?? 'system', action: item.action, entityType: item.entity_type,
-        entityId: item.entity_id, permissionKey: item.permission_key,
+        entityId: item.entity_id, entityName: entityUser ? actorName(entityUser) : null,
+        entityRole: entityUser?.role ?? null,
+        permissionKey: item.permission_key,
         usedPinElevation: item.used_pin_elevation, beforeData: item.before_data,
         afterData: item.after_data, createdAt: item.created_at,
       };
     }),
+    permissionCatalog: catalogResult.data ?? [],
     pagination: { page, pageSize, total, totalPages: Math.max(1, Math.ceil(total / pageSize)) },
   });
 }

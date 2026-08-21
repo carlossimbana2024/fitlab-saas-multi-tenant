@@ -42,4 +42,24 @@ describe('control y auditoría exclusiva del owner', () => {
     expect(page).toContain("api.get<AuditResponse>('/owner-control/audit'");
     expect(page).not.toMatch(/api\.(post|put|patch|delete)\([^)]*owner-control/);
   });
+
+  it('presenta permisos con nombres comprensibles y conserva el JSON como detalle técnico', () => {
+    const controller = source('backend/src/controllers/ownerControl.controller.ts');
+    const page = source('frontend/src/pages/OwnerControlPage.tsx');
+    expect(controller).toContain("from('permission_catalog')");
+    expect(controller).toContain('entityName: entityUser ? actorName(entityUser) : null');
+    expect(page).toContain("'staff.permissions_updated': 'Actualizó los permisos de un empleado'");
+    expect(page).toContain("requires_pin: 'Requiere PIN'");
+    expect(page).toContain('Ver datos técnicos (JSON)');
+  });
+
+  it('los cambios futuros de permisos guardan las matrices anterior y posterior', () => {
+    const migration = source('supabase/migrations/0027_staff_permission_audit_snapshots.sql');
+    expect(migration).toContain('previous_permissions jsonb');
+    expect(migration).toContain('resulting_permissions jsonb');
+    expect(migration).toMatch(/entity_id, permission_key, before_data, after_data/);
+    expect(migration).toMatch(/'staff\.permissions_updated'[\s\S]*previous_permissions, resulting_permissions/);
+    expect(migration).toMatch(/revoke all on function public\.update_staff_permissions_backend[\s\S]*from public, anon, authenticated/);
+    expect(migration).toMatch(/grant execute on function public\.update_staff_permissions_backend[\s\S]*to service_role/);
+  });
 });
