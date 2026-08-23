@@ -18,6 +18,17 @@ const knownErrors: Record<string, { status: number; message: string }> = {
   REVERSIBLE_PAYMENT_NOT_FOUND: { status: 404, message: 'El pago no existe o ya fue anulado o reembolsado.' },
   EXTERNAL_REFERENCE_REQUIRED_FOR_PAYMENT_METHOD: { status: 400, message: 'Este método de pago requiere una referencia.' },
   FINANCIAL_PERMISSION_DENIED: { status: 403, message: 'No tienes permiso para realizar esta operación financiera.' },
+  INSUFFICIENT_STOCK: { status: 409, message: 'No hay inventario suficiente para completar la operación.' },
+  PRODUCT_NOT_FOUND: { status: 404, message: 'El producto no existe o ya no está disponible.' },
+  SALE_LOCATION_MUST_BE_ACTIVE_IN_SAME_GYM: { status: 409, message: 'La sucursal de la venta no está disponible.' },
+  INVENTORY_LOCATION_MUST_BE_ACTIVE_IN_SAME_GYM: { status: 409, message: 'La sucursal del inventario no está disponible.' },
+  SALE_MEMBER_MUST_BE_ACTIVE_IN_SAME_GYM: { status: 409, message: 'El miembro seleccionado no está activo.' },
+  SALE_PRODUCTS_MUST_USE_ONE_CURRENCY: { status: 409, message: 'Los productos de una venta deben usar la misma moneda.' },
+  SALE_TOTAL_MUST_BE_POSITIVE: { status: 400, message: 'El total de la venta debe ser mayor que cero.' },
+  REVERSIBLE_SALE_NOT_FOUND: { status: 404, message: 'La venta no existe o ya fue revertida.' },
+  SALE_CONFIRMED_PAYMENT_NOT_FOUND: { status: 409, message: 'La venta no tiene un pago confirmado.' },
+  SALE_INVENTORY_LOCATION_MISMATCH: { status: 409, message: 'El inventario y la sucursal de la venta no coinciden.' },
+  COMMERCE_PERMISSION_DENIED: { status: 403, message: 'No tienes permiso para esta operación.' },
 };
 
 export function fromSupabaseError(error: DatabaseError): AppError {
