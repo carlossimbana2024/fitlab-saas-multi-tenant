@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Archive, ArrowDownToLine, ArrowUpFromLine, Ban, Boxes, Check, FileText, LoaderCircle, Plus, Receipt, RotateCcw, ShoppingCart, SlidersHorizontal, X } from 'lucide-react';
+import { Archive, ArrowDownToLine, ArrowUpFromLine, Ban, Boxes, Check, Download, FileText, LoaderCircle, Plus, Printer, Receipt, RotateCcw, ShoppingCart, SlidersHorizontal, X } from 'lucide-react';
+import { jsPDF } from 'jspdf';
 import { useMemo, useState, type FormEvent } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { api, apiErrorMessage } from '../services/api';
@@ -22,6 +23,92 @@ const movementLabels: Record<string, string> = { purchase: 'Entrada', return: 'D
 const money = (amount: number, currency: string) => new Intl.NumberFormat('es-EC', { style: 'currency', currency }).format(Number(amount));
 const dateTime = (value?: string | null) => value ? new Intl.DateTimeFormat('es-EC', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : '—';
 const memberName = (member: Member) => member.profiles?.full_name ?? member.managed_full_name ?? 'Miembro';
+
+function downloadSaleReceipt(receipt: Receipt) {
+  const document = new jsPDF({ unit: 'mm', format: 'a4' });
+  const pageWidth = document.internal.pageSize.getWidth();
+  const left = 16;
+  const right = pageWidth - 16;
+  const receiptCode = `POS-REC-${String(receipt.number).padStart(6, '0')}`;
+  let y = 18;
+
+  document.setProperties({ title: `${receiptCode} - ${receipt.gym.name}`, subject: 'Comprobante interno de venta FitLab' });
+  document.setFont('helvetica', 'bold');
+  document.setFontSize(18);
+  document.text(receipt.gym.name || 'FitLab', left, y);
+  document.setFontSize(10);
+  document.setFont('helvetica', 'normal');
+  document.text('COMPROBANTE INTERNO DE VENTA', right, y, { align: 'right' });
+  y += 7;
+  document.setTextColor(90, 96, 108);
+  document.text(`${receipt.location.name} · ${receiptCode}`, left, y);
+  document.text(`Estado: ${statusLabels[receipt.status] ?? receipt.status}`, right, y, { align: 'right' });
+  y += 8;
+  document.setDrawColor(220, 224, 230);
+  document.line(left, y, right, y);
+  y += 9;
+
+  document.setTextColor(17, 17, 17);
+  document.setFont('helvetica', 'bold');
+  document.text('Cliente', left, y);
+  document.text('Registró', pageWidth / 2, y);
+  y += 5;
+  document.setFont('helvetica', 'normal');
+  document.text(receipt.customer.name, left, y);
+  document.text(receipt.registeredBy.name, pageWidth / 2, y);
+  y += 5;
+  document.setTextColor(90, 96, 108);
+  document.text(receipt.customer.phone || 'Sin teléfono registrado', left, y);
+  document.text(dateTime(receipt.sale.sold_at), pageWidth / 2, y);
+  y += 9;
+
+  document.setTextColor(17, 17, 17);
+  document.setFont('helvetica', 'bold');
+  document.text('Concepto', left, y);
+  document.text('Importe', right, y, { align: 'right' });
+  y += 5;
+  document.setFont('helvetica', 'normal');
+  for (const item of receipt.items) {
+    const lines = document.splitTextToSize(`${item.product_name_snapshot} ×${item.quantity}`, pageWidth - 70);
+    document.text(lines, left, y);
+    document.text(money(item.line_total, receipt.currency), right, y, { align: 'right' });
+    y += Math.max(5, lines.length * 5);
+  }
+  document.setDrawColor(220, 224, 230);
+  document.line(left, y, right, y);
+  y += 7;
+  document.setTextColor(90, 96, 108);
+  document.text('Método de pago', left, y);
+  document.text(methodLabels[receipt.paymentMethod] ?? receipt.paymentMethod, right, y, { align: 'right' });
+  y += 6;
+  if (receipt.externalReference) {
+    document.text('Referencia', left, y);
+    document.text(receipt.externalReference, right, y, { align: 'right' });
+    y += 6;
+  }
+  if (receipt.sale.discount > 0) {
+    document.text('Descuento', left, y);
+    document.text(`-${money(receipt.sale.discount, receipt.currency)}`, right, y, { align: 'right' });
+    y += 6;
+  }
+  document.setTextColor(17, 17, 17);
+  document.setFont('helvetica', 'bold');
+  document.setFontSize(14);
+  document.text('Total', left, y);
+  document.text(money(receipt.amount, receipt.currency), right, y, { align: 'right' });
+  y += 10;
+  document.setFontSize(9);
+  document.setFont('helvetica', 'normal');
+  if (receipt.voidReason || receipt.refundReason) {
+    document.setTextColor(180, 35, 35);
+    document.text(`Motivo: ${receipt.voidReason ?? receipt.refundReason}`, left, y);
+    y += 7;
+  }
+  document.setTextColor(90, 96, 108);
+  const disclaimer = document.splitTextToSize('Comprobante interno. No válido como comprobante tributario.', pageWidth - 32);
+  document.text(disclaimer, pageWidth / 2, y, { align: 'center' });
+  document.save(`${receiptCode}.pdf`);
+}
 
 export function InventoryPage() {
   const { session } = useAuth();
@@ -111,7 +198,7 @@ export function InventoryPage() {
     {productModal && <Modal title={productTarget ? 'Editar producto' : 'Nuevo producto'} close={() => setProductModal(false)}><form className="commerce-form" onSubmit={submitProduct}><label>Nombre<input required value={productForm.name} onChange={(event) => setProductForm({ ...productForm, name: event.target.value })}/></label><label>SKU<input required value={productForm.sku} onChange={(event) => setProductForm({ ...productForm, sku: event.target.value })}/></label><label>Descripción<input value={productForm.description} onChange={(event) => setProductForm({ ...productForm, description: event.target.value })}/></label><div className="form-grid"><label>Precio<input required type="number" min="0" step="0.01" value={productForm.salePrice} onChange={(event) => setProductForm({ ...productForm, salePrice: event.target.value })}/></label><label>Stock mínimo<input required type="number" min="0" value={productForm.minimumStock} onChange={(event) => setProductForm({ ...productForm, minimumStock: event.target.value })}/></label></div><label>Moneda<select value={productForm.currency} onChange={(event) => setProductForm({ ...productForm, currency: event.target.value })}><option>USD</option></select></label>{productTarget && <label className="checkbox-line"><input type="checkbox" checked={productForm.isActive} onChange={(event) => setProductForm({ ...productForm, isActive: event.target.checked })}/> Producto activo</label>}<button className="primary full-width" disabled={createOrUpdate.isPending}>{createOrUpdate.isPending ? <LoaderCircle className="spin"/> : <Check/>}Guardar producto</button></form></Modal>}
     {adjustmentModal && <Modal title="Ajustar stock" close={() => setAdjustmentModal(false)}><form className="commerce-form" onSubmit={submitAdjustment}><label>Producto<select required value={adjustmentForm.productId} onChange={(event) => setAdjustmentForm({ ...adjustmentForm, productId: event.target.value })}><option value="">Selecciona un producto</option>{activeProducts.map((product) => <option key={product.id} value={product.id}>{product.name} · Stock {product.current_stock}</option>)}</select></label><label>Tipo<select value={adjustmentForm.movementType} onChange={(event) => setAdjustmentForm({ ...adjustmentForm, movementType: event.target.value as AdjustmentForm['movementType'] })}><option value="purchase">Entrada de compra</option><option value="return">Devolución recibida</option><option value="adjustment">Ajuste manual</option><option value="loss">Pérdida</option></select></label><label>Cantidad {adjustmentForm.movementType === 'loss' ? '(usa número negativo)' : ''}<input required type="number" step="1" value={adjustmentForm.quantityDelta} onChange={(event) => setAdjustmentForm({ ...adjustmentForm, quantityDelta: event.target.value })}/></label><label>Motivo<input required minLength={3} value={adjustmentForm.reason} onChange={(event) => setAdjustmentForm({ ...adjustmentForm, reason: event.target.value })}/></label><button className="primary full-width" disabled={adjust.isPending}>{adjust.isPending ? <LoaderCircle className="spin"/> : <Check/>}Registrar movimiento</button></form></Modal>}
     {reversalTarget && <Modal title={reversalTarget.action === 'void' ? 'Anular venta' : 'Reembolsar venta'} close={() => setReversalTarget(null)}><form className="commerce-form" onSubmit={(event) => { event.preventDefault(); reverse.mutate(); }}><p className="form-note">La venta conservará su historial y devolverá las unidades al stock de la sucursal.</p><label>Motivo<input required minLength={3} value={reversalReason} onChange={(event) => setReversalReason(event.target.value)}/></label><button className="primary full-width" disabled={reverse.isPending}>{reverse.isPending ? <LoaderCircle className="spin"/> : <Check/>}Confirmar</button></form></Modal>}
-    {receiptId && <Modal title="Recibo interno de venta" close={() => setReceiptId(null)}>{receipt.isLoading ? <Loading text="Preparando recibo…"/> : receipt.data ? <div className="sale-receipt"><div className="receipt-brand"><div><p className="eyebrow">COMPROBANTE INTERNO</p><h2>{receipt.data.gym.name}</h2><span>{receipt.data.location.name} · POS-REC-{String(receipt.data.number).padStart(6, '0')}</span></div><span className={`badge ${receipt.data.status}`}>{statusLabels[receipt.data.status] ?? receipt.data.status}</span></div><div className="receipt-meta"><span><small>Cliente</small><strong>{receipt.data.customer.name}</strong></span><span><small>Registró</small><strong>{receipt.data.registeredBy.name}</strong></span><span><small>Método</small><strong>{methodLabels[receipt.data.paymentMethod] ?? receipt.data.paymentMethod}</strong></span><span><small>Fecha</small><strong>{dateTime(receipt.data.sale.sold_at)}</strong></span></div><div className="receipt-items">{receipt.data.items.map((item, index) => <div key={`${item.product_name_snapshot}-${index}`}><span>{item.product_name_snapshot} ×{item.quantity}</span><b>{money(item.line_total, receipt.data.currency)}</b></div>)}</div><div className="receipt-total"><span>Total</span><strong>{money(receipt.data.amount, receipt.data.currency)}</strong></div>{(receipt.data.voidReason || receipt.data.refundReason) && <div className="form-note">Motivo: {receipt.data.voidReason ?? receipt.data.refundReason}</div>}<small className="receipt-disclaimer">Comprobante interno. No válido como comprobante tributario.</small></div> : <Empty icon={<FileText/>} title="Recibo no disponible" text="No se pudo cargar el recibo."/>}</Modal>}
+    {receiptId && <Modal title="Recibo interno de venta" close={() => setReceiptId(null)}>{receipt.isLoading ? <Loading text="Preparando recibo…"/> : receipt.data ? <div className="sale-receipt"><div className="receipt-brand"><div><p className="eyebrow">COMPROBANTE INTERNO</p><h2>{receipt.data.gym.name}</h2><span>{receipt.data.location.name} · POS-REC-{String(receipt.data.number).padStart(6, '0')}</span></div><span className={`badge ${receipt.data.status}`}>{statusLabels[receipt.data.status] ?? receipt.data.status}</span></div><div className="receipt-meta"><span><small>Cliente</small><strong>{receipt.data.customer.name}</strong></span><span><small>Registró</small><strong>{receipt.data.registeredBy.name}</strong></span><span><small>Método</small><strong>{methodLabels[receipt.data.paymentMethod] ?? receipt.data.paymentMethod}</strong></span><span><small>Fecha</small><strong>{dateTime(receipt.data.sale.sold_at)}</strong></span></div><div className="receipt-items">{receipt.data.items.map((item, index) => <div key={`${item.product_name_snapshot}-${index}`}><span>{item.product_name_snapshot} ×{item.quantity}</span><b>{money(item.line_total, receipt.data.currency)}</b></div>)}</div><div className="receipt-total"><span>Total</span><strong>{money(receipt.data.amount, receipt.data.currency)}</strong></div>{(receipt.data.voidReason || receipt.data.refundReason) && <div className="form-note">Motivo: {receipt.data.voidReason ?? receipt.data.refundReason}</div>}<small className="receipt-disclaimer">Comprobante interno. No válido como comprobante tributario.</small><div className="receipt-actions"><button type="button" className="small-button" onClick={() => window.print()}><Printer/>Imprimir</button><button type="button" className="small-button" onClick={() => downloadSaleReceipt(receipt.data!)}><Download/>Descargar PDF</button></div></div> : <Empty icon={<FileText/>} title="Recibo no disponible" text="No se pudo cargar el recibo."/>}</Modal>}
   </div>;
 }
 
