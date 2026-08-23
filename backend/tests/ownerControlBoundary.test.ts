@@ -43,14 +43,32 @@ describe('control y auditoría exclusiva del owner', () => {
     expect(page).not.toMatch(/api\.(post|put|patch|delete)\([^)]*owner-control/);
   });
 
-  it('presenta permisos con nombres comprensibles y conserva el JSON como detalle técnico', () => {
+  it('presenta la auditoría en lenguaje comprensible sin exponer el JSON técnico', () => {
     const controller = source('backend/src/controllers/ownerControl.controller.ts');
     const page = source('frontend/src/pages/OwnerControlPage.tsx');
     expect(controller).toContain("from('permission_catalog')");
     expect(controller).toContain('entityName: entityUser ? actorName(entityUser) : null');
+    expect(controller).toContain('permissionChanges, permissionSnapshot');
+    expect(controller).not.toContain('beforeData: item.before_data');
+    expect(controller).not.toContain('afterData: item.after_data');
     expect(page).toContain("'staff.permissions_updated': 'Actualizó los permisos de un empleado'");
     expect(page).toContain("requires_pin: 'Requiere PIN'");
-    expect(page).toContain('Ver datos técnicos (JSON)');
+    expect(page).not.toContain('Ver datos técnicos (JSON)');
+    expect(page).not.toContain('JSON.stringify');
+  });
+
+  it('ofrece indicadores de decisión por período sin crear otro módulo de datos', () => {
+    const controller = source('backend/src/controllers/ownerControl.controller.ts');
+    const page = source('frontend/src/pages/OwnerControlPage.tsx');
+    expect(controller).toContain("view: z.enum(['week', 'month', 'quarter', 'year', 'custom'])");
+    expect(controller).toContain("select('attendance_date,location_id,checked_in_at,member_user_id')");
+    expect(controller).toContain('incomeEvolution');
+    expect(controller).toContain('renewalBuckets');
+    expect(controller).toContain('locationComparison');
+    expect(controller).toContain('staffActivity');
+    for (const label of ['Evolución de ingresos', 'Horarios más concurridos', 'Renovaciones y retención', 'Comparación entre sucursales', 'Actividad del personal y alertas']) {
+      expect(page).toContain(label);
+    }
   });
 
   it('los cambios futuros de permisos guardan las matrices anterior y posterior', () => {
