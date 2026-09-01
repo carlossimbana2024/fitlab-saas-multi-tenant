@@ -22,6 +22,7 @@ import { StaffPage } from './pages/StaffPage';
 import { ReceiptVerificationPage } from './pages/ReceiptVerificationPage';
 import { OwnerControlPage } from './pages/OwnerControlPage';
 import { InventoryPage } from './pages/InventoryPage';
+import { ActivitiesPage } from './pages/ActivitiesPage';
 
 export default function App() {
   return <Routes>
@@ -44,6 +45,7 @@ export default function App() {
         <Route path="/attendances" element={<AttendancesPage/>}/>
         <Route path="/memberships" element={<MembershipsPage/>}/>
         <Route path="/calendar" element={<CalendarPage/>}/>
+        <Route path="/activities" element={<ActivitiesPage/>}/>
         <Route path="/inventory" element={<InventoryPage/>}/>
         <Route element={<OwnerRoute/>}>
           <Route path="/owner-control" element={<OwnerControlPage/>}/>

@@ -22,6 +22,7 @@ const permissionNames: Record<string, string> = {
   'sales.void': 'Anular ventas',
   'classes.manage': 'Gestionar clases',
   'classes.bookings_manage': 'Gestionar reservas',
+  'classes.attendance_manage': 'Controlar asistencia de clases',
   'shifts.manage': 'Gestionar turnos',
   'reports.view': 'Ver reportes',
   'calendar.manage': 'Gestionar calendario',
