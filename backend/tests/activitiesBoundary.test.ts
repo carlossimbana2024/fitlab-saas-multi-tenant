@@ -46,4 +46,23 @@ describe('actividades, reservas y control del instructor', () => {
     expect(controller).toContain(".eq('instructor_user_id', request.tenant!.gymUserId)");
     expect(controller).toContain('classAccess.bookings ? people.filter');
   });
+
+  it('aplica ventana de cancelación, lista de espera y resumen mensual', () => {
+    const migration = source('supabase/migrations/0031_class_booking_policy_waitlist.sql');
+    const controller = source('backend/src/controllers/activity.controller.ts');
+    const routes = source('backend/src/routes/activity.routes.ts');
+    const portal = source('frontend/src/pages/MemberPortalPage.tsx');
+    expect(migration).toContain("interval '2 hours'");
+    expect(migration).toContain('class_waitlists');
+    expect(migration).toContain('join_class_waitlist_backend');
+    expect(migration).toContain('leave_class_waitlist_backend');
+    expect(migration).toContain("class.waitlist_joined");
+    expect(controller).toContain("rpc('join_class_waitlist_backend'");
+    expect(controller).toContain("rpc('leave_class_waitlist_backend'");
+    expect(routes).toContain("activityRouter.get('/summary'");
+    expect(routes).toContain("activityRouter.post('/schedules/:id/waitlist/self'");
+    expect(routes).toContain("activityRouter.patch('/waitlist/:id/cancel-self'");
+    expect(portal).toContain('Unirme a lista de espera');
+    expect(portal).toContain('Salir de lista');
+  });
 });

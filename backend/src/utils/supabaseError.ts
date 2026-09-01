@@ -40,6 +40,7 @@ const knownErrors: Record<string, { status: number; message: string }> = {
   CLASS_DOES_NOT_REQUIRE_ADDITIONAL_PAYMENT: { status: 409, message: 'Esta actividad está incluida y no requiere un cobro adicional.' },
   CLASS_PAYMENT_METHOD_REQUIRED: { status: 400, message: 'Selecciona el método de pago.' },
   CLASS_BOOKING_ALREADY_EXISTS: { status: 409, message: 'El miembro ya tiene una reserva para esta clase.' },
+  CLASS_BOOKING_CANCELLATION_WINDOW_CLOSED: { status: 409, message: 'Ya no puedes cancelar la reserva con menos de 2 horas de anticipación.' },
   CLASS_BOOKING_NOT_CANCELLABLE: { status: 404, message: 'La reserva no existe o ya no puede cancelarse.' },
   PAST_CLASS_BOOKING_CANNOT_BE_CANCELLED: { status: 409, message: 'Una clase iniciada ya no puede cancelarse.' },
   PAID_CLASS_CANCELLATION_REQUIRES_RECEPTION: { status: 409, message: 'Una reserva pagada debe cancelarse desde recepción.' },
@@ -48,6 +49,10 @@ const knownErrors: Record<string, { status: number; message: string }> = {
   ONLY_ASSIGNED_INSTRUCTOR_CAN_MARK_ATTENDANCE: { status: 403, message: 'Solo el instructor asignado puede controlar esta clase.' },
   REVERSIBLE_CLASS_PAYMENT_NOT_FOUND: { status: 404, message: 'El pago de la clase no existe o ya fue reembolsado.' },
   PAID_CLASS_BOOKING_NOT_FOUND: { status: 404, message: 'La reserva pagada no existe.' },
+  MEMBER_CAN_ONLY_JOIN_OWN_WAITLIST: { status: 403, message: 'Solo puedes unirte a la lista de espera con tu propia cuenta.' },
+  CLASS_WAITLIST_NOT_NEEDED: { status: 409, message: 'Todavía hay cupos disponibles; puedes reservar directamente.' },
+  CLASS_WAITLIST_PAYMENT_REQUIRED: { status: 409, message: 'Las actividades con pago adicional se reservan y pagan en recepción.' },
+  CLASS_WAITLIST_NOT_FOUND: { status: 404, message: 'La entrada en la lista de espera no existe o ya no está activa.' },
 };
 
 export function fromSupabaseError(error: DatabaseError): AppError {

@@ -6,6 +6,9 @@ import {
   createActivity,
   createClassSchedule,
   getClassReceipt,
+  getActivitySummary,
+  joinClassWaitlist,
+  leaveClassWaitlist,
   listActivities,
   markClassAttendance,
   refundClassBooking,
@@ -21,11 +24,14 @@ import { asyncHandler } from '../utils/asyncHandler.js';
 export const activityRouter = Router();
 activityRouter.use(verifyJWT, tenantContext);
 activityRouter.get('/', asyncHandler(listActivities));
+activityRouter.get('/summary', asyncHandler(getActivitySummary));
 activityRouter.post('/catalog', checkPermission('classes.manage'), asyncHandler(createActivity));
 activityRouter.put('/catalog/:id', checkPermission('classes.manage'), asyncHandler(updateActivity));
 activityRouter.post('/schedules', checkPermission('classes.manage'), asyncHandler(createClassSchedule));
 activityRouter.patch('/schedules/:id/cancel', checkPermission('classes.manage'), asyncHandler(cancelClassSchedule));
 activityRouter.post('/schedules/:id/bookings/self', asyncHandler(reserveClassForSelf));
+activityRouter.post('/schedules/:id/waitlist/self', asyncHandler(joinClassWaitlist));
+activityRouter.patch('/waitlist/:id/cancel-self', asyncHandler(leaveClassWaitlist));
 activityRouter.post('/schedules/:id/bookings', checkPermission('classes.bookings_manage'), asyncHandler(reserveClassForMember));
 activityRouter.patch('/bookings/:id/cancel-self', asyncHandler(cancelOwnClassBooking));
 activityRouter.patch('/bookings/:id/cancel', checkPermission('classes.bookings_manage'), asyncHandler(cancelManagedClassBooking));

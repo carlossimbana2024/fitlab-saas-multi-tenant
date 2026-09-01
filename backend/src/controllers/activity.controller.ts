@@ -111,6 +111,16 @@ export async function listActivities(request: Request, response: Response) {
       .eq('gym_id', request.tenant!.gymId).in('id', paymentIds)
     : { data: [], error: null };
   if (paymentsResult.error) throw fromSupabaseError(paymentsResult.error);
+  const waitlistsResult = scheduleIds.length && (isMember || classAccess.bookings)
+    ? await supabaseAdmin.from('class_waitlists')
+      .select('id,class_schedule_id,member_user_id,status,joined_at,offered_at,cancelled_at,cancellation_reason')
+      .eq('gym_id', request.tenant!.gymId).in('class_schedule_id', scheduleIds)
+      .in('status', ['waiting', 'offered']).order('joined_at')
+    : { data: [], error: null };
+  if (waitlistsResult.error) throw fromSupabaseError(waitlistsResult.error);
+  const waitlists = isMember
+    ? (waitlistsResult.data ?? []).filter((waitlist) => waitlist.member_user_id === request.tenant!.gymUserId)
+    : waitlistsResult.data ?? [];
 
   const activityById = new Map(activities.map((activity) => [activity.id, activity]));
   const locationById = new Map((locationsResult.data ?? []).map((location) => [location.id, location]));
@@ -144,6 +154,8 @@ export async function listActivities(request: Request, response: Response) {
         capacity,
         available: Math.max(0, capacity - occupied),
         myBooking: isMember ? scheduleBookings[0] ?? null : null,
+        waitlistCount: isMember ? undefined : waitlists.filter((waitlist) => waitlist.class_schedule_id === schedule.id).length,
+        myWaitlist: isMember ? waitlists.find((waitlist) => waitlist.class_schedule_id === schedule.id) ?? null : null,
       };
     }),
     bookings: isMember ? [] : bookings.map((booking) => ({
@@ -151,7 +163,57 @@ export async function listActivities(request: Request, response: Response) {
       member: { id: booking.member_user_id, name: gymUserName(personById.get(booking.member_user_id)), phone: relatedOne(personById.get(booking.member_user_id)?.profiles)?.phone ?? personById.get(booking.member_user_id)?.managed_phone ?? null },
       payment: classAccess.bookings && booking.payment_id ? paymentById.get(booking.payment_id) ?? null : null,
     })),
+    waitlists: isMember || classAccess.bookings ? waitlists.map((waitlist) => ({
+      ...waitlist,
+      member: isMember ? null : { id: waitlist.member_user_id, name: gymUserName(personById.get(waitlist.member_user_id)) },
+      position: waitlists.filter((item) => item.class_schedule_id === waitlist.class_schedule_id && item.joined_at <= waitlist.joined_at).length,
+    })) : [],
   });
+}
+
+export async function getActivitySummary(request: Request, response: Response) {
+  const classAccess = await ensureClassReadAccess(request);
+  if (request.tenant!.role === 'member') {
+    throw new AppError(403, 'PERMISSION_DENIED', 'El resumen de actividades es solo para el equipo del gimnasio.');
+  }
+  const input = activitiesListSchema.safeParse(request.query);
+  if (!input.success) throw new AppError(400, 'INVALID_ACTIVITY_FILTERS', 'Los filtros de actividades no son válidos.');
+  const now = new Date();
+  const from = input.data.from ?? new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
+  const to = input.data.to ?? new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0, 23, 59, 59, 999)).toISOString();
+  let schedulesQuery = supabaseAdmin.from('class_schedules').select('id,extra_class_id,location_id,starts_at').eq('gym_id', request.tenant!.gymId).gte('starts_at', from).lte('starts_at', to);
+  if (input.data.locationId) schedulesQuery = schedulesQuery.eq('location_id', input.data.locationId);
+  if (request.tenant!.role === 'staff' && classAccess.attendance && !classAccess.manage && !classAccess.bookings) schedulesQuery = schedulesQuery.eq('instructor_user_id', request.tenant!.gymUserId);
+  const schedulesResult = await schedulesQuery;
+  if (schedulesResult.error) throw fromSupabaseError(schedulesResult.error);
+  const scheduleRows = schedulesResult.data ?? [];
+  const scheduleIds = scheduleRows.map((item) => item.id);
+  const [bookingsResult, activitiesResult, locationsResult] = await Promise.all([
+    scheduleIds.length ? supabaseAdmin.from('class_bookings').select('id,class_schedule_id,status').eq('gym_id', request.tenant!.gymId).in('class_schedule_id', scheduleIds) : Promise.resolve({ data: [], error: null }),
+    supabaseAdmin.from('extra_classes').select('id,name').eq('gym_id', request.tenant!.gymId),
+    supabaseAdmin.from('gym_locations').select('id,name').eq('gym_id', request.tenant!.gymId),
+  ]);
+  const error = bookingsResult.error ?? activitiesResult.error ?? locationsResult.error;
+  if (error) throw fromSupabaseError(error);
+  const bookings = bookingsResult.data ?? [];
+  const activityNames = new Map((activitiesResult.data ?? []).map((item) => [item.id, item.name]));
+  const locationNames = new Map((locationsResult.data ?? []).map((item) => [item.id, item.name]));
+  const count = (status: string) => bookings.filter((booking) => booking.status === status).length;
+  const attended = count('attended'); const noShow = count('no_show');
+  const byActivity = new Map<string, { name: string; reservations: number; attended: number; noShow: number }>();
+  for (const schedule of scheduleRows) {
+    const name = activityNames.get(schedule.extra_class_id) ?? 'Actividad';
+    const row = byActivity.get(schedule.extra_class_id) ?? { name, reservations: 0, attended: 0, noShow: 0 };
+    const rows = bookings.filter((booking) => booking.class_schedule_id === schedule.id);
+    row.reservations += rows.length; row.attended += rows.filter((booking) => booking.status === 'attended').length; row.noShow += rows.filter((booking) => booking.status === 'no_show').length;
+    byActivity.set(schedule.extra_class_id, row);
+  }
+  const byLocation = new Map<string, { name: string; classes: number; reservations: number }>();
+  for (const schedule of scheduleRows) {
+    const row = byLocation.get(schedule.location_id) ?? { name: locationNames.get(schedule.location_id) ?? 'Sucursal', classes: 0, reservations: 0 };
+    row.classes += 1; row.reservations += bookings.filter((booking) => booking.class_schedule_id === schedule.id).length; byLocation.set(schedule.location_id, row);
+  }
+  response.json({ from, to, totals: { classes: scheduleRows.length, reservations: bookings.length, reserved: count('reserved'), attended, noShow, cancelled: count('cancelled'), attendanceRate: attended + noShow ? Math.round((attended / (attended + noShow)) * 100) : null }, byActivity: [...byActivity.values()].sort((a, b) => b.reservations - a.reservations), byLocation: [...byLocation.values()].sort((a, b) => b.reservations - a.reservations) });
 }
 
 export async function createActivity(request: Request, response: Response) {
@@ -243,6 +305,23 @@ export async function reserveClassForSelf(request: Request, response: Response) 
   });
   if (error) throw fromSupabaseError(error);
   response.status(201).json({ booking: data });
+}
+
+export async function joinClassWaitlist(request: Request, response: Response) {
+  const scheduleId = request.params.id;
+  if (request.tenant!.role !== 'member' || !scheduleId || !uuid.safeParse(scheduleId).success) throw new AppError(403, 'MEMBER_SELF_BOOKING_REQUIRED', 'Esta acción debe realizarla el propio miembro.');
+  const { data, error } = await supabaseAdmin.rpc('join_class_waitlist_backend', { target_gym_id: request.tenant!.gymId, target_class_schedule_id: scheduleId, target_member_user_id: request.tenant!.gymUserId, target_actor_gym_user_id: request.tenant!.gymUserId });
+  if (error) throw fromSupabaseError(error);
+  response.status(201).json({ waitlist: Array.isArray(data) ? data[0] : data });
+}
+
+export async function leaveClassWaitlist(request: Request, response: Response) {
+  const waitlistId = request.params.id;
+  if (request.tenant!.role !== 'member' || !waitlistId || !uuid.safeParse(waitlistId).success) throw new AppError(403, 'MEMBER_SELF_CANCELLATION_REQUIRED', 'Esta acción debe realizarla el propio miembro.');
+  const reason = typeof request.body?.reason === 'string' ? request.body.reason : 'Salida voluntaria de la lista';
+  const { data, error } = await supabaseAdmin.rpc('leave_class_waitlist_backend', { target_gym_id: request.tenant!.gymId, target_waitlist_id: waitlistId, target_actor_gym_user_id: request.tenant!.gymUserId, supplied_reason: reason });
+  if (error) throw fromSupabaseError(error);
+  response.json({ waitlist: data });
 }
 
 export async function reserveClassForMember(request: Request, response: Response) {
