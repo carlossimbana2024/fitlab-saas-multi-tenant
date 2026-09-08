@@ -245,6 +245,7 @@ function buildIncomeEvolution(
 }
 
 const AUDIT_FIELD_LABELS: Record<string, string> = {
+  location_name: 'Sucursal', attendance_date: 'Fecha de asistencia', source: 'Forma de registro',
   status: 'Estado', full_name: 'Nombre', phone: 'Teléfono', birth_date: 'Nacimiento',
   guardian_name: 'Representante', guardian_phone: 'Teléfono del representante', notes: 'Notas',
   account_mode: 'Tipo de acceso', email: 'Correo', starts_on: 'Inicio de cobertura', ends_on: 'Fin de cobertura',
@@ -254,6 +255,7 @@ const AUDIT_FIELD_LABELS: Record<string, string> = {
 };
 
 const AUDIT_VALUE_LABELS: Record<string, string> = {
+  qr: 'Código QR', staff: 'Recepción', extra_class: 'Clase extra', system: 'Sistema',
   active: 'Activo', suspended: 'Suspendido', inactive: 'Retirado', invited: 'Invitado', cancelled: 'Cancelado',
   confirmed: 'Confirmado', voided: 'Anulado', refunded: 'Reembolsado', managed: 'Sin cuenta', portal: 'Con portal',
   denied: 'Denegados', revoked: 'Retirados', true: 'Sí', false: 'No',

@@ -3,6 +3,9 @@ import { AppError } from '../errors/AppError.js';
 type DatabaseError = { code?: string; message: string; details?: string | null };
 
 const knownErrors: Record<string, { status: number; message: string }> = {
+  ATTENDANCE_QR_INVALID: { status: 409, message: 'Este QR no está vigente o no corresponde a tu gimnasio. Escanea el cartel actual o solicita ayuda en recepción.' },
+  ATTENDANCE_QR_PORTAL_REQUIRED: { status: 403, message: 'Necesitas una cuenta de miembro con acceso al portal. Solicita ayuda en recepción.' },
+  ATTENDANCE_QR_OWNER_REQUIRED: { status: 403, message: 'Solo el owner puede administrar los códigos de asistencia.' },
   ATTENDANCE_DATE_MUST_BE_TODAY_IN_GYM_TIMEZONE: { status: 400, message: 'La asistencia debe registrarse hoy.' },
   ATTENDANCE_REQUIRES_ACTIVE_MEMBERSHIP_COVERAGE: { status: 409, message: 'El miembro no tiene cobertura activa.' },
   ACTIVE_MEMBERSHIP_PERIOD_REQUIRED: { status: 409, message: 'El miembro no tiene cobertura vigente para hoy.' },

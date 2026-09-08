@@ -3,7 +3,7 @@ import { supabaseAdmin } from '../config/supabase.js';
 import { AppError } from '../errors/AppError.js';
 import { dateInTimezone } from '../utils/gymDate.js';
 import { fromSupabaseError } from '../utils/supabaseError.js';
-import { attendanceListSchema, qrAttendanceSchema, staffAttendanceSchema, voidAttendanceSchema } from '../validators/attendance.validator.js';
+import { attendanceListSchema, staffAttendanceSchema, voidAttendanceSchema } from '../validators/attendance.validator.js';
 import { writeAuditLog } from '../services/audit.service.js';
 
 const attendanceFields = 'id,gym_id,location_id,member_user_id,membership_id,attendance_date,checked_in_at,source,counts_toward_streak,status,voided_at,voided_by,void_reason';
@@ -132,36 +132,6 @@ export async function getReceptionOverview(request: Request, response: Response)
     })),
     bestStreak: Math.max(0, ...[...streaks.values()].map((streak) => streak.longest_streak)),
   });
-}
-
-export async function registerQrAttendance(request: Request, response: Response) {
-  if (request.tenant!.role !== 'member') throw new AppError(403, 'MEMBER_ONLY', 'El registro QR es exclusivo para miembros.');
-  const input = qrAttendanceSchema.safeParse(request.body ?? {});
-  if (!input.success) throw new AppError(400, 'INVALID_ATTENDANCE_INPUT', 'Los datos de asistencia no son válidos.');
-
-  const locationId = input.data.locationId ?? request.tenant!.defaultLocationId;
-  if (!locationId) throw new AppError(400, 'LOCATION_REQUIRED', 'Selecciona una sucursal.');
-
-  let membershipId = input.data.membershipId;
-  if (!membershipId) {
-    const { data, error } = await request.supabase!.from('memberships').select('id')
-      .eq('member_user_id', request.tenant!.gymUserId).eq('status', 'active').maybeSingle();
-    if (error) throw fromSupabaseError(error);
-    membershipId = data?.id;
-  }
-  if (!membershipId) throw new AppError(409, 'ACTIVE_MEMBERSHIP_REQUIRED', 'No existe una membresía activa.');
-
-  const { data, error } = await supabaseAdmin.from('attendances').insert({
-    gym_id: request.tenant!.gymId,
-    location_id: locationId,
-    member_user_id: request.tenant!.gymUserId,
-    membership_id: membershipId,
-    attendance_date: dateInTimezone(request.tenant!.timezone),
-    source: 'qr',
-    registered_by: request.tenant!.gymUserId,
-  }).select(attendanceFields).single();
-  if (error) throw fromSupabaseError(error);
-  response.status(201).json({ attendance: data });
 }
 
 export async function registerStaffAttendance(request: Request, response: Response) {

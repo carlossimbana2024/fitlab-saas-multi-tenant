@@ -3,9 +3,13 @@ import { z } from 'zod';
 const uuid = z.string().uuid();
 
 export const qrAttendanceSchema = z.object({
-  locationId: uuid.optional(),
-  membershipId: uuid.optional(),
-});
+  token: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+}).strict();
+
+export const manageAttendanceQrSchema = z.object({
+  locationId: uuid,
+  action: z.enum(['generate', 'revoke']),
+}).strict();
 
 export const staffAttendanceSchema = z.object({
   locationId: uuid,

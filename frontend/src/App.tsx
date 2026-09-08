@@ -23,9 +23,11 @@ import { ReceiptVerificationPage } from './pages/ReceiptVerificationPage';
 import { OwnerControlPage } from './pages/OwnerControlPage';
 import { InventoryPage } from './pages/InventoryPage';
 import { ActivitiesPage } from './pages/ActivitiesPage';
+import { CheckInPage } from './pages/CheckInPage';
 
 export default function App() {
   return <Routes>
+    <Route path="/check-in" element={<CheckInPage/>}/>
     <Route path="/login" element={<LoginPage/>}/>
     <Route path="/accept-invite" element={<AcceptInvitePage/>}/>
     <Route path="/forgot-password" element={<ForgotPasswordPage/>}/>

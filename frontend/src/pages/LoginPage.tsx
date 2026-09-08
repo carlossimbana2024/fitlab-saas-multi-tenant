@@ -2,7 +2,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { Dumbbell, LoaderCircle } from 'lucide-react';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
-import { Link, Navigate, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { z } from 'zod';
 import { ThemeToggle } from '../components/ThemeToggle';
 import { useAuth } from '../context/AuthContext';
@@ -17,12 +17,15 @@ type Form = z.infer<typeof schema>;
 export function LoginPage() {
   const { login, session } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const candidate: unknown = location.state?.returnTo;
+  const returnTo = typeof candidate === 'string' && /^\/check-in#token=[A-Za-z0-9_-]{43}$/.test(candidate) ? candidate : '/';
   const [error, setError] = useState('');
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<Form>({ resolver: zodResolver(schema) });
-  if (session) return <Navigate to="/" replace/>;
+  if (session) return <Navigate to={returnTo} replace/>;
 
   const submit = async (values: Form) => {
-    try { setError(''); await login(values.email, values.password); navigate('/'); }
+    try { setError(''); await login(values.email, values.password); navigate(returnTo, { replace: true }); }
     catch (cause) { setError(apiErrorMessage(cause)); }
   };
 
