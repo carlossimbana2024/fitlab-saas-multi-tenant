@@ -37,11 +37,92 @@ const fitnessProfileSchema = z.object({
 });
 const avatarUploadSchema = z.object({ contentType: z.string().trim().toLowerCase() });
 const avatarFinalizeSchema = z.object({ path: z.string().trim().min(1).max(300) });
+const memberWeightSchema = z.object({
+  weightKg: z.coerce.number().finite().min(20).max(500),
+  measuredOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'La fecha no es válida.'),
+});
 
 const fitnessProfileFields = 'id,gym_id,member_user_id,weight_kg,height_cm,goal_type,experience_level,training_frequency_per_week,available_days,target_weight_kg,preferred_training_type,goal_horizon_months,public_message,show_in_community,show_profile_photo,show_streak,show_attendance_count,show_weight_progress,show_goal,onboarding_completed_at,updated_at';
 
 function memberOnly(request: Request) {
   if (request.tenant?.role !== 'member') throw new AppError(403, 'MEMBER_ONLY_ENDPOINT', 'Esta sección está disponible solo para miembros.');
+}
+
+const DAY_MS = 86_400_000;
+
+function utcDate(value: string) {
+  const [year, month, day] = value.split('-').map(Number);
+  return new Date(Date.UTC(year!, month! - 1, day!));
+}
+
+function isoDate(value: Date) {
+  return value.toISOString().slice(0, 10);
+}
+
+function addDays(value: string, amount: number) {
+  return isoDate(new Date(utcDate(value).getTime() + amount * DAY_MS));
+}
+
+function addYears(value: string, amount: number) {
+  const date = utcDate(value);
+  date.setUTCFullYear(date.getUTCFullYear() + amount);
+  return isoDate(date);
+}
+
+function mondayOf(value: string) {
+  const date = utcDate(value);
+  const offset = (date.getUTCDay() + 6) % 7;
+  return addDays(value, -offset);
+}
+
+function monthStart(value: string) {
+  const date = utcDate(value);
+  return isoDate(new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1)));
+}
+
+function monthKey(value: string) {
+  return value.slice(0, 7);
+}
+
+function monthLabel(key: string) {
+  return new Intl.DateTimeFormat('es-EC', { month: 'short', year: 'numeric', timeZone: 'UTC' })
+    .format(new Date(`${key}-01T00:00:00Z`));
+}
+
+function weekLabel(start: string) {
+  return new Intl.DateTimeFormat('es-EC', { day: '2-digit', month: 'short', timeZone: 'UTC' })
+    .format(utcDate(start));
+}
+
+function clampPercent(value: number) {
+  return Math.max(0, Math.min(100, Math.round(value * 10) / 10));
+}
+
+function computeGoalProgress(goalType: string, initialWeight: number | null, currentWeight: number | null, targetWeight: number | null) {
+  if (initialWeight === null || currentWeight === null) return null;
+  let progressPercent: number | null = null;
+  const targetDirectionIsValid = targetWeight !== null && (
+    (goalType === 'lose_weight' && targetWeight < initialWeight)
+    || ((goalType === 'gain_weight' || goalType === 'build_muscle') && targetWeight > initialWeight)
+  );
+  if (targetDirectionIsValid && targetWeight !== null) {
+    const denominator = targetWeight - initialWeight;
+    if (denominator !== 0) progressPercent = clampPercent(((currentWeight - initialWeight) / denominator) * 100);
+  } else if (goalType === 'maintain_weight' && targetWeight !== null) {
+    const distance = Math.abs(initialWeight - targetWeight);
+    progressPercent = distance === 0 ? 100 : clampPercent((1 - Math.abs(currentWeight - targetWeight) / distance) * 100);
+  }
+  if (progressPercent === null) return null;
+  return { progressPercent, initialWeightKg: initialWeight, currentWeightKg: currentWeight, targetWeightKg: targetWeight, goalType };
+}
+
+function motivationForProgress(currentStreak: number, currentMonthAttendances: number, latestAttendanceDate: string | null, today: string) {
+  const daysSinceLast = latestAttendanceDate ? Math.max(0, Math.round((utcDate(today).getTime() - utcDate(latestAttendanceDate).getTime()) / DAY_MS)) : null;
+  if (currentStreak >= 7) return { tone: 'success', title: '¡Una semana completa!', message: `Llevas una racha de ${currentStreak} días. Tu disciplina está construyendo resultados.` };
+  if (currentMonthAttendances >= 8) return { tone: 'success', title: 'Vas con muy buen ritmo', message: `Ya sumas ${currentMonthAttendances} asistencias este mes. Mantén ese impulso.` };
+  if (daysSinceLast !== null && daysSinceLast >= 3) return { tone: 'encouragement', title: 'Tu próximo entrenamiento te espera', message: `Han pasado ${daysSinceLast} días desde tu última asistencia. Un día puede reactivar tu constancia.` };
+  if (currentStreak >= 3) return { tone: 'success', title: 'La constancia se nota', message: `Llevas ${currentStreak} días seguidos. ¡Sigue así!` };
+  return { tone: 'neutral', title: 'Cada entrenamiento cuenta', message: 'Un paso a la vez: registra tu próxima asistencia y sigue acercándote a tu objetivo.' };
 }
 
 export async function updateMyProfile(request: Request, response: Response) {
@@ -128,6 +209,110 @@ export async function finalizeMyAvatar(request: Request, response: Response) {
     .eq('id', request.authUser!.id).select('full_name,phone,avatar_url,preferred_language').single();
   if (error) throw fromSupabaseError(error);
   response.json({ profile: { ...data, avatar_url: await signAvatarUrl(data.avatar_url) }, avatarPath: path });
+}
+
+export async function getMyProgress(request: Request, response: Response) {
+  memberOnly(request);
+  const today = dateInTimezone(request.tenant!.timezone);
+  const [attendanceResult, streakResult, weightsResult, profileResult] = await Promise.all([
+    supabaseAdmin.from('attendances')
+      .select('id,attendance_date,checked_in_at,source,status,counts_toward_streak')
+      .eq('gym_id', request.tenant!.gymId)
+      .eq('member_user_id', request.tenant!.gymUserId)
+      .order('attendance_date', { ascending: false })
+      .limit(2000),
+    supabaseAdmin.from('user_streaks')
+      .select('current_streak,longest_streak,last_attendance_date')
+      .eq('gym_id', request.tenant!.gymId)
+      .eq('member_user_id', request.tenant!.gymUserId)
+      .maybeSingle(),
+    supabaseAdmin.from('member_weight_entries')
+      .select('id,weight_kg,measured_on,source,created_at')
+      .eq('gym_id', request.tenant!.gymId)
+      .eq('member_user_id', request.tenant!.gymUserId)
+      .order('measured_on', { ascending: true })
+      .limit(500),
+    supabaseAdmin.from('member_fitness_profiles')
+      .select('weight_kg,target_weight_kg,goal_type')
+      .eq('gym_id', request.tenant!.gymId)
+      .eq('member_user_id', request.tenant!.gymUserId)
+      .maybeSingle(),
+  ]);
+  const error = attendanceResult.error ?? streakResult.error ?? weightsResult.error ?? profileResult.error;
+  if (error) throw fromSupabaseError(error);
+
+  const validAttendances = (attendanceResult.data ?? []).filter((attendance) => attendance.status === 'valid');
+  const currentWeekStart = mondayOf(today);
+  const currentMonthStart = monthStart(today);
+  const currentWeekAttendances = validAttendances.filter((attendance) => attendance.attendance_date >= currentWeekStart && attendance.attendance_date <= today).length;
+  const currentMonthAttendances = validAttendances.filter((attendance) => monthKey(attendance.attendance_date) === monthKey(today)).length;
+  const monthBuckets = Array.from({ length: 6 }, (_, index) => {
+    const date = utcDate(monthStart(today));
+    date.setUTCMonth(date.getUTCMonth() - (5 - index));
+    const start = isoDate(new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1)));
+    const key = monthKey(start);
+    return { period: key, label: monthLabel(key), count: validAttendances.filter((attendance) => monthKey(attendance.attendance_date) === key).length };
+  });
+  const weekBuckets = Array.from({ length: 8 }, (_, index) => {
+    const start = addDays(currentWeekStart, -((7 - index) * 7));
+    const end = addDays(start, 6);
+    return { period: start, label: weekLabel(start), count: validAttendances.filter((attendance) => attendance.attendance_date >= start && attendance.attendance_date <= end).length };
+  });
+  const streak = streakResult.data;
+  const latestAttendanceDate = validAttendances[0]?.attendance_date ?? null;
+  const weights = (weightsResult.data ?? []).map((entry) => ({
+    id: entry.id,
+    weightKg: Number(entry.weight_kg),
+    measuredOn: entry.measured_on,
+    source: entry.source,
+    createdAt: entry.created_at,
+  }));
+  const profile = profileResult.data;
+  const initialWeight = weights[0]?.weightKg ?? (profile ? Number(profile.weight_kg) : null);
+  const currentWeight = weights.at(-1)?.weightKg ?? initialWeight;
+  const targetWeight = profile?.target_weight_kg == null ? null : Number(profile.target_weight_kg);
+  const goal = profile ? computeGoalProgress(profile.goal_type, initialWeight, currentWeight, targetWeight) : null;
+  const motivation = motivationForProgress(Number(streak?.current_streak ?? 0), currentMonthAttendances, latestAttendanceDate, today);
+  response.json({
+    progress: {
+      today,
+      totalAttendances: validAttendances.length,
+      currentMonthAttendances,
+      currentWeekAttendances,
+      averageWeeklyAttendances: Math.round((weekBuckets.reduce((total, bucket) => total + bucket.count, 0) / weekBuckets.length) * 10) / 10,
+      attendanceByMonth: monthBuckets,
+      attendanceByWeek: weekBuckets,
+      currentStreak: Number(streak?.current_streak ?? 0),
+      longestStreak: Number(streak?.longest_streak ?? 0),
+      latestAttendanceDate,
+      weights,
+      goal,
+      motivation,
+      currentWeekStart,
+      currentMonthStart,
+    },
+  });
+}
+
+export async function recordMyWeight(request: Request, response: Response) {
+  memberOnly(request);
+  const input = memberWeightSchema.safeParse(request.body);
+  if (!input.success) throw new AppError(400, 'INVALID_MEMBER_WEIGHT_INPUT', 'Indica un peso y una fecha válidos.', input.error.flatten());
+  const today = dateInTimezone(request.tenant!.timezone);
+  if (isoDate(utcDate(input.data.measuredOn)) !== input.data.measuredOn || input.data.measuredOn > today || input.data.measuredOn < addYears(today, -5)) {
+    throw new AppError(400, 'MEMBER_WEIGHT_ENTRY_DATE_INVALID', 'La fecha debe estar entre hoy y los últimos cinco años.');
+  }
+  const { data, error } = await supabaseAdmin.rpc('upsert_member_weight_backend', {
+    target_gym_id: request.tenant!.gymId,
+    target_member_user_id: request.tenant!.gymUserId,
+    supplied_weight_kg: input.data.weightKg,
+    supplied_measured_on: input.data.measuredOn,
+    supplied_source: 'member',
+  });
+  if (error) throw fromSupabaseError(error);
+  const weightEntry = Array.isArray(data) ? data[0] : data;
+  if (!weightEntry) throw new AppError(500, 'MEMBER_WEIGHT_ENTRY_EMPTY_RESULT', 'No se pudo guardar la medición.');
+  response.status(201).json({ weightEntry: { ...weightEntry, weightKg: Number(weightEntry.weight_kg), measuredOn: weightEntry.measured_on, source: weightEntry.source, createdAt: weightEntry.created_at } });
 }
 
 export async function listMembers(request: Request, response: Response) {

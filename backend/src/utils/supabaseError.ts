@@ -56,6 +56,9 @@ const knownErrors: Record<string, { status: number; message: string }> = {
   CLASS_WAITLIST_NOT_NEEDED: { status: 409, message: 'Todavía hay cupos disponibles; puedes reservar directamente.' },
   CLASS_WAITLIST_PAYMENT_REQUIRED: { status: 409, message: 'Las actividades con pago adicional se reservan y pagan en recepción.' },
   CLASS_WAITLIST_NOT_FOUND: { status: 404, message: 'La entrada en la lista de espera no existe o ya no está activa.' },
+  MEMBER_WEIGHT_ENTRY_DATE_INVALID: { status: 400, message: 'La fecha debe estar entre hoy y los últimos cinco años.' },
+  MEMBER_WEIGHT_ENTRY_MEMBER_MISMATCH: { status: 403, message: 'La medición no pertenece a un miembro activo de este gimnasio.' },
+  MEMBER_WEIGHT_ENTRY_SOURCE_INVALID: { status: 400, message: 'El origen de la medición no es válido.' },
 };
 
 export function fromSupabaseError(error: DatabaseError): AppError {
