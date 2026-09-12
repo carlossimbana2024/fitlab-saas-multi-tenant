@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { convertMemberToPortal, createManagedMember, getMember, inviteMember, listMembers, reinstateMember, retireMember, revokeInvitation, updateMember, updateMemberStatus, updateMyProfile } from '../controllers/member.controller.js';
+import { convertMemberToPortal, createManagedMember, createMyAvatarUpload, finalizeMyAvatar, getMember, getMyFitnessProfile, inviteMember, listMembers, reinstateMember, retireMember, revokeInvitation, updateMember, updateMemberStatus, updateMyProfile, upsertMyFitnessProfile } from '../controllers/member.controller.js';
 import { checkPermission } from '../middlewares/checkPermission.js';
 import { databaseRateLimit } from '../middlewares/rateLimit.js';
 import { tenantContext } from '../middlewares/tenantContext.js';
@@ -19,6 +19,10 @@ memberRouter.post('/managed', databaseRateLimit({
 }), checkPermission('members.manage'), asyncHandler(createManagedMember));
 memberRouter.delete('/invitations/:id', checkPermission('members.manage'), asyncHandler(revokeInvitation));
 memberRouter.put('/me/profile', asyncHandler(updateMyProfile));
+memberRouter.get('/me/fitness-profile', asyncHandler(getMyFitnessProfile));
+memberRouter.put('/me/fitness-profile', asyncHandler(upsertMyFitnessProfile));
+memberRouter.post('/me/avatar-upload', asyncHandler(createMyAvatarUpload));
+memberRouter.put('/me/avatar', asyncHandler(finalizeMyAvatar));
 memberRouter.put('/:id', checkPermission('members.manage'), asyncHandler(updateMember));
 memberRouter.patch('/:id/status', checkPermission('members.manage'), asyncHandler(updateMemberStatus));
 memberRouter.delete('/:id', checkPermission('members.manage'), asyncHandler(retireMember));

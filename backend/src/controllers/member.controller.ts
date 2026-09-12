@@ -3,6 +3,7 @@ import { supabaseAdmin } from '../config/supabase.js';
 import { AppError } from '../errors/AppError.js';
 import { fromSupabaseError } from '../utils/supabaseError.js';
 import { convertManagedMemberToPortal, inviteMember as inviteMemberAccount } from '../services/memberInvitation.service.js';
+import { avatarExtension, createAvatarPath, isInternalAvatarPath, MEMBER_AVATAR_BUCKET, signAvatarUrl } from '../services/memberProfile.service.js';
 import { convertManagedMemberSchema, inviteMemberSchema, managedMemberSchema, updateMemberSchema, updateMemberStatusSchema } from '../validators/membership.validator.js';
 import { z } from 'zod';
 import { dateInTimezone } from '../utils/gymDate.js';
@@ -14,16 +15,119 @@ const profileSchema = z.object({
   avatarUrl: z.string().url().max(2048).nullable().optional(),
 });
 
+const fitnessGoalTypes = ['lose_weight', 'gain_weight', 'build_muscle', 'improve_fitness', 'maintain_weight', 'general_wellness'] as const;
+const fitnessProfileSchema = z.object({
+  weightKg: z.coerce.number().min(20).max(500),
+  heightCm: z.coerce.number().min(80).max(260),
+  goalType: z.enum(fitnessGoalTypes),
+  experienceLevel: z.enum(['beginner', 'intermediate', 'advanced']).default('beginner'),
+  trainingFrequencyPerWeek: z.coerce.number().int().min(1).max(14).default(3),
+  availableDays: z.array(z.coerce.number().int().min(1).max(7)).max(7).default([])
+    .refine((values) => new Set(values).size === values.length, 'No repitas días disponibles.'),
+  targetWeightKg: z.coerce.number().min(20).max(500).nullable().optional(),
+  preferredTrainingType: z.string().trim().min(2).max(80).nullable().optional(),
+  goalHorizonMonths: z.coerce.number().int().min(1).max(36).nullable().optional(),
+  publicMessage: z.string().trim().min(1).max(160).nullable().optional(),
+  showInCommunity: z.boolean().default(false),
+  showProfilePhoto: z.boolean().default(false),
+  showStreak: z.boolean().default(false),
+  showAttendanceCount: z.boolean().default(false),
+  showWeightProgress: z.boolean().default(false),
+  showGoal: z.boolean().default(false),
+});
+const avatarUploadSchema = z.object({ contentType: z.string().trim().toLowerCase() });
+const avatarFinalizeSchema = z.object({ path: z.string().trim().min(1).max(300) });
+
+const fitnessProfileFields = 'id,gym_id,member_user_id,weight_kg,height_cm,goal_type,experience_level,training_frequency_per_week,available_days,target_weight_kg,preferred_training_type,goal_horizon_months,public_message,show_in_community,show_profile_photo,show_streak,show_attendance_count,show_weight_progress,show_goal,onboarding_completed_at,updated_at';
+
+function memberOnly(request: Request) {
+  if (request.tenant?.role !== 'member') throw new AppError(403, 'MEMBER_ONLY_ENDPOINT', 'Esta sección está disponible solo para miembros.');
+}
+
 export async function updateMyProfile(request: Request, response: Response) {
   const input = profileSchema.safeParse(request.body);
   if (!input.success) throw new AppError(400, 'INVALID_PROFILE_INPUT', 'Los datos del perfil no son válidos.', input.error.flatten());
-  const { data, error } = await supabaseAdmin.from('profiles').update({
+  const changes: { full_name: string; phone: string | null; avatar_url?: string | null } = {
     full_name: input.data.fullName,
     phone: input.data.phone || null,
-    avatar_url: input.data.avatarUrl || null,
-  }).eq('id', request.authUser!.id).select('full_name,phone,avatar_url,preferred_language').single();
+  };
+  // Las fotos nuevas se finalizan por /me/avatar. Omitir avatarUrl aquí evita
+  // que una edición de nombre o teléfono borre una foto ya subida.
+  if (Object.prototype.hasOwnProperty.call(input.data, 'avatarUrl')) {
+    changes.avatar_url = input.data.avatarUrl || null;
+  }
+  const { data, error } = await supabaseAdmin.from('profiles').update(changes)
+    .eq('id', request.authUser!.id).select('full_name,phone,avatar_url,preferred_language').single();
   if (error) throw fromSupabaseError(error);
-  response.json({ profile: data });
+  response.json({ profile: { ...data, avatar_url: await signAvatarUrl(data.avatar_url) } });
+}
+
+export async function getMyFitnessProfile(request: Request, response: Response) {
+  memberOnly(request);
+  const { data, error } = await supabaseAdmin.from('member_fitness_profiles')
+    .select(fitnessProfileFields)
+    .eq('gym_id', request.tenant!.gymId)
+    .eq('member_user_id', request.tenant!.gymUserId)
+    .maybeSingle();
+  if (error) throw fromSupabaseError(error);
+  response.json({ fitnessProfile: data });
+}
+
+export async function upsertMyFitnessProfile(request: Request, response: Response) {
+  memberOnly(request);
+  const input = fitnessProfileSchema.safeParse(request.body);
+  if (!input.success) throw new AppError(400, 'INVALID_FITNESS_PROFILE_INPUT', 'Revisa los datos deportivos ingresados.', input.error.flatten());
+  const { data, error } = await supabaseAdmin.rpc('upsert_member_fitness_profile_backend', {
+    target_gym_id: request.tenant!.gymId,
+    target_member_user_id: request.tenant!.gymUserId,
+    supplied_weight_kg: input.data.weightKg,
+    supplied_height_cm: input.data.heightCm,
+    supplied_goal_type: input.data.goalType,
+    supplied_experience_level: input.data.experienceLevel,
+    supplied_training_frequency_per_week: input.data.trainingFrequencyPerWeek,
+    supplied_available_days: [...input.data.availableDays].sort((a, b) => a - b),
+    supplied_target_weight_kg: input.data.targetWeightKg ?? null,
+    supplied_preferred_training_type: input.data.preferredTrainingType ?? null,
+    supplied_goal_horizon_months: input.data.goalHorizonMonths ?? null,
+    supplied_public_message: input.data.publicMessage ?? null,
+    supplied_show_in_community: input.data.showInCommunity,
+    supplied_show_profile_photo: input.data.showProfilePhoto,
+    supplied_show_streak: input.data.showStreak,
+    supplied_show_attendance_count: input.data.showAttendanceCount,
+    supplied_show_weight_progress: input.data.showWeightProgress,
+    supplied_show_goal: input.data.showGoal,
+  });
+  if (error) throw fromSupabaseError(error);
+  const fitnessProfile = Array.isArray(data) ? data[0] : data;
+  if (!fitnessProfile) throw new AppError(500, 'FITNESS_PROFILE_EMPTY_RESULT', 'No se pudo guardar el perfil deportivo.');
+  response.json({ fitnessProfile });
+}
+
+export async function createMyAvatarUpload(request: Request, response: Response) {
+  memberOnly(request);
+  const input = avatarUploadSchema.safeParse(request.body);
+  if (!input.success) throw new AppError(400, 'INVALID_AVATAR_UPLOAD_INPUT', 'El tipo de imagen no es válido.');
+  const contentType = input.data.contentType;
+  avatarExtension(contentType);
+  const path = createAvatarPath(request.tenant!.gymId, request.authUser!.id, contentType);
+  const { data, error } = await supabaseAdmin.storage.from(MEMBER_AVATAR_BUCKET).createSignedUploadUrl(path, { upsert: false });
+  if (error || !data) throw new AppError(503, 'AVATAR_UPLOAD_URL_FAILED', 'No se pudo preparar la carga de la foto.');
+  response.json({ upload: { ...data, bucket: MEMBER_AVATAR_BUCKET, contentType } });
+}
+
+export async function finalizeMyAvatar(request: Request, response: Response) {
+  memberOnly(request);
+  const input = avatarFinalizeSchema.safeParse(request.body);
+  if (!input.success || !isInternalAvatarPath(input.success ? input.data.path : '', request.tenant!.gymId, request.authUser!.id)) {
+    throw new AppError(400, 'INVALID_AVATAR_PATH', 'La foto no pertenece a esta cuenta.');
+  }
+  const path = input.data.path;
+  const { data: signedData, error: signedError } = await supabaseAdmin.storage.from(MEMBER_AVATAR_BUCKET).createSignedUrl(path, 60);
+  if (signedError || !signedData?.signedUrl) throw new AppError(400, 'AVATAR_NOT_FOUND', 'La foto no se pudo encontrar en el almacenamiento.');
+  const { data, error } = await supabaseAdmin.from('profiles').update({ avatar_url: path })
+    .eq('id', request.authUser!.id).select('full_name,phone,avatar_url,preferred_language').single();
+  if (error) throw fromSupabaseError(error);
+  response.json({ profile: { ...data, avatar_url: await signAvatarUrl(data.avatar_url) }, avatarPath: path });
 }
 
 export async function listMembers(request: Request, response: Response) {

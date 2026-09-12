@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Activity, Bell, CalendarCheck, CheckCircle2, Clock3, CreditCard, Dumbbell, Flame, LoaderCircle, Mail, MapPin, MessageCircle, Pencil, Phone, QrCode, X } from 'lucide-react';
+import { Activity, Bell, CalendarCheck, CheckCircle2, Clock3, CreditCard, Dumbbell, Flame, LoaderCircle, Mail, MapPin, MessageCircle, Pencil, Phone, QrCode, ShieldCheck, Upload, X } from 'lucide-react';
 import { useMemo, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -18,6 +18,78 @@ type Calendar = { gym: { name: string; email?: string | null; phone?: string | n
 type PortalClassBooking = { id: string; status: 'reserved' | 'attended' | 'cancelled' | 'no_show'; payment_id?: string | null };
 type PortalClassSchedule = { id: string; starts_at: string; ends_at: string; status: string; occupied: number; capacity: number; available: number; activity: { name: string; description?: string | null; billing_mode: 'included' | 'additional_fee'; price: number; currency: string; duration_minutes: number }; location: { name: string }; instructor?: { name: string } | null; myBooking?: PortalClassBooking | null; myWaitlist?: { id: string; position: number; status: 'waiting' | 'offered' } | null };
 type PortalActivities = { schedules: PortalClassSchedule[] };
+type FitnessGoal = 'lose_weight' | 'gain_weight' | 'build_muscle' | 'improve_fitness' | 'maintain_weight' | 'general_wellness';
+type FitnessProfile = {
+  id: string;
+  weight_kg: number;
+  height_cm: number;
+  goal_type: FitnessGoal;
+  experience_level: 'beginner' | 'intermediate' | 'advanced';
+  training_frequency_per_week: number;
+  available_days: number[];
+  target_weight_kg?: number | null;
+  preferred_training_type?: string | null;
+  goal_horizon_months?: number | null;
+  public_message?: string | null;
+  show_in_community: boolean;
+  show_profile_photo: boolean;
+  show_streak: boolean;
+  show_attendance_count: boolean;
+  show_weight_progress: boolean;
+  show_goal: boolean;
+  onboarding_completed_at: string;
+  updated_at: string;
+};
+type FitnessForm = {
+  weightKg: string;
+  heightCm: string;
+  goalType: FitnessGoal;
+  experienceLevel: FitnessProfile['experience_level'];
+  trainingFrequencyPerWeek: string;
+  availableDays: number[];
+  targetWeightKg: string;
+  preferredTrainingType: string;
+  goalHorizonMonths: string;
+  publicMessage: string;
+  showInCommunity: boolean;
+  showProfilePhoto: boolean;
+  showStreak: boolean;
+  showAttendanceCount: boolean;
+  showWeightProgress: boolean;
+  showGoal: boolean;
+};
+
+const fitnessGoals: Array<{ value: FitnessGoal; label: string }> = [
+  { value: 'lose_weight', label: 'Perder peso' },
+  { value: 'gain_weight', label: 'Ganar peso' },
+  { value: 'build_muscle', label: 'Ganar masa muscular' },
+  { value: 'improve_fitness', label: 'Mejorar condición física' },
+  { value: 'maintain_weight', label: 'Mantener peso' },
+  { value: 'general_wellness', label: 'Bienestar general' },
+];
+const experienceLabels = { beginner: 'Principiante', intermediate: 'Intermedio', advanced: 'Avanzado' } as const;
+const dayLabels = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
+
+function fitnessFormFromProfile(profile?: FitnessProfile | null): FitnessForm {
+  return {
+    weightKg: profile ? String(profile.weight_kg) : '',
+    heightCm: profile ? String(profile.height_cm) : '',
+    goalType: profile?.goal_type ?? 'improve_fitness',
+    experienceLevel: profile?.experience_level ?? 'beginner',
+    trainingFrequencyPerWeek: profile ? String(profile.training_frequency_per_week) : '3',
+    availableDays: profile?.available_days ?? [],
+    targetWeightKg: profile?.target_weight_kg == null ? '' : String(profile.target_weight_kg),
+    preferredTrainingType: profile?.preferred_training_type ?? '',
+    goalHorizonMonths: profile?.goal_horizon_months == null ? '' : String(profile.goal_horizon_months),
+    publicMessage: profile?.public_message ?? '',
+    showInCommunity: profile?.show_in_community ?? false,
+    showProfilePhoto: profile?.show_profile_photo ?? false,
+    showStreak: profile?.show_streak ?? false,
+    showAttendanceCount: profile?.show_attendance_count ?? false,
+    showWeightProgress: profile?.show_weight_progress ?? false,
+    showGoal: profile?.show_goal ?? false,
+  };
+}
 
 const localDate = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Guayaquil' }).format(new Date());
 const methodLabel = (method: string) => ({ cash: 'Efectivo', bank_transfer: 'Transferencia', external_card: 'Tarjeta', external_deuna: 'DEUNA', other: 'Otro' } as Record<string, string>)[method] ?? method;
@@ -62,7 +134,8 @@ export function MemberPortalPage({ section }: { section: PortalSection }) {
   const queryClient = useQueryClient();
   const range = useMemo(monthRange, []);
   const [editing, setEditing] = useState(false);
-  const [profile, setProfile] = useState({ fullName: session?.gymUser?.profiles?.full_name ?? '', phone: session?.gymUser?.profiles?.phone ?? '', avatarUrl: session?.gymUser?.profiles?.avatar_url ?? '' });
+  const [fitnessEditing, setFitnessEditing] = useState(false);
+  const [profile, setProfile] = useState({ fullName: session?.gymUser?.profiles?.full_name ?? '', phone: session?.gymUser?.profiles?.phone ?? '' });
   const [passwords, setPasswords] = useState({ current: '', next: '', confirmation: '' });
   const memberships = useQuery({ queryKey: ['my-memberships'], queryFn: async () => (await api.get<{ memberships: Membership[] }>('/memberships')).data.memberships });
   const attendances = useQuery({ queryKey: ['my-attendances'], queryFn: async () => (await api.get<{ attendances: Attendance[] }>('/attendances')).data.attendances });
@@ -71,6 +144,7 @@ export function MemberPortalPage({ section }: { section: PortalSection }) {
   const weekly = useQuery({ queryKey: ['my-weekly-progress'], queryFn: async () => (await api.get<{ progress: WeeklyProgress[] }>('/attendances/weekly-progress')).data.progress });
   const calendar = useQuery({ queryKey: ['my-calendar', range.from], queryFn: async () => (await api.get<Calendar>('/calendar', { params: { from: range.from, to: range.to } })).data });
   const classes = useQuery({ queryKey: ['my-activities'], queryFn: async () => (await api.get<PortalActivities>('/activities')).data });
+  const fitnessProfile = useQuery({ queryKey: ['my-fitness-profile'], queryFn: async () => (await api.get<{ fitnessProfile: FitnessProfile | null }>('/members/me/fitness-profile')).data.fitnessProfile });
 
   const membership = memberships.data?.find((item) => item.status === 'active');
   const period = membership?.membership_periods?.find((item) => item.status === 'active') ?? membership?.membership_periods?.[0];
@@ -98,13 +172,49 @@ export function MemberPortalPage({ section }: { section: PortalSection }) {
         if (!passwords.current || !passwords.next || !passwords.confirmation) throw new Error('Completa los tres campos de contraseña.');
         if (passwords.next !== passwords.confirmation) throw new Error('Las contraseñas nuevas no coinciden.');
       }
-      await api.put('/members/me/profile', { fullName: profile.fullName, phone: profile.phone || null, avatarUrl: profile.avatarUrl || null });
+      await api.put('/members/me/profile', { fullName: profile.fullName, phone: profile.phone || null });
       if (passwords.current && passwords.next) await api.put('/auth/change-password', { currentPassword: passwords.current, newPassword: passwords.next });
     },
     onSuccess: async () => { await refresh(); setPasswords({ current: '', next: '', confirmation: '' }); setEditing(false); },
   });
+  const saveFitnessProfile = useMutation({
+    mutationFn: async (form: FitnessForm) => api.put('/members/me/fitness-profile', {
+      weightKg: Number(form.weightKg),
+      heightCm: Number(form.heightCm),
+      goalType: form.goalType,
+      experienceLevel: form.experienceLevel,
+      trainingFrequencyPerWeek: Number(form.trainingFrequencyPerWeek),
+      availableDays: form.availableDays,
+      targetWeightKg: form.targetWeightKg ? Number(form.targetWeightKg) : null,
+      preferredTrainingType: form.preferredTrainingType.trim() || null,
+      goalHorizonMonths: form.goalHorizonMonths ? Number(form.goalHorizonMonths) : null,
+      publicMessage: form.publicMessage.trim() || null,
+      showInCommunity: form.showInCommunity,
+      showProfilePhoto: form.showProfilePhoto,
+      showStreak: form.showStreak,
+      showAttendanceCount: form.showAttendanceCount,
+      showWeightProgress: form.showWeightProgress,
+      showGoal: form.showGoal,
+    }),
+    onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['my-fitness-profile'] }); setFitnessEditing(false); },
+  });
+  const avatarUpload = useMutation({
+    mutationFn: async (file: File) => {
+      if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) throw new Error('La foto debe ser JPG, PNG o WEBP.');
+      if (file.size > 5 * 1024 * 1024) throw new Error('La foto no puede superar 5 MB.');
+      const prepared = (await api.post<{ upload: { signedUrl: string; path: string } }>('/members/me/avatar-upload', { contentType: file.type })).data.upload;
+      const body = new FormData();
+      body.append('cacheControl', '3600');
+      body.append('', file);
+      const uploadResponse = await fetch(prepared.signedUrl, { method: 'PUT', headers: { 'x-upsert': 'false' }, body });
+      if (!uploadResponse.ok) throw new Error('No se pudo subir la foto. Intenta nuevamente.');
+      return (await api.put<{ profile: { avatar_url: string | null }; avatarPath: string }>('/members/me/avatar', { path: prepared.path })).data;
+    },
+    onSuccess: async () => { await refresh(); },
+  });
 
   const loading = memberships.isLoading || attendances.isLoading || streaks.isLoading;
+  const fitnessSetupRequired = !fitnessProfile.isLoading && !fitnessProfile.isError && !fitnessProfile.data;
   const notices = [
     membership && remaining !== null && remaining > 0 && remaining <= 5 ? `Tu membresía vence en ${remaining} día${remaining === 1 ? '' : 's'}.` : '',
     todaySchedule?.day_mode === 'closed' ? `El gimnasio está cerrado hoy${todayException?.reason ? `: ${todayException.reason}` : '.'}` : '',
@@ -144,9 +254,19 @@ export function MemberPortalPage({ section }: { section: PortalSection }) {
 
     {section === 'progress' && <ProgressView range={range} days={days} firstOffset={firstOffset} membership={membership} currentWeek={currentWeek} streak={streak} attendances={attendances.data ?? []} validCount={validAttendances.length}/>}
 
-    {section === 'profile' && <ProfileView displayName={displayName} session={session} membership={membership} period={period} remaining={remaining} payments={payments.data ?? []} lastPayment={lastPayment} calendar={calendar.data} contactPhone={contactPhone} whatsapp={whatsapp} contactEmail={contactEmail} onEdit={() => setEditing(true)}/>}
+    {section === 'profile' && <ProfileView displayName={displayName} session={session} membership={membership} period={period} remaining={remaining} payments={payments.data ?? []} lastPayment={lastPayment} calendar={calendar.data} contactPhone={contactPhone} whatsapp={whatsapp} contactEmail={contactEmail} fitnessProfile={fitnessProfile.data} onEdit={() => setEditing(true)} onEditFitness={() => setFitnessEditing(true)} onAvatarFile={(file) => avatarUpload.mutate(file)} avatarUploading={avatarUpload.isPending} avatarUploadError={avatarUpload.error}/>}
 
-    {editing && <div className="modal-backdrop"><form className="modal profile-modal" onSubmit={submitProfile}><div className="modal-heading"><div><p className="eyebrow">TU CUENTA</p><h2>Editar perfil</h2></div><button type="button" className="icon-button" onClick={() => setEditing(false)}><X/></button></div><div className="checkout-form single"><label>Nombre completo<input required minLength={2} maxLength={150} value={profile.fullName} onChange={(event) => setProfile({ ...profile, fullName: event.target.value })}/></label><label>Teléfono<input maxLength={30} value={profile.phone} onChange={(event) => setProfile({ ...profile, phone: event.target.value })}/></label><label>URL de foto opcional<input type="url" value={profile.avatarUrl} onChange={(event) => setProfile({ ...profile, avatarUrl: event.target.value })}/></label><div className="form-divider"><strong>Actualizar contraseña</strong><span>Déjalo vacío si no deseas cambiarla.</span></div><label>Contraseña actual<input type="password" minLength={8} maxLength={128} autoComplete="current-password" value={passwords.current} onChange={(event) => setPasswords({ ...passwords, current: event.target.value })}/></label><label>Nueva contraseña<input type="password" minLength={8} maxLength={128} autoComplete="new-password" value={passwords.next} onChange={(event) => setPasswords({ ...passwords, next: event.target.value })}/></label><label>Confirmar nueva contraseña<input type="password" minLength={8} maxLength={128} autoComplete="new-password" value={passwords.confirmation} onChange={(event) => setPasswords({ ...passwords, confirmation: event.target.value })}/></label>{saveProfile.isError && <div className="alert error">{saveProfile.error instanceof Error && !('response' in saveProfile.error) ? saveProfile.error.message : apiErrorMessage(saveProfile.error)}</div>}<div className="modal-actions"><button type="button" className="ghost" onClick={() => setEditing(false)}>Cancelar</button><button className="primary" disabled={saveProfile.isPending}>{saveProfile.isPending ? 'Guardando…' : 'Guardar cambios'}</button></div></div></form></div>}
+    {editing && <div className="modal-backdrop"><form className="modal profile-modal" onSubmit={submitProfile}><div className="modal-heading"><div><p className="eyebrow">TU CUENTA</p><h2>Editar perfil</h2></div><button type="button" className="icon-button" onClick={() => setEditing(false)}><X/></button></div><div className="checkout-form single"><label>Nombre completo<input required minLength={2} maxLength={150} value={profile.fullName} onChange={(event) => setProfile({ ...profile, fullName: event.target.value })}/></label><label>Teléfono<input maxLength={30} value={profile.phone} onChange={(event) => setProfile({ ...profile, phone: event.target.value })}/></label><div className="form-divider"><strong>Actualizar contraseña</strong><span>Déjalo vacío si no deseas cambiarla.</span></div><label>Contraseña actual<input type="password" minLength={8} maxLength={128} autoComplete="current-password" value={passwords.current} onChange={(event) => setPasswords({ ...passwords, current: event.target.value })}/></label><label>Nueva contraseña<input type="password" minLength={8} maxLength={128} autoComplete="new-password" value={passwords.next} onChange={(event) => setPasswords({ ...passwords, next: event.target.value })}/></label><label>Confirmar nueva contraseña<input type="password" minLength={8} maxLength={128} autoComplete="new-password" value={passwords.confirmation} onChange={(event) => setPasswords({ ...passwords, confirmation: event.target.value })}/></label>{saveProfile.isError && <div className="alert error">{saveProfile.error instanceof Error && !('response' in saveProfile.error) ? saveProfile.error.message : apiErrorMessage(saveProfile.error)}</div>}<div className="modal-actions"><button type="button" className="ghost" onClick={() => setEditing(false)}>Cancelar</button><button className="primary" disabled={saveProfile.isPending}>{saveProfile.isPending ? 'Guardando…' : 'Guardar cambios'}</button></div></div></form></div>}
+    {(fitnessSetupRequired || fitnessEditing) && (
+      <FitnessProfileModal
+        initial={fitnessProfile.data}
+        required={fitnessSetupRequired}
+        pending={saveFitnessProfile.isPending}
+        error={saveFitnessProfile.error}
+        onClose={() => setFitnessEditing(false)}
+        onSave={(form) => saveFitnessProfile.mutate(form)}
+      />
+    )}
   </>;
 }
 
@@ -164,6 +284,65 @@ function ProgressView({ range, days, firstOffset, membership, currentWeek, strea
   return <><div className="portal-progress-stats"><article className="portal-card"><Activity/><span>Asistencias válidas</span><strong>{validCount}</strong><small>Historial disponible</small></article><article className="portal-card streak"><Flame/><span>Racha actual</span><strong>{streak?.current_streak ?? 0}</strong><small>Mejor racha: {streak?.longest_streak ?? 0}</small></article><article className="portal-card"><CalendarCheck/><span>Este mes</span><strong>{attendances.filter((item) => item.status === 'valid' && item.attendance_date.startsWith(`${range.year}-${String(range.month).padStart(2, '0')}`)).length}</strong><small>Entradas registradas</small></article></div><div className="portal-sections"><section className="panel"><div className="panel-title"><div><h2>Calendario de {new Date(`${range.from}T12:00:00`).toLocaleDateString('es-EC', { month: 'long' })}</h2><p>Verde: asistencia · amarillo: día adicional · rojo: anulada</p></div><CalendarCheck/></div><div className="month-weekdays">{['L','M','X','J','V','S','D'].map((day) => <span key={day}>{day}</span>)}</div><div className="month-grid">{Array.from({ length: firstOffset }, (_, index) => <span key={`empty-${index}`}/>)}{days.map((item) => <div key={item.date} title={`${item.date} · ${item.mode}`} className={`month-day ${item.date === range.today ? 'today' : ''} ${item.attendance?.status ?? item.mode}`}><span>{item.day}</span>{item.attendance && <Activity/>}</div>)}</div></section><section className="panel"><div className="panel-title"><div><h2>Tu objetivo semanal</h2><p>{membership?.attendance_mode_snapshot === 'weekly' ? 'Meta incluida en tu plan' : 'Asistencia en días abiertos'}</p></div><Flame/></div>{membership?.attendance_mode_snapshot === 'weekly' ? <div className="progress-block"><div><strong>{currentWeek?.completed_attendances ?? 0} de {currentWeek?.target_attendances ?? membership.weekly_target_snapshot ?? 0}</strong><span>{currentWeek?.is_grace_week ? 'Semana de gracia' : currentWeek?.goal_met ? 'Meta completada' : 'Sigue avanzando'}</span></div><progress value={currentWeek?.completed_attendances ?? 0} max={currentWeek?.target_attendances ?? membership.weekly_target_snapshot ?? 1}/></div> : <div className="daily-goal"><CalendarCheck/><div><strong>Plan de asistencia diaria</strong><span>Asiste los días obligatorios. Los días adicionales solamente suman.</span></div></div>}</section></div><section className="panel"><div className="panel-title"><div><h2>Asistencias recientes</h2><p>Tu historial permanece disponible</p></div><Activity/></div>{attendances.length ? <div className="portal-history">{attendances.slice(0, 12).map((item) => <article key={item.id}><div><strong>{item.attendance_date}</strong><small>{item.source === 'qr' ? 'Entrada del miembro' : 'Registrada por recepción'}</small></div><span className={`badge ${item.status}`}>{item.status === 'valid' ? 'Válida' : 'Anulada'}</span></article>)}</div> : <div className="empty compact"><Activity/><strong>Sin asistencias todavía</strong></div>}</section></>;
 }
 
-function ProfileView({ displayName, session, membership, period, remaining, payments, lastPayment, calendar, contactPhone, whatsapp, contactEmail, onEdit }: { displayName: string; session: ReturnType<typeof useAuth>['session']; membership?: Membership; period?: Period; remaining: number | null; payments: Payment[]; lastPayment?: Payment; calendar?: Calendar; contactPhone?: string | null; whatsapp?: string; contactEmail?: string | null; onEdit: () => void }) {
-  return <><section className="panel profile-hero-card"><div className="profile-identity-large">{session?.gymUser?.profiles?.avatar_url ? <img src={session.gymUser.profiles.avatar_url} alt={`Foto de ${displayName}`}/> : <span className="avatar avatar-large">{initials(displayName)}</span>}<div><p className="eyebrow">MI PERFIL</p><h2>{displayName}</h2><span>{session?.user.email ?? 'Sin correo'}</span></div><button className="icon-button" onClick={onEdit} aria-label="Editar perfil"><Pencil/></button></div><div className="profile-lines"><div><span>Teléfono</span><strong>{session?.gymUser?.profiles?.phone ?? 'Sin teléfono'}</strong></div><div><span>Estado</span><strong className="success-text">Activo</strong></div></div></section><div className="portal-sections"><section className="panel"><div className="panel-title"><div><h2>Membresía</h2><p>Tu cobertura actual</p></div><CreditCard/></div><div className="profile-lines"><div><span>Plan</span><strong>{membership?.plans?.name ?? 'Sin membresía activa'}</strong></div><div><span>Vigencia</span><strong>{period ? `${period.starts_on} → ${period.ends_on}` : 'Sin cobertura'}</strong></div><div><span>Estado</span><strong>{membershipCoverageLabel(remaining)}</strong></div><div><span>Asistencia</span><strong>{membership?.attendance_mode_snapshot === 'weekly' ? `${membership.weekly_target_snapshot} por semana` : 'Diaria'}</strong></div></div>{lastPayment && <div className="last-payment"><CreditCard/><div><span>Último pago</span><strong>{money(lastPayment.amount, lastPayment.currency)}</strong><small>{methodLabel(lastPayment.payment_method)} · {new Date(lastPayment.paid_at).toLocaleDateString('es-EC')}</small></div></div>}</section><section className="panel"><div className="panel-title"><div><h2>Contacta al gimnasio</h2><p>{calendar?.gym.name ?? 'Tu gimnasio'}</p></div><MapPin/></div><div className="contact-info"><span><MapPin/>{calendar?.location.address ? `${calendar.location.address}, ${calendar.location.city}` : calendar?.location.city ?? 'Dirección no configurada'}</span>{contactPhone && <a href={`tel:${contactPhone}`}><Phone/>Llamar</a>}{whatsapp && <a href={`https://wa.me/${whatsapp}`} target="_blank" rel="noreferrer"><MessageCircle/>WhatsApp</a>}{contactEmail && <a href={`mailto:${contactEmail}`}><Mail/>Correo</a>}</div></section></div>{payments.length > 0 && <section className="panel"><div className="panel-title"><div><h2>Pagos registrados</h2><p>Solo consulta informativa</p></div><CreditCard/></div><div className="portal-history">{payments.slice(0, 8).map((item) => <article key={item.id}><div><strong>{money(item.amount, item.currency)}</strong><small>{methodLabel(item.payment_method)} · {new Date(item.paid_at).toLocaleDateString('es-EC')}</small></div><span className={`badge ${item.status}`}>{item.status}</span></article>)}</div></section>}</>;
+type ProfileViewProps = {
+  displayName: string;
+  session: ReturnType<typeof useAuth>['session'];
+  membership?: Membership;
+  period?: Period;
+  remaining: number | null;
+  payments: Payment[];
+  lastPayment?: Payment;
+  calendar?: Calendar;
+  contactPhone?: string | null;
+  whatsapp?: string;
+  contactEmail?: string | null;
+  fitnessProfile?: FitnessProfile | null;
+  onEdit: () => void;
+  onEditFitness: () => void;
+  onAvatarFile: (file: File) => void;
+  avatarUploading: boolean;
+  avatarUploadError: unknown;
+};
+
+function ProfileView({ displayName, session, membership, period, remaining, payments, lastPayment, calendar, contactPhone, whatsapp, contactEmail, fitnessProfile, onEdit, onEditFitness, onAvatarFile, avatarUploading, avatarUploadError }: ProfileViewProps) {
+  const goalLabel = fitnessGoals.find((goal) => goal.value === fitnessProfile?.goal_type)?.label ?? 'Sin configurar';
+  const privacyItems = [
+    ['Aparecer en Comunidad', fitnessProfile?.show_in_community],
+    ['Mostrar foto', fitnessProfile?.show_profile_photo],
+    ['Mostrar racha', fitnessProfile?.show_streak],
+    ['Mostrar asistencias', fitnessProfile?.show_attendance_count],
+    ['Mostrar progreso de peso', fitnessProfile?.show_weight_progress],
+    ['Mostrar objetivo', fitnessProfile?.show_goal],
+  ] as const;
+  return <>
+    <section className="panel profile-hero-card">
+      <div className="profile-identity-large">
+        {session?.gymUser?.profiles?.avatar_url ? <img src={session.gymUser.profiles.avatar_url} alt={`Foto de ${displayName}`} /> : <span className="avatar avatar-large">{initials(displayName)}</span>}
+        <div><p className="eyebrow">MI PERFIL</p><h2>{displayName}</h2><span>{session?.user.email ?? 'Sin correo'}</span></div>
+        <button className="icon-button" onClick={onEdit} aria-label="Editar perfil"><Pencil /></button>
+      </div>
+      <div className="profile-avatar-actions">
+        <label className="ghost profile-avatar-upload" htmlFor="member-avatar-input"><Upload />{avatarUploading ? 'Subiendo…' : 'Cambiar foto'}</label>
+        <input id="member-avatar-input" type="file" accept="image/jpeg,image/png,image/webp" disabled={avatarUploading} onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) onAvatarFile(file); }} />
+      </div>
+      {avatarUploadError != null && <div className="alert error">{apiErrorMessage(avatarUploadError)}</div>}
+      <div className="profile-lines"><div><span>Teléfono</span><strong>{session?.gymUser?.profiles?.phone ?? 'Sin teléfono'}</strong></div><div><span>Estado</span><strong className="success-text">Activo</strong></div></div>
+    </section>
+
+    <section className="panel fitness-profile-card">
+      <div className="panel-title"><div><h2>Datos deportivos</h2><p>Ayudan a personalizar tu experiencia.</p></div><button className="ghost" onClick={onEditFitness}><Pencil />Editar encuesta</button></div>
+      {fitnessProfile ? <><div className="fitness-profile-grid"><div><span>Objetivo</span><strong>{goalLabel}</strong></div><div><span>Peso actual</span><strong>{fitnessProfile.weight_kg} kg</strong></div><div><span>Altura</span><strong>{fitnessProfile.height_cm} cm</strong></div><div><span>Experiencia</span><strong>{experienceLabels[fitnessProfile.experience_level]}</strong></div><div><span>Entrenamiento deseado</span><strong>{fitnessProfile.training_frequency_per_week} veces por semana</strong></div><div><span>Tipo preferido</span><strong>{fitnessProfile.preferred_training_type ?? 'Sin especificar'}</strong></div><div><span>Peso objetivo</span><strong>{fitnessProfile.target_weight_kg == null ? 'Sin especificar' : `${fitnessProfile.target_weight_kg} kg`}</strong></div><div><span>Plazo</span><strong>{fitnessProfile.goal_horizon_months == null ? 'Sin especificar' : `${fitnessProfile.goal_horizon_months} meses`}</strong></div></div><div className="privacy-heading"><ShieldCheck /><div><strong>Privacidad para Comunidad</strong><span>La Comunidad se habilitará en una fase posterior.</span></div></div><div className="privacy-list">{privacyItems.map(([label, enabled]) => <div key={label}><span>{label}</span><span className={enabled ? 'enabled' : 'disabled'}>{enabled ? 'Visible' : 'Oculto'}</span></div>)}</div>{fitnessProfile.public_message && <p className="profile-public-message">“{fitnessProfile.public_message}”</p>}</> : <div className="empty compact"><Dumbbell /><strong>Completa tu encuesta</strong><span>Configura tus objetivos para aprovechar el portal.</span></div>}
+    </section>
+
+    <div className="portal-sections"><section className="panel"><div className="panel-title"><div><h2>Membresía</h2><p>Tu cobertura actual</p></div><CreditCard /></div><div className="profile-lines"><div><span>Plan</span><strong>{membership?.plans?.name ?? 'Sin membresía activa'}</strong></div><div><span>Vigencia</span><strong>{period ? `${period.starts_on} → ${period.ends_on}` : 'Sin cobertura'}</strong></div><div><span>Estado</span><strong>{membershipCoverageLabel(remaining)}</strong></div><div><span>Asistencia</span><strong>{membership?.attendance_mode_snapshot === 'weekly' ? `${membership.weekly_target_snapshot} por semana` : 'Diaria'}</strong></div></div>{lastPayment && <div className="last-payment"><CreditCard /><div><span>Último pago</span><strong>{money(lastPayment.amount, lastPayment.currency)}</strong><small>{methodLabel(lastPayment.payment_method)} · {new Date(lastPayment.paid_at).toLocaleDateString('es-EC')}</small></div></div>}</section><section className="panel"><div className="panel-title"><div><h2>Contacta al gimnasio</h2><p>{calendar?.gym.name ?? 'Tu gimnasio'}</p></div><MapPin /></div><div className="contact-info"><span><MapPin />{calendar?.location.address ? `${calendar.location.address}, ${calendar.location.city}` : calendar?.location.city ?? 'Dirección no configurada'}</span>{contactPhone && <a href={`tel:${contactPhone}`}><Phone />Llamar</a>}{whatsapp && <a href={`https://wa.me/${whatsapp}`} target="_blank" rel="noreferrer"><MessageCircle />WhatsApp</a>}{contactEmail && <a href={`mailto:${contactEmail}`}><Mail />Correo</a>}</div></section></div>
+    {payments.length > 0 && <section className="panel"><div className="panel-title"><div><h2>Pagos registrados</h2><p>Solo consulta informativa</p></div><CreditCard /></div><div className="portal-history">{payments.slice(0, 8).map((item) => <article key={item.id}><div><strong>{money(item.amount, item.currency)}</strong><small>{methodLabel(item.payment_method)} · {new Date(item.paid_at).toLocaleDateString('es-EC')}</small></div><span className={`badge ${item.status}`}>{item.status}</span></article>)}</div></section>}
+  </>;
+}
+
+function FitnessProfileModal({ initial, required, pending, error, onClose, onSave }: { initial?: FitnessProfile | null; required: boolean; pending: boolean; error: unknown; onClose: () => void; onSave: (form: FitnessForm) => void }) {
+  const [form, setForm] = useState<FitnessForm>(() => fitnessFormFromProfile(initial));
+  const update = <K extends keyof FitnessForm>(key: K, value: FitnessForm[K]) => setForm((current) => ({ ...current, [key]: value }));
+  const toggleDay = (day: number) => update('availableDays', form.availableDays.includes(day) ? form.availableDays.filter((item) => item !== day) : [...form.availableDays, day].sort());
+  const submit = (event: FormEvent) => { event.preventDefault(); onSave(form); };
+  return <div className="modal-backdrop"><form className="modal fitness-modal" onSubmit={submit}><div className="modal-heading"><div><p className="eyebrow">{required ? 'CONFIGURA TU PERFIL' : 'PERFIL DE ENTRENAMIENTO'}</p><h2>{required ? 'Cuéntanos de ti' : 'Datos deportivos'}</h2><p className="form-note">{required ? 'Solo te tomará un minuto y podrás cambiarlo después.' : 'Actualiza tus objetivos y preferencias cuando quieras.'}</p></div>{!required && <button type="button" className="icon-button" onClick={onClose} aria-label="Cerrar"><X /></button>}</div><div className="fitness-form"><label>Peso actual (kg)<input required type="number" min="20" max="500" step="0.1" value={form.weightKg} onChange={(event) => update('weightKg', event.target.value)} /></label><label>Altura (cm)<input required type="number" min="80" max="260" step="0.1" value={form.heightCm} onChange={(event) => update('heightCm', event.target.value)} /></label><label>Objetivo principal<select value={form.goalType} onChange={(event) => update('goalType', event.target.value as FitnessGoal)}>{fitnessGoals.map((goal) => <option key={goal.value} value={goal.value}>{goal.label}</option>)}</select></label><label>Nivel de experiencia<select value={form.experienceLevel} onChange={(event) => update('experienceLevel', event.target.value as FitnessForm['experienceLevel'])}>{Object.entries(experienceLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label>Frecuencia deseada (días/semana)<input required type="number" min="1" max="14" value={form.trainingFrequencyPerWeek} onChange={(event) => update('trainingFrequencyPerWeek', event.target.value)} /></label><label>Peso objetivo (kg)<input type="number" min="20" max="500" step="0.1" placeholder="Opcional" value={form.targetWeightKg} onChange={(event) => update('targetWeightKg', event.target.value)} /></label><label>Tipo de entrenamiento preferido<input maxLength={80} placeholder="Ej. fuerza, boxeo…" value={form.preferredTrainingType} onChange={(event) => update('preferredTrainingType', event.target.value)} /></label><label>Plazo aproximado<select value={form.goalHorizonMonths} onChange={(event) => update('goalHorizonMonths', event.target.value)}><option value="">Sin definir</option>{[1, 3, 6, 12, 24, 36].map((months) => <option key={months} value={months}>{months} {months === 1 ? 'mes' : 'meses'}</option>)}</select></label><div className="days-picker"><strong>Días disponibles</strong>{dayLabels.map((label, index) => <label key={label}><input type="checkbox" checked={form.availableDays.includes(index + 1)} onChange={() => toggleDay(index + 1)} />{label}</label>)}</div><label className="wide">Mensaje público opcional<textarea maxLength={160} placeholder="Ej. Busco mejorar fuerza" value={form.publicMessage} onChange={(event) => update('publicMessage', event.target.value)} /></label><fieldset className="privacy-settings"><legend><ShieldCheck /> Privacidad (todo oculto por defecto)</legend>{([['showInCommunity', 'Aparecer en Comunidad'], ['showProfilePhoto', 'Mostrar foto'], ['showStreak', 'Mostrar racha'], ['showAttendanceCount', 'Mostrar asistencias'], ['showWeightProgress', 'Mostrar progreso de peso'], ['showGoal', 'Mostrar objetivo']] as Array<[keyof FitnessForm, string]>).map(([key, label]) => <label key={String(key)}><input type="checkbox" checked={Boolean(form[key])} onChange={(event) => update(key, event.target.checked as FitnessForm[typeof key])} />{label}</label>)}</fieldset>{error != null && <div className="alert error">{apiErrorMessage(error)}</div>}<div className="modal-actions"><button type="button" className="ghost" onClick={onClose} disabled={required || pending}>Cancelar</button><button className="primary" disabled={pending}>{pending ? 'Guardando…' : 'Guardar perfil'}</button></div></div></form></div>;
 }

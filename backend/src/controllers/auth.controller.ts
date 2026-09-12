@@ -5,6 +5,7 @@ import { createUserSupabaseClient, supabaseAdmin, supabasePublic } from '../conf
 import { AppError } from '../errors/AppError.js';
 import { stripe } from '../config/stripe.js';
 import { isValidTimeZone } from '../utils/timezone.js';
+import { signAvatarUrl } from '../services/memberProfile.service.js';
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -187,7 +188,12 @@ export async function me(request: Request, response: Response) {
     response.json({ user: request.authUser, gymUser: null, onboardingRequired: true });
     return;
   }
-  response.json({ user: request.authUser, gymUser: data, onboardingRequired: false });
+  const profile = Array.isArray(data.profiles) ? data.profiles[0] : data.profiles;
+  const hydratedGymUser = {
+    ...data,
+    profiles: profile ? { ...profile, avatar_url: await signAvatarUrl(profile.avatar_url) } : profile,
+  };
+  response.json({ user: request.authUser, gymUser: hydratedGymUser, onboardingRequired: false });
 }
 
 export async function refresh(request: Request, response: Response) {
