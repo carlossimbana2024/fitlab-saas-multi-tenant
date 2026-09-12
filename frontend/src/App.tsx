@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { AppLayout } from './components/AppLayout';
+import { MemberPortalLayout } from './components/MemberPortalLayout';
 import { AdminRoute, MemberRoute, OwnerRoute, ProtectedRoute, RoleHome } from './components/ProtectedRoute';
 import { AcceptInvitePage } from './pages/AcceptInvitePage';
 import { AttendancesPage } from './pages/AttendancesPage';
@@ -17,7 +18,6 @@ import { OwnerOnboardingPage } from './pages/OwnerOnboardingPage';
 import { BillingPage } from './pages/BillingPage';
 import { BillingResultPage } from './pages/BillingResultPage';
 import { LegalPage } from './pages/LegalPage';
-import { MemberChatWidget } from './components/MemberChatWidget';
 import { StaffPage } from './pages/StaffPage';
 import { ReceiptVerificationPage } from './pages/ReceiptVerificationPage';
 import { OwnerControlPage } from './pages/OwnerControlPage';
@@ -40,7 +40,14 @@ export default function App() {
     <Route element={<ProtectedRoute/>}>
       <Route path="/owner/setup" element={<OwnerOnboardingPage/>}/>
       <Route index element={<RoleHome/>}/>
-      <Route element={<MemberRoute/>}><Route path="/portal" element={<><MemberPortalPage/><MemberChatWidget/></>}/></Route>
+      <Route element={<MemberRoute/>}>
+        <Route element={<MemberPortalLayout/>}>
+          <Route path="/portal" element={<MemberPortalPage section="home"/>}/>
+          <Route path="/portal/classes" element={<MemberPortalPage section="classes"/>}/>
+          <Route path="/portal/progress" element={<MemberPortalPage section="progress"/>}/>
+          <Route path="/portal/profile" element={<MemberPortalPage section="profile"/>}/>
+        </Route>
+      </Route>
       <Route element={<AdminRoute/>}><Route element={<AppLayout/>}>
         <Route path="/dashboard" element={<DashboardPage/>}/>
         <Route path="/members" element={<MembersPage/>}/>
