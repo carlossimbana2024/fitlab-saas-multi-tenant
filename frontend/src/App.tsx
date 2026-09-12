@@ -24,6 +24,7 @@ import { OwnerControlPage } from './pages/OwnerControlPage';
 import { InventoryPage } from './pages/InventoryPage';
 import { ActivitiesPage } from './pages/ActivitiesPage';
 import { CheckInPage } from './pages/CheckInPage';
+import { MemberCommunityPage } from './pages/MemberCommunityPage';
 
 export default function App() {
   return <Routes>
@@ -45,6 +46,7 @@ export default function App() {
           <Route path="/portal" element={<MemberPortalPage section="home"/>}/>
           <Route path="/portal/classes" element={<MemberPortalPage section="classes"/>}/>
           <Route path="/portal/progress" element={<MemberPortalPage section="progress"/>}/>
+          <Route path="/portal/community" element={<MemberCommunityPage/>}/>
           <Route path="/portal/profile" element={<MemberPortalPage section="profile"/>}/>
         </Route>
       </Route>

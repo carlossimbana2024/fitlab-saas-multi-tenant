@@ -1,4 +1,4 @@
-import { Dumbbell, Flame, Home, LogOut, UserRound } from 'lucide-react';
+import { Dumbbell, Flame, Home, LogOut, UserRound, UsersRound } from 'lucide-react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { MemberChatWidget } from './MemberChatWidget';
@@ -8,6 +8,7 @@ const links = [
   { to: '/portal', label: 'Inicio', icon: Home, end: true },
   { to: '/portal/classes', label: 'Clases', icon: Dumbbell },
   { to: '/portal/progress', label: 'Progreso', icon: Flame },
+  { to: '/portal/community', label: 'Comunidad', icon: UsersRound },
   { to: '/portal/profile', label: 'Perfil', icon: UserRound },
 ];
 

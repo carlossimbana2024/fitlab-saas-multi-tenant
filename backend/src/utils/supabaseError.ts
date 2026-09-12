@@ -59,6 +59,9 @@ const knownErrors: Record<string, { status: number; message: string }> = {
   MEMBER_WEIGHT_ENTRY_DATE_INVALID: { status: 400, message: 'La fecha debe estar entre hoy y los últimos cinco años.' },
   MEMBER_WEIGHT_ENTRY_MEMBER_MISMATCH: { status: 403, message: 'La medición no pertenece a un miembro activo de este gimnasio.' },
   MEMBER_WEIGHT_ENTRY_SOURCE_INVALID: { status: 400, message: 'El origen de la medición no es válido.' },
+  COMMUNITY_MEMBER_NOT_VISIBLE: { status: 404, message: 'Este perfil ya no está disponible en Comunidad.' },
+  COMMUNITY_SELF_REACTION_NOT_ALLOWED: { status: 400, message: 'No puedes reaccionar a tu propio perfil.' },
+  COMMUNITY_REACTION_INVALID: { status: 400, message: 'La reacción no es válida.' },
 };
 
 export function fromSupabaseError(error: DatabaseError): AppError {
