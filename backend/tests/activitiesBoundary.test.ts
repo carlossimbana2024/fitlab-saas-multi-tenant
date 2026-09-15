@@ -38,6 +38,7 @@ describe('actividades, reservas y control del instructor', () => {
     expect(memberPortal).toContain('Reserva y paga en recepción');
     expect(memberPortal).toContain("/bookings/self");
     expect(memberPortal).not.toContain("/attendances/extra-class");
+    expect(memberPortal).toContain("section !== 'profile' && section !== 'classes'");
   });
 
   it('limita al coach a las clases que tiene asignadas', () => {
