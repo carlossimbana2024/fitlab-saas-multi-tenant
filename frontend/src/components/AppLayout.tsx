@@ -1,6 +1,6 @@
 import { Activity, BarChart3, CalendarDays, CircleDollarSign, CreditCard, Dumbbell, LayoutDashboard, LogOut, Menu, Settings, ShoppingBag, UserCog, Users } from 'lucide-react';
-import { NavLink, Outlet } from 'react-router-dom';
-import { useState } from 'react';
+import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { ThemeToggle } from './ThemeToggle';
 import { AdminPinDialog } from './AdminPinDialog';
@@ -9,14 +9,18 @@ import { api } from '../services/api';
 
 export function AppLayout() {
   const [open, setOpen] = useState(false); const { session, logout } = useAuth();
+  const location = useLocation();
   const isOwner = session?.gymUser?.role === 'owner';
   const platform = useQuery({queryKey:['platform-billing-access'],queryFn:async()=> (await api.get<{authorized:boolean}>('/platform/billing/access')).data,retry:false});
   const canAccess = (...permissionKeys: string[]) => isOwner || permissionKeys.some((permissionKey) =>
     session?.gymUser?.staff_permissions?.some((permission) => permission.permission_key === permissionKey && permission.access_mode !== 'denied'),
   );
   const canUseReception = isOwner || (canAccess('members.view') && canAccess('attendance.register', 'attendance.void'));
+
+  useEffect(() => setOpen(false), [location.pathname]);
+
   return <div className="app-shell">
-    <aside className={open ? 'sidebar open' : 'sidebar'}>
+    <aside id="app-sidebar" className={open ? 'sidebar open' : 'sidebar'}>
       <div className="brand"><img src="/fitlab-logo.png" alt="FitLab"/><span>FITLAB</span></div>
       <nav>
         <NavLink to="/dashboard"><LayoutDashboard/>Dashboard</NavLink>
@@ -34,7 +38,8 @@ export function AppLayout() {
       </nav>
       <button className="logout" onClick={() => void logout()}><LogOut/>Cerrar sesión</button>
     </aside>
-    <main className="main"><header className="topbar"><button className="menu" onClick={() => setOpen(!open)}><Menu/></button><div><strong>{session?.gymUser?.profiles?.full_name ?? session?.user.email}</strong><span>{session?.gymUser?.role}</span></div><ThemeToggle/></header><Outlet/></main>
+    {open && <button type="button" className="sidebar-backdrop" aria-label="Cerrar menú" onClick={() => setOpen(false)}/>}
+    <main className="main"><header className="topbar"><button className="menu" aria-label={open ? 'Cerrar menú' : 'Abrir menú'} aria-controls="app-sidebar" aria-expanded={open} onClick={() => setOpen(!open)}><Menu/></button><div><strong>{session?.gymUser?.profiles?.full_name ?? session?.user.email}</strong><span>{session?.gymUser?.role}</span></div><ThemeToggle/></header><Outlet/></main>
     {session?.gymUser?.role === 'staff' && <AdminPinDialog/>}
   </div>;
 }
