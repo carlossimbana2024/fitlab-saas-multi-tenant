@@ -48,7 +48,7 @@ const ownerOnboardingSchema = z.object({
   timezone: z.string().default('America/Guayaquil').refine(isValidTimeZone, 'La zona horaria no es válida.'),
 });
 
-const cookieBase = {
+export const cookieBase = {
   httpOnly: true,
   secure: env.NODE_ENV === 'production',
   sameSite: env.NODE_ENV === 'production' ? ('none' as const) : ('lax' as const),

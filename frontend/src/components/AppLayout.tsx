@@ -4,10 +4,13 @@ import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { ThemeToggle } from './ThemeToggle';
 import { AdminPinDialog } from './AdminPinDialog';
+import { useQuery } from '@tanstack/react-query';
+import { api } from '../services/api';
 
 export function AppLayout() {
   const [open, setOpen] = useState(false); const { session, logout } = useAuth();
   const isOwner = session?.gymUser?.role === 'owner';
+  const platform = useQuery({queryKey:['platform-billing-access'],queryFn:async()=> (await api.get<{authorized:boolean}>('/platform/billing/access')).data,retry:false});
   const canAccess = (...permissionKeys: string[]) => isOwner || permissionKeys.some((permissionKey) =>
     session?.gymUser?.staff_permissions?.some((permission) => permission.permission_key === permissionKey && permission.access_mode !== 'denied'),
   );
@@ -27,6 +30,7 @@ export function AppLayout() {
         {isOwner && <NavLink to="/staff"><UserCog/>Personal</NavLink>}
         {canAccess('settings.manage') && <NavLink to="/settings"><Settings/>Configuración</NavLink>}
         {isOwner && <NavLink to="/billing"><CircleDollarSign/>Plan FitLab</NavLink>}
+        {platform.data?.authorized && <NavLink to="/platform/billing"><ShieldBillingIcon/>Cobros FitLab</NavLink>}
       </nav>
       <button className="logout" onClick={() => void logout()}><LogOut/>Cerrar sesión</button>
     </aside>
@@ -34,3 +38,5 @@ export function AppLayout() {
     {session?.gymUser?.role === 'staff' && <AdminPinDialog/>}
   </div>;
 }
+
+const ShieldBillingIcon = CircleDollarSign;

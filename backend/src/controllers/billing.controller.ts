@@ -26,19 +26,28 @@ export async function getBillingStatus(request: Request, response: Response) {
   const { data: gym, error: gymError } = await supabaseAdmin.from('gyms')
     .select('id,name,status').eq('id', request.tenant!.gymId).single();
   const { data: subscription, error: subscriptionError } = await supabaseAdmin.from('gym_subscriptions')
-    .select('id,status,trial_ends_at,current_period_starts_at,current_period_ends_at,cancel_at_period_end,provider_customer_id,provider_subscription_id,plan_name_snapshot,price_snapshot,currency_snapshot')
+    .select('id,status,trial_ends_at,current_period_starts_at,current_period_ends_at,cancel_at_period_end,provider,provider_customer_id,provider_subscription_id,plan_name_snapshot,price_snapshot,currency_snapshot')
     .eq('gym_id', request.tenant!.gymId).order('created_at', { ascending: false }).limit(1).maybeSingle();
   if (gymError || subscriptionError || !gym || !subscription) throw new AppError(404, 'BILLING_STATUS_NOT_FOUND', 'No se encontró la suscripción del gimnasio.');
-  response.json({ gym, subscription, graceDays: env.SUBSCRIPTION_GRACE_DAYS });
+  const manualPeriodExpired = subscription.provider === 'manual'
+    && subscription.status === 'active'
+    && (!subscription.current_period_ends_at || new Date(subscription.current_period_ends_at).getTime() <= Date.now());
+  response.json({
+    gym,
+    subscription: { ...subscription, effective_status: manualPeriodExpired ? 'past_due' : subscription.status },
+    graceDays: env.SUBSCRIPTION_GRACE_DAYS,
+  });
 }
 
 export async function createCheckout(request: Request, response: Response) {
+  if (env.MANUAL_BILLING_INSTRUCTIONS.trim()) throw new AppError(409, 'MANUAL_BILLING_ENABLED', 'Utiliza el pago por transferencia.');
   if (request.tenant!.role !== 'owner') throw new AppError(403, 'OWNER_REQUIRED', 'Solo el owner puede activar el plan.');
   const { data: subscription, error } = await supabaseAdmin.from('gym_subscriptions')
-    .select('id,status,trial_ends_at,provider_customer_id,provider_subscription_id')
+    .select('id,status,trial_ends_at,provider_customer_id,provider_subscription_id,provider')
     .eq('gym_id', request.tenant!.gymId).order('created_at', { ascending: false }).limit(1).single();
   if (error || !subscription) throw new AppError(404, 'SUBSCRIPTION_NOT_FOUND', 'No se encontró la suscripción.');
   if (subscription.provider_subscription_id) throw new AppError(409, 'SUBSCRIPTION_ALREADY_LINKED', 'La suscripción ya está vinculada con Stripe.');
+  if (subscription.provider === 'manual') throw new AppError(409,'MANUAL_SUBSCRIPTION','Esta suscripción se renueva por transferencia.');
 
   const trialEndSeconds = subscription.trial_ends_at
     ? Math.floor(new Date(subscription.trial_ends_at).getTime() / 1000)

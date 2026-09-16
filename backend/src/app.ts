@@ -22,6 +22,7 @@ import { staffRouter } from './routes/staff.routes.js';
 import { ownerControlRouter } from './routes/ownerControl.routes.js';
 import { inventoryRouter, salesRouter } from './routes/commerce.routes.js';
 import { activityRouter } from './routes/activity.routes.js';
+import { platformBillingRouter } from './routes/platformBilling.routes.js';
 
 export const app = express();
 
@@ -57,6 +58,7 @@ app.use('/api/calendar', calendarRouter);
 app.use('/api/cron', cronRouter);
 app.use('/api/settings', settingsRouter);
 app.use('/api/billing', billingRouter);
+app.use('/api/platform/billing', platformBillingRouter);
 app.use('/api/chat', chatRouter);
 app.use('/api/staff', staffRouter);
 app.use('/api/owner-control', ownerControlRouter);

@@ -25,6 +25,7 @@ import { InventoryPage } from './pages/InventoryPage';
 import { ActivitiesPage } from './pages/ActivitiesPage';
 import { CheckInPage } from './pages/CheckInPage';
 import { MemberCommunityPage } from './pages/MemberCommunityPage';
+import { PlatformBillingPage } from './pages/PlatformBillingPage';
 
 export default function App() {
   return <Routes>
@@ -39,6 +40,7 @@ export default function App() {
     <Route path="/legal/privacy" element={<LegalPage/>}/>
     <Route path="/receipt/verify/:token" element={<ReceiptVerificationPage/>}/>
     <Route element={<ProtectedRoute/>}>
+      <Route path="/platform/billing" element={<PlatformBillingPage/>}/>
       <Route path="/owner/setup" element={<OwnerOnboardingPage/>}/>
       <Route index element={<RoleHome/>}/>
       <Route element={<MemberRoute/>}>

@@ -30,7 +30,7 @@ export const tenantContext: RequestHandler = asyncHandler(async (request, _respo
   const requiresWriteAccess = !readOnlyMethods.has(request.method) && request.baseUrl !== '/api/billing';
   if (requiresWriteAccess) {
     const { data: subscription, error: subscriptionError } = await supabaseAdmin.from('gym_subscriptions')
-      .select('status,trial_ends_at,updated_at')
+      .select('status,trial_ends_at,updated_at,provider,current_period_ends_at')
       .eq('gym_id', gymUser.gym_id)
       .order('created_at', { ascending: false })
       .limit(1)
@@ -45,6 +45,8 @@ export const tenantContext: RequestHandler = asyncHandler(async (request, _respo
         status: subscription.status as SubscriptionStatus,
         trialEndsAt: subscription.trial_ends_at,
         updatedAt: subscription.updated_at,
+        provider: subscription.provider,
+        currentPeriodEndsAt: subscription.current_period_ends_at,
       } : null,
       nowMs: Date.now(),
       graceDays: env.SUBSCRIPTION_GRACE_DAYS,

@@ -5,6 +5,8 @@ export type SubscriptionSnapshot = {
   status: SubscriptionStatus;
   trialEndsAt: string | null;
   updatedAt: string;
+  provider?: string;
+  currentPeriodEndsAt?: string | null;
 };
 
 export type SubscriptionDecision =
@@ -47,6 +49,11 @@ export function decideSubscriptionWriteAccess(input: {
       return { allowed: false, code: 'SUBSCRIPTION_GRACE_EXPIRED' };
     }
     return { allowed: true };
+  }
+
+  if (subscription.provider === 'manual' && subscription.status === 'active') {
+    const end = timestamp(subscription.currentPeriodEndsAt ?? null);
+    if (end === null || nowMs >= end) return { allowed: false, code: 'SUBSCRIPTION_GRACE_EXPIRED' };
   }
 
   if (subscription.status === 'trialing') {

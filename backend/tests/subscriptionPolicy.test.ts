@@ -25,6 +25,14 @@ describe('decideSubscriptionWriteAccess', () => {
     expect(decide('active', subscription())).toEqual({ allowed: true });
   });
 
+  it('limita la escritura de una suscripción manual a su período pagado', () => {
+    expect(decide('active', subscription({ provider: 'manual', currentPeriodEndsAt: '2026-08-12T12:00:00.000Z' }))).toEqual({ allowed: true });
+    expect(decide('active', subscription({ provider: 'manual', currentPeriodEndsAt: '2026-08-11T12:00:00.000Z' }))).toEqual({
+      allowed: false,
+      code: 'SUBSCRIPTION_GRACE_EXPIRED',
+    });
+  });
+
   it('permite trial vigente y su gracia controlada', () => {
     expect(decide('trial', subscription({ status: 'trialing', trialEndsAt: '2026-08-12T12:00:00.000Z' }))).toEqual({ allowed: true });
     expect(decide('trial', subscription({ status: 'trialing', trialEndsAt: '2026-08-10T12:00:00.000Z' }))).toEqual({ allowed: true });
