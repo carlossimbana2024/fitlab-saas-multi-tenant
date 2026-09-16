@@ -1,8 +1,14 @@
 import type { Request, Response } from 'express';
 import { supabaseAdmin } from '../config/supabase.js';
 import { AppError } from '../errors/AppError.js';
+import {
+  createReceiptLogoPath, GYM_RECEIPT_BRANDING_BUCKET, isReceiptLogoPath,
+  publicReceiptLogoUrl, receiptLogoExtension,
+} from '../services/gymBranding.service.js';
 import { fromSupabaseError } from '../utils/supabaseError.js';
-import { gymSettingsSchema, locationSettingsSchema, receiptBrandingSchema } from '../validators/settings.validator.js';
+import {
+  gymSettingsSchema, locationSettingsSchema, receiptBrandingSchema, receiptBrandingUploadSchema,
+} from '../validators/settings.validator.js';
 
 export async function getSettings(request: Request, response: Response) {
   const [gym, locations] = await Promise.all([
@@ -16,17 +22,43 @@ export async function getSettings(request: Request, response: Response) {
 
 export async function updateReceiptBranding(request: Request, response: Response) {
   const input = receiptBrandingSchema.safeParse(request.body);
-  if (!input.success) throw new AppError(400, 'INVALID_RECEIPT_BRANDING', 'El logotipo debe usar una URL HTTPS válida.', input.error.flatten());
+  if (!input.success) throw new AppError(400, 'INVALID_RECEIPT_BRANDING', 'El logotipo seleccionado no es válido.', input.error.flatten());
+  let logoUrl: string | null;
+  if ('path' in input.data) {
+    const path = input.data.path;
+    if (!isReceiptLogoPath(path, request.tenant!.gymId)) {
+      throw new AppError(400, 'INVALID_RECEIPT_LOGO_PATH', 'El logotipo no pertenece a este gimnasio.');
+    }
+    const { data: signed, error: signedError } = await supabaseAdmin.storage
+      .from(GYM_RECEIPT_BRANDING_BUCKET).createSignedUrl(path, 60);
+    if (signedError || !signed?.signedUrl) {
+      throw new AppError(400, 'RECEIPT_LOGO_NOT_FOUND', 'No se encontró el logotipo cargado.');
+    }
+    logoUrl = publicReceiptLogoUrl(path);
+  } else {
+    logoUrl = input.data.logoUrl || null;
+  }
   const { data, error } = await supabaseAdmin.rpc('update_gym_receipt_branding_backend', {
     target_gym_id: request.tenant!.gymId,
     target_actor_gym_user_id: request.tenant!.gymUserId,
-    supplied_logo_url: input.data.logoUrl || null,
+    supplied_logo_url: logoUrl,
     supplied_used_pin_elevation: request.permissionContext?.usedPinElevation ?? false,
   });
   if (error) throw fromSupabaseError(error);
   const gym = Array.isArray(data) ? data[0] : undefined;
   if (!gym) throw new AppError(500, 'RECEIPT_BRANDING_EMPTY_RESULT', 'No se pudo guardar la marca del recibo.');
   response.json({ gym });
+}
+
+export async function createReceiptBrandingUpload(request: Request, response: Response) {
+  const input = receiptBrandingUploadSchema.safeParse(request.body);
+  if (!input.success) throw new AppError(400, 'INVALID_RECEIPT_LOGO_UPLOAD', 'El tipo de imagen no es válido.');
+  receiptLogoExtension(input.data.contentType);
+  const path = createReceiptLogoPath(request.tenant!.gymId, input.data.contentType);
+  const { data, error } = await supabaseAdmin.storage
+    .from(GYM_RECEIPT_BRANDING_BUCKET).createSignedUploadUrl(path, { upsert: true });
+  if (error || !data) throw new AppError(503, 'RECEIPT_LOGO_UPLOAD_URL_FAILED', 'No se pudo preparar la carga del logotipo.');
+  response.json({ upload: { ...data, bucket: GYM_RECEIPT_BRANDING_BUCKET, contentType: input.data.contentType } });
 }
 
 export async function updateGymSettings(request: Request, response: Response) {

@@ -11,7 +11,13 @@ export const gymSettingsSchema = z.object({
 });
 
 export const receiptBrandingSchema = z.object({
-  logoUrl: z.union([z.string().trim().url().max(2048).refine((value) => value.startsWith('https://')), z.literal(''), z.null()]).optional(),
+  logoUrl: z.union([z.string().trim().url().max(2048).refine((value) => value.startsWith('https://')), z.literal(''), z.null()]),
+}).or(z.object({
+  path: z.string().trim().min(1).max(300),
+}));
+
+export const receiptBrandingUploadSchema = z.object({
+  contentType: z.string().trim().toLowerCase(),
 });
 
 export const locationSettingsSchema = z.object({

@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
-import { Activity, ArrowUpRight, CreditCard, Flame, Users } from 'lucide-react';
+import { Activity, ArrowUpRight, CreditCard, Eye, EyeOff, Flame, Users } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { useState } from 'react';
 import { api } from '../services/api';
 
 type Member = { id: string; status: string; profiles?: { full_name?: string } };
@@ -21,6 +22,7 @@ function paymentMethod(method: string) {
 
 export function DashboardPage() {
   const navigate = useNavigate();
+  const [showIncome, setShowIncome] = useState(true);
   const today = dateInGuayaquil();
   const monthPrefix = today.slice(0, 7);
   const members = useQuery({ queryKey: ['members'], queryFn: async () => (await api.get<{ members: Member[] }>('/members')).data.members });
@@ -41,14 +43,14 @@ export function DashboardPage() {
   ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 6);
 
   const stats = [
-    { label: 'Miembros activos', value: loading ? '…' : String((members.data ?? []).filter((member) => member.status === 'active').length), detail: 'Con acceso activo', icon: Users, tone: 'red' },
-    { label: 'Ingresos del mes', value: payments.isLoading ? '…' : payments.isError ? 'Restringido' : `${income.toFixed(2)} ${currency}`, detail: payments.isError ? 'Sin permiso financiero' : 'Pagos confirmados', icon: CreditCard, tone: 'yellow' },
-    { label: 'Asistencias hoy', value: attendances.isLoading ? '…' : String(validAttendances.length), detail: 'Registros válidos', icon: Activity, tone: 'green' },
-    { label: 'Mejor racha', value: streaks.isLoading ? '…' : String(bestStreak), detail: 'Récord del gimnasio', icon: Flame, tone: 'orange' },
+    { label: 'Miembros activos', value: loading ? '…' : String((members.data ?? []).filter((member) => member.status === 'active').length), detail: 'Con acceso activo', icon: Users, tone: 'red', privateValue: false },
+    { label: 'Ingresos del mes', value: payments.isLoading ? '…' : payments.isError ? 'Restringido' : showIncome ? `${income.toFixed(2)} ${currency}` : `•••••• ${currency}`, detail: payments.isError ? 'Sin permiso financiero' : showIncome ? 'Pagos confirmados' : 'Valor oculto', icon: CreditCard, tone: 'yellow', privateValue: true },
+    { label: 'Asistencias hoy', value: attendances.isLoading ? '…' : String(validAttendances.length), detail: 'Registros válidos', icon: Activity, tone: 'green', privateValue: false },
+    { label: 'Mejor racha', value: streaks.isLoading ? '…' : String(bestStreak), detail: 'Récord del gimnasio', icon: Flame, tone: 'orange', privateValue: false },
   ];
 
   return <div className="page"><div className="page-heading"><div><p className="eyebrow">RESUMEN DEL GIMNASIO</p><h1>Dashboard</h1><p>Una vista rápida de lo que está pasando hoy.</p></div><button className="primary" onClick={() => navigate('/memberships')}>Registrar pago <ArrowUpRight size={17}/></button></div>
-    <div className="stats-grid">{stats.map(({ label, value, detail, icon: Icon, tone }) => <article className="stat-card" key={label}><span className={`stat-icon ${tone}`}><Icon/></span><div><p>{label}</p><strong>{value}</strong><small>{detail}</small></div></article>)}</div>
+    <div className="stats-grid">{stats.map(({ label, value, detail, icon: Icon, tone, privateValue }) => <article className={`stat-card${privateValue ? ' private-stat' : ''}`} key={label}><span className={`stat-icon ${tone}`}><Icon/></span><div><p>{label}</p><strong className={privateValue && !showIncome ? 'masked-value' : undefined}>{value}</strong><small>{detail}</small></div>{privateValue && !payments.isError && <button type="button" className="stat-privacy-toggle" aria-label={showIncome ? 'Ocultar ingresos del mes' : 'Mostrar ingresos del mes'} title={showIncome ? 'Ocultar ingresos' : 'Mostrar ingresos'} onClick={() => setShowIncome((current) => !current)}>{showIncome ? <EyeOff/> : <Eye/>}</button>}</article>)}</div>
     <div className="dashboard-grid"><section className="panel"><div className="panel-title"><div><h2>Actividad reciente</h2><p>Últimos movimientos del gimnasio</p></div><button className="ghost" onClick={() => navigate('/attendances')}>Ver asistencias</button></div>{activity.length ? <div className="activity-list">{activity.map((item) => <article className="activity-row" key={`${item.kind}-${item.id}`}><span className={`activity-icon ${item.kind}`}>{item.kind === 'payment' ? <CreditCard/> : <Activity/>}</span><div><strong>{item.label}</strong><small>{names.get(item.memberUserId) ?? 'Miembro'} · {item.detail}</small></div><time>{new Date(item.date).toLocaleString('es-EC', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</time></article>)}</div> : <div className="empty"><Activity/><strong>Aún no hay actividad para mostrar</strong><span>Las asistencias y pagos aparecerán aquí.</span></div>}</section>
       <section className="panel streak-panel"><p className="eyebrow">MOTIVACIÓN</p><Flame size={42}/><h2>Rachas que construyen hábitos</h2><p>{bestStreak > 0 ? `La mejor racha actual del gimnasio alcanza ${bestStreak} días.` : 'Las rachas aparecerán cuando los miembros empiecen a registrar asistencias.'}</p><button className="secondary" onClick={() => navigate('/attendances')}>Ver rachas</button></section></div>
   </div>;

@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import {
-  Activity, Archive, Ban, CalendarClock, CalendarX2, ChevronLeft, ChevronRight,
+  Activity, Archive, Ban, BarChart3, CalendarClock, CalendarX2, ChevronLeft, ChevronRight,
   CircleDollarSign, Clock3, KeyRound, LoaderCircle, MapPin, RotateCcw,
   ShieldAlert, ShieldCheck, TrendingDown, TrendingUp, UserRoundSearch, UserX,
   Users, WalletCards,
@@ -152,6 +152,11 @@ function formatDate(value: string) {
     .format(new Date(`${value}T00:00:00Z`));
 }
 
+function shortDate(value: string) {
+  return new Intl.DateTimeFormat('es-EC', { day: '2-digit', month: 'short', timeZone: 'UTC' })
+    .format(new Date(`${value}T00:00:00Z`)).replace('.', '');
+}
+
 function IncomeEvolution({ series }: { series: IncomeSeries[] }) {
   if (!series.length) return <div className="chart-empty"><CircleDollarSign/><strong>Aún no hay movimientos en este período</strong><span>Los próximos cobros aparecerán aquí automáticamente.</span></div>;
   return <div className="income-series-list">{series.map((currencySeries) => {
@@ -164,11 +169,35 @@ function IncomeEvolution({ series }: { series: IncomeSeries[] }) {
         {currencySeries.points.map((point) => <div className="income-bar-group" key={point.key} title={`${point.label}: ${point.confirmed.toFixed(2)} confirmados, ${point.refunded.toFixed(2)} reembolsados`}>
           <div className="income-bar-values"><small>{point.confirmed ? point.confirmed.toFixed(0) : ''}</small><small>{point.refunded ? point.refunded.toFixed(0) : ''}</small></div>
           <div className="income-bar-columns"><i className="confirmed" style={{ height: `${Math.max(point.confirmed ? 5 : 0, point.confirmed / maximum * 100)}%` }}/><i className="refunded" style={{ height: `${Math.max(point.refunded ? 5 : 0, point.refunded / maximum * 100)}%` }}/></div>
-          <span>{point.label}</span>
+          <span>{point.label}<small className={point.net < 0 ? 'negative' : ''}>{point.net.toFixed(0)} neto</small></span>
         </div>)}
       </div>
     </article>;
   })}</div>;
+}
+
+function DailyAttendanceChart({ points }: { points: OwnerReport['attendance']['daily'] }) {
+  if (!points.length) return <div className="chart-empty"><Activity/><strong>Aún no hay asistencias en este período</strong></div>;
+  const groupSize = Math.max(1, Math.ceil(points.length / 24));
+  const buckets = Array.from({ length: Math.ceil(points.length / groupSize) }, (_, index) => {
+    const group = points.slice(index * groupSize, (index + 1) * groupSize);
+    const first = group[0]!;
+    const last = group[group.length - 1]!;
+    return {
+      key: first.date,
+      label: group.length === 1 ? shortDate(first.date) : `${shortDate(first.date)}–${shortDate(last.date)}`,
+      count: group.reduce((sum, point) => sum + point.count, 0),
+    };
+  });
+  const maximum = Math.max(1, ...buckets.map((bucket) => bucket.count));
+  const total = points.reduce((sum, point) => sum + point.count, 0);
+  const average = total / Math.max(1, points.length);
+  return <div className="daily-attendance-visual">
+    <div className="daily-chart-summary"><span><small>Total del período</small><strong>{total}</strong></span><span><small>Promedio diario</small><strong>{average.toFixed(1)}</strong></span><span><small>Mejor tramo</small><strong>{Math.max(...buckets.map((bucket) => bucket.count))}</strong></span></div>
+    <div className="daily-chart-scroll"><div className="daily-attendance-chart" style={{ gridTemplateColumns: `repeat(${buckets.length}, minmax(34px, 1fr))` }} role="img" aria-label="Evolución de asistencias válidas">
+      {buckets.map((bucket) => <div className="daily-attendance-column" key={bucket.key} title={`${bucket.label}: ${bucket.count} asistencias`}><strong>{bucket.count}</strong><div><i style={{ height: `${Math.max(bucket.count ? 8 : 2, bucket.count / maximum * 100)}%` }}/></div><small>{bucket.label}</small></div>)}
+    </div></div>
+  </div>;
 }
 
 function AttendanceHeatmap({ rows }: { rows: OwnerReport['attendance']['heatmap'] }) {
@@ -309,6 +338,8 @@ export function OwnerControlPage() {
 
       <div className="owner-section-heading"><div><p className="eyebrow">MIEMBROS</p><h2>Estado actual</h2></div><small>La membresía vencida puede coincidir con un acceso operativo activo.</small></div>
       <div className="stats-grid">{memberCards.map(({ label, value, icon: Icon, tone }) => <article className="stat-card" key={label}><span className={`stat-icon ${tone}`}><Icon/></span><div><p>{label}</p><strong>{value}</strong><small>Estado actual</small></div></article>)}</div>
+
+      <section className="panel decision-panel"><div className="panel-title"><div><h2>Evolución de asistencias</h2><p>Compara la afluencia diaria dentro del período seleccionado.</p></div><BarChart3/></div><DailyAttendanceChart points={report.data.attendance.daily}/></section>
 
       <section className="panel decision-panel"><div className="panel-title"><div><h2>Horarios más concurridos</h2><p>{report.data.attendance.total} asistencias válidas · hora local del gimnasio</p></div><Activity/></div><AttendanceHeatmap rows={report.data.attendance.heatmap}/></section>
 

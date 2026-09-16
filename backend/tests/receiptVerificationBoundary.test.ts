@@ -37,4 +37,18 @@ describe('recibos verificables y marca del gimnasio', () => {
     expect(page).toContain('`/member-payments/${receiptId}/receipt`');
     expect(page).toContain('`/member-payments/${reverseTarget?.payment.id}/${reverseTarget?.action}`');
   });
+
+  it('carga la marca desde el dispositivo con ruta tenant-scoped y URL firmada', () => {
+    const routes = source('backend/src/routes/settings.routes.ts');
+    const controller = source('backend/src/controllers/settings.controller.ts');
+    const service = source('backend/src/services/gymBranding.service.ts');
+    const migration = source('supabase/migrations/0038_gym_receipt_branding_upload.sql');
+    expect(routes).toContain("settingsRouter.post('/receipt-branding/upload', checkPermission('settings.manage')");
+    expect(controller).toContain('isReceiptLogoPath(path, request.tenant!.gymId)');
+    expect(controller).toContain('createSignedUploadUrl(path, { upsert: true })');
+    expect(service).toContain('path.startsWith(`${gymId}/`)');
+    expect(migration).toContain("'gym-receipt-branding'");
+    expect(migration).toContain('true,');
+    expect(migration).toContain("array['image/jpeg', 'image/png', 'image/webp']");
+  });
 });

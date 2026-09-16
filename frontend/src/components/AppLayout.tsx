@@ -1,4 +1,4 @@
-import { Activity, BarChart3, CalendarDays, CircleDollarSign, CreditCard, Dumbbell, LayoutDashboard, LogOut, Menu, Settings, ShoppingBag, UserCog, Users } from 'lucide-react';
+import { Activity, BarChart3, CalendarDays, CircleDollarSign, CreditCard, Dumbbell, LayoutDashboard, LogOut, Menu, Settings, ShoppingBag, UserCog, Users, X } from 'lucide-react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
@@ -18,10 +18,16 @@ export function AppLayout() {
   const canUseReception = isOwner || (canAccess('members.view') && canAccess('attendance.register', 'attendance.void'));
 
   useEffect(() => setOpen(false), [location.pathname]);
+  useEffect(() => {
+    if (!open) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = previousOverflow; };
+  }, [open]);
 
   return <div className="app-shell">
     <aside id="app-sidebar" className={open ? 'sidebar open' : 'sidebar'}>
-      <div className="brand"><img src="/fitlab-logo.png" alt="FitLab"/><span>FITLAB</span></div>
+      <div className="brand"><img src="/fitlab-logo.png" alt="FitLab"/><span>FITLAB</span><button type="button" className="sidebar-close" aria-label="Cerrar menú" onClick={() => setOpen(false)}><X/></button></div>
       <nav>
         <NavLink to="/dashboard"><LayoutDashboard/>Dashboard</NavLink>
         {canAccess('members.view') && <NavLink to="/members"><Users/>Miembros</NavLink>}
