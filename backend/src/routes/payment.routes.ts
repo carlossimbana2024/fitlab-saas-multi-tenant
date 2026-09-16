@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getPaymentReceipt, listPayments, refundPayment, verifyPaymentReceipt, voidPayment } from '../controllers/payment.controller.js';
+import { getDashboardPaymentSummary, getPaymentReceipt, listPayments, refundPayment, verifyPaymentReceipt, voidPayment } from '../controllers/payment.controller.js';
 import { checkPermission } from '../middlewares/checkPermission.js';
 import { databaseRateLimit, requestNetworkKey } from '../middlewares/rateLimit.js';
 import { tenantContext } from '../middlewares/tenantContext.js';
@@ -14,6 +14,7 @@ paymentRouter.get('/verify/:token', databaseRateLimit({
   subject: (request) => `${requestNetworkKey(request)}:${String(request.params.token ?? '')}`,
 }), asyncHandler(verifyPaymentReceipt));
 paymentRouter.use(verifyJWT, tenantContext);
+paymentRouter.get('/dashboard-summary', checkPermission('finances.view'), asyncHandler(getDashboardPaymentSummary));
 paymentRouter.get('/', checkPermission('finances.view'), asyncHandler(listPayments));
 paymentRouter.get('/:id/receipt', checkPermission('finances.view'), asyncHandler(getPaymentReceipt));
 paymentRouter.patch('/:id/void', checkPermission('payments.void'), asyncHandler(voidPayment));

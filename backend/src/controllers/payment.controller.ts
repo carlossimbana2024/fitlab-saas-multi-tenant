@@ -2,12 +2,15 @@ import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { supabaseAdmin } from '../config/supabase.js';
 import { AppError } from '../errors/AppError.js';
+import { summarizeDashboardIncome, type DashboardPaymentRow } from '../services/dashboardIncome.js';
+import { dateInTimezone, localMidnightAsUtc } from '../utils/gymDate.js';
 import { fromSupabaseError } from '../utils/supabaseError.js';
 import { paymentReversalSchema } from '../validators/membership.validator.js';
 
 const uuid = z.string().uuid();
 const paymentListFields = 'id,location_id,member_user_id,membership_id,amount,currency,payment_method,status,external_reference,notes,registered_by,paid_at,receipt_number,receipt_issued_at,voided_at,voided_by,void_reason,refunded_at,refunded_by,refund_reason';
 const paymentFields = 'id,gym_id,location_id,member_user_id,membership_id,amount,currency,payment_method,status,external_reference,notes,registered_by,paid_at,receipt_number,receipt_issued_at,receipt_verification_token,voided_at,voided_by,void_reason,refunded_at,refunded_by,refund_reason';
+const DASHBOARD_PAGE_SIZE = 1000;
 
 function relatedOne<T>(value: T | T[] | null | undefined): T | undefined {
   return Array.isArray(value) ? value[0] : value ?? undefined;
@@ -50,6 +53,44 @@ export async function listPayments(request: Request, response: Response) {
     member_name: payment.member_user_id ? members.get(payment.member_user_id) ?? 'Miembro' : 'Miembro',
     plan_name: payment.membership_id ? memberships.get(payment.membership_id) ?? 'Plan' : 'Plan',
   })) });
+}
+
+function nextMonthStart(month: string): string {
+  const year = Number(month.slice(0, 4));
+  const monthIndex = Number(month.slice(5, 7));
+  return new Date(Date.UTC(year, monthIndex, 1)).toISOString().slice(0, 10);
+}
+
+export async function getDashboardPaymentSummary(request: Request, response: Response) {
+  const gymId = request.tenant!.gymId;
+  const timezone = request.tenant!.timezone;
+  const month = dateInTimezone(timezone).slice(0, 7);
+  const from = localMidnightAsUtc(`${month}-01`, timezone);
+  const to = localMidnightAsUtc(nextMonthStart(month), timezone);
+  const gymResult = await supabaseAdmin.from('gyms').select('currency').eq('id', gymId).single();
+  if (gymResult.error) throw fromSupabaseError(gymResult.error);
+  if (!gymResult.data) throw new AppError(404, 'GYM_NOT_FOUND', 'El gimnasio no está disponible.');
+
+  const payments: DashboardPaymentRow[] = [];
+  for (let offset = 0; ; offset += DASHBOARD_PAGE_SIZE) {
+    const result = await supabaseAdmin.from('member_payments')
+      .select('amount,currency,membership_id,sale_id,class_booking_id')
+      .eq('gym_id', gymId).eq('status', 'confirmed')
+      .gte('paid_at', from).lt('paid_at', to)
+      .order('paid_at', { ascending: false })
+      .range(offset, offset + DASHBOARD_PAGE_SIZE - 1);
+    if (result.error) throw fromSupabaseError(result.error);
+    const batch = (result.data ?? []) as DashboardPaymentRow[];
+    payments.push(...batch);
+    if (batch.length < DASHBOARD_PAGE_SIZE) break;
+  }
+
+  response.json({
+    summary: {
+      month,
+      currencies: summarizeDashboardIncome(payments, gymResult.data.currency),
+    },
+  });
 }
 
 async function reversePayment(request: Request, response: Response, status: 'voided' | 'refunded') {

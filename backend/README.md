@@ -33,6 +33,7 @@ npm run dev
 - `GET /api/memberships`: membresías filtradas por RLS.
 - `POST /api/memberships/manual-checkout`: cobro y cobertura atómicos; requiere `payments.register`.
 - `GET /api/member-payments`: pagos filtrados por RLS.
+- `GET /api/member-payments/dashboard-summary`: total mensual confirmado de membresías, ventas y actividades para el dashboard; requiere `finances.view`.
 - `PATCH /api/member-payments/:id/void`: requiere `payments.void`.
 
 ## Seguridad
