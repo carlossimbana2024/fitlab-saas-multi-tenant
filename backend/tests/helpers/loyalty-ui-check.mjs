@@ -43,6 +43,8 @@ try {
       else if (path === '/memberships') data = { memberships: [{ id, member_user_id: memberId, plan_id: id, status: 'active', price_at_purchase: 100, currency: 'USD', plans: { name: 'Mensual', price: 100, currency: 'USD' }, membership_periods: [{ starts_on: '2026-09-01', ends_on: '2026-09-30' }] }] };
       else if (path === '/member-payments') data = { payments: [] };
       else if (path === '/loyalty/promotions') data = { promotions: [p] };
+      else if (path === '/loyalty/analytics') data = { current: { campaigns: [{ promotion_id: id, name: p.name, currency: 'USD', participants: 8, awarded: 3, redeemed: 2, discount_total: 60, product_cost: 0, unknown_product_costs: 0, free_months: 0, retention_eligible: 0, retention_returned: 0, referrals: 2, qualified_referrals: 1 }] }, snapshot: null, closed_at: null, job: { last_run_at: '2026-09-16T12:00:00Z', pending: false }, pending_rewards: 3, expiring_rewards: 1 };
+      else if (path === '/loyalty/me/engagement') data = { referral_code: 'ABCDEF0123456789', unread: 1, preferences: { email: false, whatsapp: false }, notifications: [{ id, title: 'Meta alcanzada', body: 'Tu esfuerzo ya tiene recompensa.', read_at: null }], badges: [{ code: 'first_visit', name: 'Primer paso', description: 'Una asistencia general válida.', earned: true }], mission: { target: 3, progress: 2, week_starts_on: '2026-09-14' }, referrals: { registered: 1, qualified: 1 }, received_referral: null };
       else if (path === '/loyalty/me' || path.startsWith('/loyalty/members/')) data = { today: '2026-09-16', promotions: [p], rewards: role === 'owner' ? [{ id, promotion_id: id, status: 'available', expires_on: '2026-10-31', terms: { ...p, reward_type: free ? 'free_period' : 'discount', reward_value: free ? 1 : 30 } }] : [] };
       else if (path === '/memberships/manual-checkout') data = { checkout: { receipt_number: free ? null : 1, coverage_starts_on: '2026-10-01', coverage_ends_on: '2026-10-31' } };
       await route.fulfill({ json: data, headers: { 'Access-Control-Allow-Origin': origin, 'Access-Control-Allow-Credentials': 'true' } });
@@ -59,6 +61,13 @@ try {
     if (process.argv[3] && width === 390) await page.screenshot({ path: resolve(process.argv[3], 'fitlab-loyalty-owner.png'), fullPage: true });
     const overflow = await page.evaluate(() => [...document.querySelectorAll('.loyalty-page *')].filter((el) => el.getBoundingClientRect().right > innerWidth + 1).map((el) => ({ tag: el.tagName, class: el.className, text: el.textContent?.slice(0, 35), width: el.getBoundingClientRect().width })).slice(0, 12));
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true, `Owner overflow ${width}: ${JSON.stringify(overflow)}`);
+    if (width === 390) {
+      await page.getByRole('button', { name: 'Automatización y análisis' }).click();
+      await page.getByRole('heading', { name: 'Resultados de tus campañas' }).waitFor();
+      await page.getByText('Constancia de septiembre').waitFor();
+      if (process.argv[3]) await page.screenshot({ path: resolve(process.argv[3], 'fitlab-loyalty-analytics.png'), fullPage: true });
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true, 'Analytics overflow 390');
+    }
   }
   await page.goto(`${origin}/memberships`);
   await page.getByRole('button', { name: 'Renovar', exact: true }).click();

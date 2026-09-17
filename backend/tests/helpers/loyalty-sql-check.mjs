@@ -37,7 +37,7 @@ try {
     insert into public.plans(id,gym_id,name,price,duration_unit,duration_value,attendance_mode) values(p,g,'Monthly',100,'months',1,'daily');
     perform public.register_manual_membership_checkout(g,l,m,p,o,'cash',null,null,null,false);
     end; $$;`);
-  for (const file of ['0025_membership_renewal_receipts.sql', '0028_inventory_sales_backend.sql', '0032_static_attendance_qr.sql', '0039_loyalty_rewards.sql']) {
+  for (const file of ['0025_membership_renewal_receipts.sql', '0028_inventory_sales_backend.sql', '0032_static_attendance_qr.sql', '0039_loyalty_rewards.sql', '0041_loyalty_engagement.sql']) {
     console.log('Testing:', file);
     const result = await db.exec(await readFile(resolve(root, 'supabase/tests', file), 'utf8'));
     for (const statement of result) if (statement.rows?.length) console.log(statement.rows);

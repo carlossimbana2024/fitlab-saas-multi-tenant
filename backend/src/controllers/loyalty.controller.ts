@@ -62,3 +62,48 @@ export async function revokeReward(request: Request, response: Response) {
   if (error) throw fromSupabaseError(error);
   response.json({ revoked: true });
 }
+
+export async function getEngagement(request: Request, response: Response) {
+  const { data, error } = await supabaseAdmin.rpc('loyalty_engagement_backend', { ...context(request), member: member(request) });
+  if (error) throw fromSupabaseError(error);
+  response.set('Cache-Control', 'no-store').json(data);
+}
+export async function createReferralCode(request: Request, response: Response) {
+  member(request);
+  const { data, error } = await supabaseAdmin.rpc('ensure_loyalty_code_backend', context(request));
+  if (error) throw fromSupabaseError(error);
+  response.set('Cache-Control', 'no-store').json({ code: data });
+}
+export async function attachReferral(request: Request, response: Response) {
+  const input = z.object({ promotionId: z.string().uuid(), code: z.string().trim().regex(/^[a-fA-F0-9]{16}$/) }).strict().safeParse(request.body);
+  if (!input.success) throw new AppError(400, 'INVALID_REFERRAL', 'Revisa la campaña y el código de referido.');
+  const { data, error } = await supabaseAdmin.rpc('attach_loyalty_referral_backend', { ...context(request), member: member(request), promotion: input.data.promotionId, supplied_code: input.data.code });
+  if (error) throw fromSupabaseError(error);
+  response.status(201).json({ id: data });
+}
+export async function savePreferences(request: Request, response: Response) {
+  member(request);
+  const input = z.object({ email: z.boolean(), whatsapp: z.boolean() }).strict().safeParse(request.body);
+  if (!input.success) throw new AppError(400, 'INVALID_PREFERENCES', 'Preferencias no válidas.');
+  const { error } = await supabaseAdmin.rpc('loyalty_preferences_backend', { ...context(request), ...input.data });
+  if (error) throw fromSupabaseError(error);
+  response.json({ saved: true });
+}
+export async function readNotification(request: Request, response: Response) {
+  member(request);
+  const { error } = await supabaseAdmin.rpc('read_loyalty_notification_backend', { ...context(request), notification: parameter(request, 'id') });
+  if (error) throw fromSupabaseError(error);
+  response.json({ read: true });
+}
+export async function evaluateLoyalty(request: Request, response: Response) {
+  const { data, error } = await supabaseAdmin.rpc('evaluate_loyalty_backend', context(request));
+  if (error) throw fromSupabaseError(error);
+  response.json(data);
+}
+export async function getAnalytics(request: Request, response: Response) {
+  const month = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).safeParse(request.query.month);
+  if (!month.success) throw new AppError(400, 'INVALID_MONTH', 'Selecciona un mes válido.');
+  const { data, error } = await supabaseAdmin.rpc('loyalty_analytics_backend', { ...context(request), selected_month: `${month.data}-01` });
+  if (error) throw fromSupabaseError(error);
+  response.set('Cache-Control', 'no-store').json(data);
+}

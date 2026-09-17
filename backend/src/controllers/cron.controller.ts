@@ -3,6 +3,13 @@ import { env } from '../config/env.js';
 import { supabaseAdmin } from '../config/supabase.js';
 import { AppError } from '../errors/AppError.js';
 import { dateInTimezone } from '../utils/gymDate.js';
+import { runLoyaltyAutomation } from '../services/loyaltyAutomation.js';
+
+export async function evaluateLoyaltyCron(request: Request, response: Response) {
+  if (!env.CRON_SECRET || request.get('authorization') !== `Bearer ${env.CRON_SECRET}`)
+    throw new AppError(401, 'INVALID_CRON_SECRET', 'Ejecución no autorizada.');
+  response.set('Cache-Control', 'no-store').json(await runLoyaltyAutomation());
+}
 
 export async function evaluateStreaks(request: Request, response: Response) {
   if (!env.CRON_SECRET || request.get('authorization') !== `Bearer ${env.CRON_SECRET}`) {

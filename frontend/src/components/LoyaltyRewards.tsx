@@ -5,17 +5,19 @@ import { Link } from 'react-router-dom';
 import { api, apiErrorMessage } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import '../loyalty.css';
+import { LoyaltyEngagement } from './LoyaltyEngagement';
 
 export type Promotion = {
   id: string; name: string; description: string; status: string; location_id: string; location_name?: string;
-  starts_on: string; ends_on: string; redeem_until: string; rule_type: 'attendance_count' | 'required_streak' | 'perfect_attendance';
+  starts_on: string; ends_on: string; redeem_until: string; rule_type: 'attendance_count' | 'required_streak' | 'perfect_attendance' | 'recovery' | 'referral';
+  auto_award?: boolean; inactive_days?: number; minimum_payment?: number;
   target: number; reward_type: 'discount' | 'free_period' | 'product'; reward_value: number;
   product_id: string | null; product_name: string | null; max_rewards: number; progress?: number; remaining?: number;
 };
 export type Reward = { id: string; promotion_id: string; status: string; expires_on: string; terms: Promotion; revoked_reason?: string };
 export type LoyaltyData = { today: string; promotions: Promotion[]; rewards: Reward[] };
 export const rewardLabel = (p: Promotion) => p.reward_type === 'discount' ? `${p.reward_value}% en tu próxima renovación` : p.reward_type === 'free_period' ? `${p.reward_value} ${p.reward_value === 1 ? 'mes gratis' : 'meses gratis'}` : `${p.reward_value} × ${p.product_name ?? 'producto de regalo'}`;
-export const ruleLabel = (p: Promotion) => p.rule_type === 'perfect_attendance' ? 'Todos los días obligatorios del período' : p.rule_type === 'attendance_count' ? `${p.target} días de asistencia` : `${p.target} días obligatorios consecutivos`;
+export const ruleLabel = (p: Promotion) => p.rule_type === 'referral' ? `Primera mensualidad confirmada de al menos ${p.minimum_payment ?? 1} en la moneda del gimnasio; código antes del pago` : p.rule_type === 'recovery' ? `${p.target} días de regreso después de recibir la invitación` : p.rule_type === 'perfect_attendance' ? 'Todos los días obligatorios del período' : p.rule_type === 'attendance_count' ? `${p.target} días de asistencia` : `${p.target} días obligatorios consecutivos`;
 export const loyaltyStatus: Record<string, string> = { draft: 'Borrador', active: 'Activa', paused: 'Pausada', closed: 'Cerrada', available: 'Lista para canjear', redeemed: 'Canjeada', expired: 'Vencida', revoked: 'Revocada' };
 export const loyaltyDate = (day: string) => new Date(`${day}T12:00:00`).toLocaleDateString('es-EC', { day: 'numeric', month: 'short', year: 'numeric' });
 
@@ -27,7 +29,7 @@ export function LoyaltyRewards({ memberId }: { memberId?: string }) {
   const path = memberId ? `/loyalty/members/${memberId}` : '/loyalty/me';
   const query = useQuery({ queryKey: ['loyalty', session?.gymUser?.gym_id, session?.gymUser?.id, memberId ?? 'me'], queryFn: async () => (await api.get<LoyaltyData>(path)).data });
   const refresh = async () => {
-    await Promise.all(['loyalty', 'commerce-products', 'inventory-movements'].map((key) => client.invalidateQueries({ queryKey: [key] })));
+    await Promise.all(['loyalty', 'loyalty-engagement', 'commerce-products', 'inventory-movements'].map((key) => client.invalidateQueries({ queryKey: [key] })));
   };
   const claim = useMutation({ mutationFn: async (id: string) => api.post(`${path}/promotions/${id}/claim`), onSuccess: refresh });
   const redeem = useMutation({ mutationFn: async () => api.post(`/loyalty/rewards/${action!.reward.id}/${action!.type}`, action!.type === 'revoke' ? { reason } : {}), onSuccess: async () => { setAction(null); setReason(''); await refresh(); } });
@@ -47,9 +49,9 @@ export function LoyaltyRewards({ memberId }: { memberId?: string }) {
         <div className="loyalty-card-top"><span className="loyalty-icon"><Trophy/></span><span className={`badge ${p.status}`}>{loyaltyStatus[p.status]}</span></div>
         <h3>{p.name}</h3><strong className="loyalty-prize">{rewardLabel(p)}</strong><p>{p.description}</p>
         <p>{ruleLabel(p)} · {p.location_name}</p>
-        <div className="loyalty-progress-label"><span>{Math.min(progress, p.target)} de {p.target} días</span><strong>{Math.min(100, Math.floor(progress / p.target * 100))}%</strong></div>
+        <div className="loyalty-progress-label"><span>{Math.min(progress, p.target)} de {p.target} {p.rule_type === 'referral' ? 'mensualidad validada' : 'días'}</span><strong>{Math.min(100, Math.floor(progress / p.target * 100))}%</strong></div>
         <progress max={p.target} value={Math.min(progress, p.target)} aria-label={`Avance de ${p.name}`}/>
-        <small>{progress >= p.target ? '¡Meta alcanzada! Reclama tu recompensa si quedan cupos.' : p.rule_type === 'required_streak' ? 'Se muestra tu mejor racha del período. Faltar a un día obligatorio reinicia el tramo en curso.' : p.rule_type === 'perfect_attendance' ? 'Debes completar todos los días obligatorios del período. Un día perdido impide completar este reto.' : `Cada visita suma. Te faltan ${p.target - progress} días para esta meta.`}</small>
+        <small>{progress >= p.target ? '¡Meta alcanzada! Reclama tu recompensa si quedan cupos.' : p.rule_type === 'required_streak' ? 'Se muestra tu mejor racha del período. Faltar a un día obligatorio reinicia el tramo en curso.' : p.rule_type === 'perfect_attendance' ? 'Debes completar todos los días obligatorios del período. Un día perdido impide completar este reto.' : p.rule_type === 'referral' ? 'La primera mensualidad del referido debe cumplir las condiciones y seguir confirmada.' : `Cada visita suma. Te faltan ${p.target - progress} días para esta meta.`}</small>
         <dl><div><dt>Participación</dt><dd>{loyaltyDate(p.starts_on)} – {loyaltyDate(p.ends_on)}</dd></div><div><dt>Canje hasta</dt><dd>{loyaltyDate(p.redeem_until)}</dd></div><div><dt>Cupos restantes</dt><dd>{p.remaining} de {p.max_rewards}</dd></div></dl>
         <button className="primary" disabled={!eligible || claim.isPending} onClick={() => claim.mutate(p.id)}>{earned ? 'Recompensa ya reclamada' : !p.remaining ? 'Cupos agotados' : p.status === 'paused' ? 'Reclamaciones pausadas' : eligible ? (claim.isPending ? 'Reclamando…' : 'Reclamar recompensa') : 'Continúa tu reto'}</button>
       </article>;
@@ -63,5 +65,5 @@ export function LoyaltyRewards({ memberId }: { memberId?: string }) {
 }
 
 export function MemberRewardsPage() {
-  return <section className="loyalty-page"><Link className="small-button" to="/portal">Volver a Inicio</Link><div className="page-heading"><div><p className="eyebrow">TU CONSTANCIA TIENE PREMIO</p><h1>Retos y recompensas</h1><p>Metas claras, pequeños avances y reconocimientos de tu gimnasio.</p></div></div><LoyaltyRewards/></section>;
+  return <section className="loyalty-page"><Link className="small-button" to="/portal">Volver a Inicio</Link><div className="page-heading"><div><p className="eyebrow">TU CONSTANCIA TIENE PREMIO</p><h1>Retos y recompensas</h1><p>Metas claras, pequeños avances y reconocimientos de tu gimnasio.</p></div></div><LoyaltyEngagement/><LoyaltyRewards/></section>;
 }

@@ -81,6 +81,15 @@ const knownErrors: Record<string, { status: number; message: string }> = {
 };
 
 export function fromSupabaseError(error: DatabaseError): AppError {
+  const referralErrors: Record<string, string> = {
+    REFERRAL_CODE_INVALID: 'El código no es válido para este gimnasio o pertenece a tu propia cuenta.',
+    REFERRAL_BEFORE_FIRST_PAYMENT: 'El referido debe registrarse antes de su primer pago de membresía.',
+    REFERRAL_PAYMENT_REQUIRED: 'Falta una primera mensualidad confirmada que cumpla las condiciones.',
+    LOYALTY_MONTH_INVALID: 'El mes seleccionado no es válido.',
+    LOYALTY_NOTIFICATION_NOT_FOUND: 'La notificación no está disponible.',
+  };
+  const referral = Object.entries(referralErrors).find(([code]) => error.message.includes(code));
+  if (referral) return new AppError(400, referral[0], referral[1]);
   const known = Object.entries(knownErrors).find(([code]) => error.message.includes(code));
   if (known) return new AppError(known[1].status, known[0], known[1].message);
   if (error.code === '23505') return new AppError(409, 'RESOURCE_ALREADY_EXISTS', 'El registro ya existe.');

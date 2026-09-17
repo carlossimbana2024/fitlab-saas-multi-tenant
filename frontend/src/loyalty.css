@@ -43,3 +43,21 @@
   .loyalty-guidance { align-items: flex-start; font-size: .9rem; }
   .loyalty-page .directory-tabs button { padding-inline: .5rem; font-size: .85rem; white-space: normal; }
 }
+.loyalty-engagement { display: grid; gap: 1.25rem; margin-bottom: 1.5rem; min-width: 0; }
+.loyalty-engagement progress { width: 100%; accent-color: var(--primary); }
+.loyalty-engagement .loyalty-code { display: block; font: 700 1.2rem monospace; letter-spacing: .08em; overflow-wrap: anywhere; }
+.loyalty-check { display: flex !important; align-items: center; gap: .75rem; padding: .75rem 0; }
+.loyalty-check input[type=checkbox] { width: 1.2rem; height: 1.2rem; flex-shrink: 0; }
+.loyalty-badges { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .75rem; }
+.loyalty-badges article { display: grid; gap: .5rem; padding: 1rem; border: 1px solid var(--border); border-radius: 1rem; }
+.loyalty-badges .earned { border-color: #ca9c35; background: #ca9c3514; }
+.loyalty-badges .earned svg { color: #ca9c35; }
+.loyalty-notifications { display: grid; gap: 1rem; max-height: 32rem; overflow: auto; }
+.loyalty-notifications article { padding-block: .75rem; border-bottom: 1px solid var(--border); }
+.loyalty-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.loyalty-metrics dt { font-size: .85rem; overflow-wrap: anywhere; }
+.loyalty-metrics dd { margin: .3rem 0 0; font-weight: 700; }
+.loyalty-page .directory-tabs { flex-wrap: wrap; }
+.loyalty-analytics-header > div { flex: 1; min-width: 0; }
+.loyalty-analytics-header h2 { overflow-wrap: normal; word-break: normal; }
+@media(max-width: 480px) { .loyalty-page .directory-tabs button { flex: 1 1 100%; white-space: normal; } .loyalty-metrics { grid-template-columns: 1fr; } .loyalty-analytics-header { align-items: stretch; flex-direction: column; } }

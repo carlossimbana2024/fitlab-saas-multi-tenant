@@ -10,6 +10,8 @@ const environmentSchema = z.object({
   SUPABASE_SECRET_KEY: z.string().min(1),
   COOKIE_SECRET: z.string().min(32),
   CRON_SECRET: z.string().min(32).optional(),
+  LOYALTY_DELIVERY_URL: z.string().url().startsWith('https://').optional(),
+  LOYALTY_DELIVERY_TOKEN: z.string().min(32).optional(),
   STRIPE_SECRET_KEY: z.string().startsWith('sk_test_'),
   STRIPE_WEBHOOK_SECRET: z.string().startsWith('whsec_'),
   STRIPE_PRICE_ID: z.string().startsWith('price_'),
