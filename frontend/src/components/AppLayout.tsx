@@ -1,4 +1,4 @@
-import { Activity, BarChart3, CalendarDays, CircleDollarSign, CreditCard, Dumbbell, LayoutDashboard, LogOut, Menu, Settings, ShoppingBag, UserCog, Users, X } from 'lucide-react';
+import { Activity, BarChart3, CalendarDays, CircleDollarSign, CreditCard, Dumbbell, Gift, LayoutDashboard, LogOut, Menu, Settings, ShoppingBag, UserCog, Users, X } from 'lucide-react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
@@ -38,6 +38,7 @@ export function AppLayout() {
         {canAccess('products.manage', 'sales.register', 'inventory.adjust') && <NavLink to="/inventory"><ShoppingBag/>Stock y ventas</NavLink>}
         {isOwner && <NavLink to="/owner-control"><BarChart3/>Control owner</NavLink>}
         {isOwner && <NavLink to="/staff"><UserCog/>Personal</NavLink>}
+        {isOwner && <NavLink to="/loyalty"><Gift/>Fidelización</NavLink>}
         {canAccess('settings.manage') && <NavLink to="/settings"><Settings/>Configuración</NavLink>}
         {isOwner && <NavLink to="/billing"><CircleDollarSign/>Plan FitLab</NavLink>}
         {platform.data?.authorized && <NavLink to="/platform/billing"><ShieldBillingIcon/>Cobros FitLab</NavLink>}

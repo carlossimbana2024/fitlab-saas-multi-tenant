@@ -135,7 +135,7 @@ export async function getPaymentReceipt(request: Request, response: Response) {
     supabaseAdmin.from('gym_locations').select('name,address,city,email,phone,whatsapp_phone').eq('id', payment.location_id).eq('gym_id', request.tenant!.gymId).single(),
     supabaseAdmin.from('gym_users').select('managed_full_name,managed_phone,profiles(full_name,phone)').eq('id', payment.member_user_id).eq('gym_id', request.tenant!.gymId).single(),
     supabaseAdmin.from('memberships').select('id,plans(name)').eq('id', payment.membership_id).eq('gym_id', request.tenant!.gymId).single(),
-    supabaseAdmin.from('membership_periods').select('id,starts_on,ends_on,charged_amount,currency,created_at').eq('payment_id', payment.id).maybeSingle(),
+    supabaseAdmin.from('membership_periods').select('id,starts_on,ends_on,charged_amount,original_amount,discount_amount,currency,created_at').eq('payment_id', payment.id).maybeSingle(),
     supabaseAdmin.from('gym_users').select('managed_full_name,profiles(full_name)').eq('id', payment.registered_by).eq('gym_id', request.tenant!.gymId).single(),
   ]);
   const relatedError = gymResult.error ?? locationResult.error ?? memberResult.error ?? membershipResult.error ?? periodResult.error ?? actorResult.error;

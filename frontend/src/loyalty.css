@@ -1,0 +1,45 @@
+.loyalty-page { min-width: 0; }
+.loyalty-page .page-heading > div { min-width: 0; max-width: 100%; }
+.loyalty-page .page-heading h1 { font-size: clamp(2rem, 4vw, 3.5rem); overflow-wrap: anywhere; }
+.loyalty-page h3 { font-size: 1.35rem; margin: 0; }
+.loyalty-content { display: grid; gap: 1.15rem; }
+.loyalty-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 1.2rem; margin-block: 1.25rem; }
+.loyalty-card { display: flex; flex-direction: column; gap: .8rem; min-width: 0; padding: 1.4rem; overflow-wrap: anywhere; }
+.loyalty-card p, .loyalty-guidance p { margin: 0; }
+.loyalty-card-top, .loyalty-progress-label { display: flex; justify-content: space-between; align-items: center; gap: .8rem; }
+.loyalty-icon { display: grid; place-items: center; width: 46px; height: 46px; background: #ef444415; border: 1px solid #ef444430; color: #ef4444; border-radius: 14px; }
+.loyalty-prize { font-size: 1.05rem; color: #ef4444; }
+.loyalty-card progress { appearance: none; width: 100%; height: 10px; border: 0; border-radius: 10px; overflow: hidden; background: #94a3b820; }
+.loyalty-card progress::-webkit-progress-bar { background: #94a3b820; }
+.loyalty-card progress::-webkit-progress-value { background: linear-gradient(90deg, #ef4444, #fb923c); border-radius: 10px; }
+.loyalty-card progress::-moz-progress-bar { background: #ef4444; }
+.loyalty-card dl { margin: 0; display: grid; gap: .5rem; font-size: .85rem; }
+.loyalty-card dl div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .4rem; }
+.loyalty-card dd { margin: 0; }
+.loyalty-card > button:last-child { margin-top: auto; }
+.loyalty-guidance { display: flex; gap: 1rem; padding: 1.1rem; border-radius: 16px; background: #94a3b810; border: 1px solid #94a3b830; line-height: 1.5; margin-block: 1rem; }
+.loyalty-guidance > svg { flex-shrink: 0; color: #ef4444; }
+.loyalty-actions { display: flex; flex-wrap: wrap; gap: .6rem; margin-top: .5rem; }
+.loyalty-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin-block: 1rem; }
+.loyalty-form-grid label, .loyalty-confirm label, .loyalty-member-select { display: grid; gap: .5rem; min-width: 0; }
+.loyalty-form-grid input, .loyalty-form-grid select, .loyalty-form-grid textarea, .loyalty-member-select select { width: 100%; min-width: 0; }
+.loyalty-form-grid input, .loyalty-form-grid select, .loyalty-form-grid textarea, .loyalty-member-select select, .loyalty-confirm textarea { font: inherit; border: 1px solid var(--border); border-radius: 12px; padding: .85rem; background: var(--surface-2); color: var(--text); min-height: 46px; }
+.loyalty-form-grid label, .loyalty-confirm label, .loyalty-member-select { font-size: .88rem; font-weight: 650; }
+.loyalty-form-grid textarea, .loyalty-confirm textarea { min-height: 90px; resize: vertical; }
+.loyalty-form-grid :is(input,select,textarea):focus-visible, .loyalty-member-select select:focus-visible, .loyalty-confirm textarea:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.loyalty-card small, .loyalty-card dt, .loyalty-editor > p { color: var(--muted); line-height: 1.5; }
+.loyalty-wide { grid-column: 1 / -1; }
+.loyalty-confirm, .loyalty-editor { margin-block: 1.2rem; padding: 1.4rem; border: 1px solid #ef444450; }
+.loyalty-member-select { margin-block: 1rem; padding: 1.2rem; }
+.loyalty-empty { padding: 2rem; text-align: center; }
+.loyalty-empty > svg { width: 40px; height: 40px; color: #ef4444; margin-bottom: .7rem; }
+.loyalty-home-link { display: flex; gap: 1rem; align-items: center; padding: 1.2rem; text-decoration: none; color: inherit; margin-bottom: 1.2rem; border: 1px solid #ef444440; }
+.loyalty-home-link svg { color: #ef4444; flex-shrink: 0; }
+.loyalty-home-link small { display: block; margin-top: .35rem; }
+@media (max-width: 600px) {
+  .loyalty-form-grid { grid-template-columns: minmax(0, 1fr); }
+  .loyalty-actions > * { flex: 1 1 auto; min-height: 44px; text-align: center; justify-content: center; }
+  .loyalty-card, .loyalty-confirm, .loyalty-editor { padding: 1.1rem; }
+  .loyalty-guidance { align-items: flex-start; font-size: .9rem; }
+  .loyalty-page .directory-tabs button { padding-inline: .5rem; font-size: .85rem; white-space: normal; }
+}

@@ -3,6 +3,22 @@ import { AppError } from '../errors/AppError.js';
 type DatabaseError = { code?: string; message: string; details?: string | null };
 
 const knownErrors: Record<string, { status: number; message: string }> = {
+  LOYALTY_OWNER_REQUIRED: { status: 403, message: 'Solo el owner puede administrar y canjear recompensas.' },
+  LOYALTY_MEMBER_REQUIRED: { status: 403, message: 'El miembro no está activo en este gimnasio.' },
+  PROMOTION_TERMS_LOCKED: { status: 409, message: 'Solo puedes editar promociones en borrador.' },
+  PROMOTION_NOT_FOUND: { status: 409, message: 'La promoción no está disponible.' },
+  PROMOTION_INVALID_TRANSITION: { status: 409, message: 'No se permite ese cambio de estado.' },
+  PROMOTION_START_IN_PAST: { status: 409, message: 'La promoción debe comenzar hoy o en una fecha futura.' },
+  PROMOTION_UNREACHABLE_TARGET: { status: 409, message: 'La meta supera los días disponibles del período.' },
+  PROMOTION_UNAVAILABLE: { status: 409, message: 'La promoción no está disponible para reclamar.' },
+  REWARD_TARGET_NOT_MET: { status: 409, message: 'Todavía no se cumple la meta con las asistencias válidas.' },
+  REWARD_QUOTA_REACHED: { status: 409, message: 'Se agotó el cupo de recompensas de esta promoción.' },
+  REWARD_NOT_AVAILABLE: { status: 409, message: 'La recompensa ya no está disponible o ya fue canjeada.' },
+  REWARD_EXPIRED: { status: 409, message: 'La recompensa o promoción ha vencido.' },
+  REWARD_WRONG_TYPE: { status: 409, message: 'Esta recompensa debe canjearse mediante su operación correspondiente.' },
+  REWARD_REASON_REQUIRED: { status: 409, message: 'Indica un motivo para revocar la recompensa.' },
+  REWARD_RENEWAL_REQUIRED: { status: 409, message: 'Esta recompensa se aplica a la renovación de una membresía existente.' },
+  REWARD_DISCOUNT_TOO_SMALL_PRICE: { status: 409, message: 'El precio es demasiado pequeño para aplicar ese descuento.' },
   ATTENDANCE_QR_INVALID: { status: 409, message: 'Este QR no está vigente o no corresponde a tu gimnasio. Escanea el cartel actual o solicita ayuda en recepción.' },
   ATTENDANCE_QR_PORTAL_REQUIRED: { status: 403, message: 'Necesitas una cuenta de miembro con acceso al portal. Solicita ayuda en recepción.' },
   ATTENDANCE_QR_OWNER_REQUIRED: { status: 403, message: 'Solo el owner puede administrar los códigos de asistencia.' },

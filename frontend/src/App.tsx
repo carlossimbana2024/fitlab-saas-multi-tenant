@@ -26,6 +26,8 @@ import { ActivitiesPage } from './pages/ActivitiesPage';
 import { CheckInPage } from './pages/CheckInPage';
 import { MemberCommunityPage } from './pages/MemberCommunityPage';
 import { PlatformBillingPage } from './pages/PlatformBillingPage';
+import { LoyaltyPage } from './pages/LoyaltyPage';
+import { MemberRewardsPage } from './components/LoyaltyRewards';
 
 export default function App() {
   return <Routes>
@@ -50,6 +52,7 @@ export default function App() {
           <Route path="/portal/progress" element={<MemberPortalPage section="progress"/>}/>
           <Route path="/portal/community" element={<MemberCommunityPage/>}/>
           <Route path="/portal/profile" element={<MemberPortalPage section="profile"/>}/>
+          <Route path="/portal/rewards" element={<MemberRewardsPage/>}/>
         </Route>
       </Route>
       <Route element={<AdminRoute/>}><Route element={<AppLayout/>}>
@@ -61,6 +64,7 @@ export default function App() {
         <Route path="/activities" element={<ActivitiesPage/>}/>
         <Route path="/inventory" element={<InventoryPage/>}/>
         <Route element={<OwnerRoute/>}>
+          <Route path="/loyalty" element={<LoyaltyPage/>}/>
           <Route path="/owner-control" element={<OwnerControlPage/>}/>
           <Route path="/staff" element={<StaffPage/>}/>
         </Route>

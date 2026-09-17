@@ -1,0 +1,22 @@
+import { Router } from 'express';
+import { changePromotionStatus, claimReward, getLoyalty, listPromotions, redeemProduct, revokeReward, savePromotion } from '../controllers/loyalty.controller.js';
+import { verifyJWT } from '../middlewares/verifyJWT.js';
+import { tenantContext } from '../middlewares/tenantContext.js';
+import { requireOwner } from '../middlewares/requireOwner.js';
+import { databaseRateLimit } from '../middlewares/rateLimit.js';
+import { asyncHandler } from '../utils/asyncHandler.js';
+
+export const loyaltyRouter = Router();
+loyaltyRouter.use(verifyJWT, tenantContext);
+const mutationLimit = databaseRateLimit({ bucket: 'loyalty.write', maximumHits: 60, windowSeconds: 60, subject: (request) => `${request.tenant!.gymId}:${request.tenant!.gymUserId}` });
+loyaltyRouter.get('/me', asyncHandler(getLoyalty));
+loyaltyRouter.post('/me/promotions/:id/claim', mutationLimit, asyncHandler(claimReward));
+loyaltyRouter.use(requireOwner);
+loyaltyRouter.get('/promotions', asyncHandler(listPromotions));
+loyaltyRouter.get('/members/:memberId', asyncHandler(getLoyalty));
+loyaltyRouter.post('/members/:memberId/promotions/:id/claim', mutationLimit, asyncHandler(claimReward));
+loyaltyRouter.post('/promotions', mutationLimit, asyncHandler(savePromotion));
+loyaltyRouter.put('/promotions/:id', mutationLimit, asyncHandler(savePromotion));
+loyaltyRouter.patch('/promotions/:id/status', mutationLimit, asyncHandler(changePromotionStatus));
+loyaltyRouter.post('/rewards/:id/redeem-product', mutationLimit, asyncHandler(redeemProduct));
+loyaltyRouter.post('/rewards/:id/revoke', mutationLimit, asyncHandler(revokeReward));

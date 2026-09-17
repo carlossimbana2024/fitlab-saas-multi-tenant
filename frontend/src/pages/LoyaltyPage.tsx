@@ -1,0 +1,59 @@
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Gift, Plus, ShieldCheck } from 'lucide-react';
+import { useState, type FormEvent } from 'react';
+import { useAuth } from '../context/AuthContext';
+import { api, apiErrorMessage } from '../services/api';
+import { LoyaltyRewards, loyaltyDate, loyaltyStatus, rewardLabel, ruleLabel, type Promotion } from '../components/LoyaltyRewards';
+import '../loyalty.css';
+
+type Form = { name: string; description: string; locationId: string; startsOn: string; endsOn: string; redeemUntil: string; ruleType: Promotion['rule_type']; target: number; rewardType: Promotion['reward_type']; rewardValue: number; productId: string; maxRewards: number };
+const empty: Form = { name: '', description: '', locationId: '', startsOn: '', endsOn: '', redeemUntil: '', ruleType: 'attendance_count', target: 12, rewardType: 'discount', rewardValue: 20, productId: '', maxRewards: 25 };
+
+export function LoyaltyPage() {
+  const { session } = useAuth();
+  const client = useQueryClient();
+  const [form, setForm] = useState<Form>(empty);
+  const [editing, setEditing] = useState<string | 'new' | null>(null);
+  const [memberId, setMemberId] = useState('');
+  const [tab, setTab] = useState<'promotions' | 'rewards'>('promotions');
+  const [confirm, setConfirm] = useState<{ id: string; status: string } | null>(null);
+  const promotions = useQuery({ queryKey: ['loyalty-promotions', session?.gymUser?.gym_id, session?.gymUser?.id], queryFn: async () => (await api.get<{ promotions: Promotion[] }>('/loyalty/promotions')).data.promotions });
+  const catalog = useQuery({ queryKey: ['loyalty-catalog', session?.gymUser?.gym_id, session?.gymUser?.id], queryFn: async () => (await api.get<{ products: { id: string; name: string; is_active: boolean }[]; locations: { id: string; name: string }[] }>('/inventory/products')).data });
+  const members = useQuery({ queryKey: ['members', session?.gymUser?.gym_id, session?.gymUser?.id], queryFn: async () => (await api.get<{ members: { id: string; status: string; managed_full_name?: string; profiles?: { full_name: string } }[] }>('/members')).data.members });
+  const refresh = async () => { await Promise.all([client.invalidateQueries({ queryKey: ['loyalty-promotions'] }), client.invalidateQueries({ queryKey: ['loyalty'] })]); };
+  const save = useMutation({ mutationFn: async () => {
+    const payload = { ...form, productId: form.rewardType === 'product' ? form.productId : null };
+    return editing === 'new' ? api.post('/loyalty/promotions', payload) : api.put(`/loyalty/promotions/${editing}`, payload);
+  }, onSuccess: async () => { setEditing(null); await refresh(); } });
+  const status = useMutation({ mutationFn: async () => api.patch(`/loyalty/promotions/${confirm!.id}/status`, { status: confirm!.status }), onSuccess: async () => { setConfirm(null); await refresh(); } });
+  const edit = (p?: Promotion) => {
+    save.reset(); setEditing(p?.id ?? 'new');
+    setForm(p ? { name: p.name, description: p.description, locationId: p.location_id, startsOn: p.starts_on, endsOn: p.ends_on, redeemUntil: p.redeem_until, ruleType: p.rule_type, target: p.target, rewardType: p.reward_type, rewardValue: p.reward_value, productId: p.product_id ?? '', maxRewards: p.max_rewards } : { ...empty, locationId: session?.gymUser?.default_location_id ?? catalog.data?.locations[0]?.id ?? '' });
+  };
+  const submit = (event: FormEvent) => { event.preventDefault(); save.mutate(); };
+  return <div className="page loyalty-page"><div className="page-heading"><div><p className="eyebrow">RECONOCE LA CONSTANCIA</p><h1>Fidelización</h1><p>Retos con condiciones claras y recompensas bajo tu control.</p></div><button className="primary" onClick={() => { setTab('promotions'); edit(); }}><Plus/>Crear promoción</button></div>
+    <div className="loyalty-guidance"><ShieldCheck/><p>Solo el owner administra y canjea premios. Cada miembro obtiene como máximo una recompensa por campaña. No se acumulan descuentos en la misma renovación. Esta función no cambia los cobros de tu suscripción a FitLab.</p></div>
+    <div className="directory-tabs"><button className={tab === 'promotions' ? 'active' : ''} onClick={() => setTab('promotions')}>Promociones</button><button className={tab === 'rewards' ? 'active' : ''} onClick={() => setTab('rewards')}>Recompensas por miembro</button></div>
+    {tab === 'promotions' && <>
+      {editing && <form className="panel loyalty-editor" onSubmit={submit}><h2>{editing === 'new' ? 'Nueva promoción' : 'Editar borrador'}</h2><div className="loyalty-form-grid">
+        <label>Nombre<input autoFocus required minLength={3} maxLength={100} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}/></label>
+        <label>Sucursal<select required value={form.locationId} onChange={(e) => setForm({ ...form, locationId: e.target.value })}><option value="">Selecciona</option>{catalog.data?.locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select></label>
+        <label className="loyalty-wide">Descripción<textarea maxLength={500} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })}/></label>
+        <label>Desde<input required type="date" value={form.startsOn} onChange={(e) => setForm({ ...form, startsOn: e.target.value })}/></label>
+        <label>Hasta<input required type="date" min={form.startsOn} value={form.endsOn} onChange={(e) => setForm({ ...form, endsOn: e.target.value })}/></label>
+        <label>Fecha límite para reclamar y canjear<input required type="date" min={form.endsOn} value={form.redeemUntil} onChange={(e) => setForm({ ...form, redeemUntil: e.target.value })}/></label>
+        <label>Regla<select value={form.ruleType} onChange={(e) => setForm({ ...form, ruleType: e.target.value as Form['ruleType'] })}><option value="attendance_count">Cantidad de días asistidos</option><option value="required_streak">Racha de días obligatorios</option><option value="perfect_attendance">Asistencia perfecta en el período</option></select></label>
+        {form.ruleType !== 'perfect_attendance' && <label>Meta de días<input required type="number" min={1} max={366} value={form.target} onChange={(e) => setForm({ ...form, target: Number(e.target.value) })}/></label>}
+        <label>Premio<select value={form.rewardType} onChange={(e) => setForm({ ...form, rewardType: e.target.value as Form['rewardType'], rewardValue: 1, productId: '' })}><option value="discount">Descuento en renovación</option><option value="free_period">Meses gratuitos</option><option value="product">Producto del inventario</option></select></label>
+        <label>{form.rewardType === 'discount' ? 'Porcentaje de descuento' : form.rewardType === 'free_period' ? 'Meses gratuitos' : 'Unidades por premio'}<input required type="number" min={1} max={form.rewardType === 'discount' ? 99 : form.rewardType === 'free_period' ? 3 : 10} value={form.rewardValue} onChange={(e) => setForm({ ...form, rewardValue: Number(e.target.value) })}/></label>
+        {form.rewardType === 'product' && <label>Producto<select required value={form.productId} onChange={(e) => setForm({ ...form, productId: e.target.value })}><option value="">Selecciona</option>{catalog.data?.products.filter((p) => p.is_active).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>}
+        <label>Cupo máximo de recompensas<input required type="number" min={1} max={10000} value={form.maxRewards} onChange={(e) => setForm({ ...form, maxRewards: Number(e.target.value) })}/></label>
+      </div><p>Se guardará como borrador. Al publicar, las reglas y los días obligatorios quedan fijados. Para asistencia perfecta, FitLab calcula la meta con el horario de la sucursal; puedes seleccionar uno o dos meses completos. Los premios de inventario requieren stock al entregarlos.</p>{save.isError && <p className="alert error">{apiErrorMessage(save.error)}</p>}{catalog.isError && <p className="alert error">{apiErrorMessage(catalog.error)}</p>}<div className="loyalty-actions"><button type="button" className="ghost" disabled={save.isPending} onClick={() => setEditing(null)}>Cancelar</button><button className="primary" disabled={save.isPending || catalog.isPending || catalog.isError}>{save.isPending ? 'Guardando…' : 'Guardar borrador'}</button></div></form>}
+      {confirm && <section className="panel loyalty-confirm"><h3>Confirmar cambio</h3><p>{confirm.status === 'active' ? 'Al publicar por primera vez se fijan las condiciones y el calendario. No se permiten campañas retroactivas. Confirma que podrás cumplir los premios ofrecidos.' : confirm.status === 'paused' ? 'Se pausarán las nuevas reclamaciones. Los premios ya reclamados seguirán siendo válidos y la asistencia continuará contando.' : 'La campaña se cerrará definitivamente. Los premios ya reclamados conservarán su validez hasta su vencimiento.'}</p>{status.isError && <p className="alert error">{apiErrorMessage(status.error)}</p>}<div className="loyalty-actions"><button className="ghost" disabled={status.isPending} onClick={() => setConfirm(null)}>Cancelar</button><button className="primary" disabled={status.isPending} onClick={() => status.mutate()}>{status.isPending ? 'Procesando…' : 'Confirmar'}</button></div></section>}
+      {promotions.isPending && <p role="status">Cargando promociones…</p>}{promotions.isError && <p className="alert error">{apiErrorMessage(promotions.error)}</p>}
+      <div className="loyalty-grid">{promotions.data?.map((p) => <article className="panel loyalty-card" key={p.id}><div className="loyalty-card-top"><span className="loyalty-icon"><Gift/></span><span className={`badge ${p.status}`}>{loyaltyStatus[p.status]}</span></div><h3>{p.name}</h3><strong className="loyalty-prize">{rewardLabel(p)}</strong><p>{p.description}</p><p>{ruleLabel(p)} · {catalog.data?.locations.find((l) => l.id === p.location_id)?.name}</p><small>{loyaltyDate(p.starts_on)} – {loyaltyDate(p.ends_on)} · Canje hasta {loyaltyDate(p.redeem_until)}</small><p>Máximo {p.max_rewards} premios</p><div className="loyalty-actions">{p.status === 'draft' && <button className="small-button" onClick={() => edit(p)}>Editar</button>}{p.status !== 'closed' && <>{['draft', 'paused'].includes(p.status) ? <button className="primary" onClick={() => { status.reset(); setConfirm({ id: p.id, status: 'active' }); }}>{p.status === 'draft' ? 'Publicar' : 'Reanudar'}</button> : <button className="small-button" onClick={() => { status.reset(); setConfirm({ id: p.id, status: 'paused' }); }}>Pausar</button>}<button className="small-button danger-text" onClick={() => { status.reset(); setConfirm({ id: p.id, status: 'closed' }); }}>Cerrar</button></>}</div></article>)}</div>
+      {!promotions.isPending && !promotions.isError && !promotions.data?.length && <div className="panel loyalty-empty"><Gift/><h2>El primer reto empieza contigo</h2><p>Crea una meta alcanzable, define un premio y publícalo para tus miembros.</p></div>}
+    </>}
+    {tab === 'rewards' && <><label className="panel loyalty-member-select">Miembro<select value={memberId} onChange={(e) => setMemberId(e.target.value)}><option value="">Selecciona un miembro activo</option>{members.data?.filter((m) => m.status === 'active').map((m) => <option key={m.id} value={m.id}>{m.profiles?.full_name ?? m.managed_full_name ?? 'Miembro'}</option>)}</select></label>{members.isError && <p className="alert error">{apiErrorMessage(members.error)}</p>}{memberId && <LoyaltyRewards key={memberId} memberId={memberId}/>}</>}
+  </div>;
+}

@@ -17,6 +17,7 @@ export async function listMemberships(request: Request, response: Response) {
 export async function manualCheckout(request: Request, response: Response) {
   const input = manualCheckoutSchema.safeParse(request.body);
   if (!input.success) throw new AppError(400, 'INVALID_CHECKOUT_INPUT', 'Los datos del cobro no son válidos.', input.error.flatten());
+  if (input.data.rewardId && request.tenant!.role !== 'owner') throw new AppError(403, 'OWNER_REQUIRED', 'Solo el owner puede canjear una recompensa.');
 
   const { data, error } = await supabaseAdmin.rpc('register_manual_membership_checkout', {
     target_gym_id: request.tenant!.gymId,
@@ -29,6 +30,7 @@ export async function manualCheckout(request: Request, response: Response) {
     supplied_notes: input.data.notes ?? null,
     target_membership_id: input.data.membershipId ?? null,
     supplied_used_pin_elevation: request.permissionContext?.usedPinElevation ?? false,
+    supplied_reward_id: input.data.rewardId ?? null,
   });
   if (error) throw fromSupabaseError(error);
   const checkout = Array.isArray(data) ? data[0] : undefined;

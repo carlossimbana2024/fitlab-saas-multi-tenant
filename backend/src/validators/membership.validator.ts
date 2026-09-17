@@ -7,6 +7,7 @@ export const manualCheckoutSchema = z.object({
   memberUserId: uuid,
   planId: uuid,
   membershipId: uuid.nullish(),
+  rewardId: uuid.nullish(),
   paymentMethod: z.enum(['cash', 'bank_transfer', 'external_card', 'external_deuna', 'other']),
   externalReference: z.string().trim().min(1).max(200).nullish(),
   notes: z.string().trim().max(1000).nullish(),
