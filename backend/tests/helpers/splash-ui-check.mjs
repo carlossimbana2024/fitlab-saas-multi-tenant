@@ -71,6 +71,7 @@ try {
     await page.getByRole('heading', { name: 'Dashboard' }).waitFor();
     await splash.waitFor({ state: 'detached' });
     assert.ok(Date.now() - started < 4000, 'Splash waited too long instead of following the real session load.');
+    assert.equal(await page.evaluate(() => getComputedStyle(document.body).backgroundColor), 'rgb(248, 250, 252)');
     assert.equal(requested.some((path) => path.includes(`splash-${scenario.variant}.mp4`)), true);
     assert.equal(requested.some((path) => path.includes(`splash-${scenario.variant === 'desktop' ? 'mobile' : 'desktop'}.mp4`)), false);
     assert.deepEqual(errors, []);
