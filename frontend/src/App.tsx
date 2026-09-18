@@ -28,9 +28,12 @@ import { MemberCommunityPage } from './pages/MemberCommunityPage';
 import { PlatformBillingPage } from './pages/PlatformBillingPage';
 import { LoyaltyPage } from './pages/LoyaltyPage';
 import { MemberRewardsPage } from './components/LoyaltyRewards';
+import { AppSplash } from './components/AppSplash';
+import { useAuth } from './context/AuthContext';
 
 export default function App() {
-  return <Routes>
+  const { loading } = useAuth();
+  return <><Routes>
     <Route path="/check-in" element={<CheckInPage/>}/>
     <Route path="/login" element={<LoginPage/>}/>
     <Route path="/accept-invite" element={<AcceptInvitePage/>}/>
@@ -75,5 +78,5 @@ export default function App() {
       </Route></Route>
     </Route>
     <Route path="*" element={<Navigate to="/" replace/>}/>
-  </Routes>;
+  </Routes><AppSplash active={loading}/></>;
 }
