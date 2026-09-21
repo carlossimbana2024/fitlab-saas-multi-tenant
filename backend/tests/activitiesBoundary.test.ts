@@ -35,7 +35,7 @@ describe('actividades, reservas y control del instructor', () => {
     expect(migration).toContain('class_booking_id');
     expect(migration).toContain('CLASS_SCHEDULE_HAS_PAID_BOOKINGS');
     expect(routes).toContain("activityRouter.patch('/bookings/:id/attendance'");
-    expect(memberPortal).toContain('Reserva y paga en recepción');
+    expect(memberPortal).toContain('Reservar · pagar en recepción');
     expect(memberPortal).toContain("/bookings/self");
     expect(memberPortal).not.toContain("/attendances/extra-class");
     expect(memberPortal).toContain("section !== 'profile' && section !== 'classes'");
@@ -65,5 +65,25 @@ describe('actividades, reservas y control del instructor', () => {
     expect(routes).toContain("activityRouter.patch('/waitlist/:id/cancel-self'");
     expect(portal).toContain('Unirme a lista de espera');
     expect(portal).toContain('Salir de lista');
+  });
+
+  it('permite reservar actividades adicionales sin confundir reserva, pago y asistencia', () => {
+    const migration = source('supabase/migrations/0042_member_paid_class_reservations.sql');
+    const controller = source('backend/src/controllers/activity.controller.ts');
+    const portal = source('frontend/src/pages/MemberPortalPage.tsx');
+    const activities = source('frontend/src/pages/ActivitiesPage.tsx');
+    expect(migration).toContain('reserve_member_class_backend');
+    expect(migration).toContain("'class.unpaid_booking_created'");
+    expect(migration).toContain("existing_booking.status = 'reserved'");
+    expect(migration).toContain('existing_booking.payment_id is null');
+    expect(migration).toContain('MEMBER_CAN_ONLY_BOOK_SELF');
+    expect(migration).toContain('grant execute on function public.reserve_member_class_backend');
+    expect(migration).toContain('to service_role');
+    expect(controller).toContain("rpc('reserve_member_class_backend'");
+    expect(controller).toContain('payment_state');
+    expect(portal).toContain('Pago pendiente en recepción');
+    expect(portal).toContain('No se realizará ningún cobro en FitLab.');
+    expect(activities).toContain('Registrar pago');
+    expect(activities).toContain('Reserva, pago y asistencia se muestran por separado.');
   });
 });

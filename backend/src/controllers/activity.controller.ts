@@ -102,9 +102,11 @@ export async function listActivities(request: Request, response: Response) {
   const relatedError = bookingsResult.error ?? peopleResult.error;
   if (relatedError) throw fromSupabaseError(relatedError);
   const bookings = bookingsResult.data ?? [];
-  const paymentIds = classAccess.bookings
-    ? bookings.map((booking) => booking.payment_id).filter(Boolean) as string[]
-    : [];
+  // Members only receive their own bookings and instructors only receive
+  // bookings for schedules they may read. Loading the payment status here lets
+  // both roles distinguish an included class from an unpaid additional class
+  // without exposing payment references or financial details.
+  const paymentIds = bookings.map((booking) => booking.payment_id).filter(Boolean) as string[];
   const paymentsResult = paymentIds.length
     ? await supabaseAdmin.from('member_payments')
       .select('id,class_booking_id,amount,currency,payment_method,status,receipt_number,paid_at,external_reference,refund_reason')
@@ -123,10 +125,16 @@ export async function listActivities(request: Request, response: Response) {
     : waitlistsResult.data ?? [];
 
   const activityById = new Map(activities.map((activity) => [activity.id, activity]));
+  const scheduleById = new Map(schedules.map((schedule) => [schedule.id, schedule]));
   const locationById = new Map((locationsResult.data ?? []).map((location) => [location.id, location]));
   const people = peopleResult.data ?? [];
   const personById = new Map(people.map((person) => [person.id, person]));
   const paymentById = new Map((paymentsResult.data ?? []).map((payment) => [payment.id, payment]));
+  const paymentState = (booking: typeof bookings[number], activity?: typeof activities[number]) => {
+    if (activity?.billing_mode === 'included') return 'included';
+    if (!booking.payment_id) return 'pending';
+    return paymentById.get(booking.payment_id)?.status ?? 'registered';
+  };
   const bookingsBySchedule = new Map<string, typeof bookings>();
   for (const booking of bookings) {
     bookingsBySchedule.set(booking.class_schedule_id, [...(bookingsBySchedule.get(booking.class_schedule_id) ?? []), booking]);
@@ -153,7 +161,9 @@ export async function listActivities(request: Request, response: Response) {
         occupied,
         capacity,
         available: Math.max(0, capacity - occupied),
-        myBooking: isMember ? scheduleBookings[0] ?? null : null,
+        myBooking: isMember && scheduleBookings[0]
+          ? { ...scheduleBookings[0], payment_state: paymentState(scheduleBookings[0], activity) }
+          : null,
         waitlistCount: isMember ? undefined : waitlists.filter((waitlist) => waitlist.class_schedule_id === schedule.id).length,
         myWaitlist: isMember ? waitlists.find((waitlist) => waitlist.class_schedule_id === schedule.id) ?? null : null,
       };
@@ -161,6 +171,7 @@ export async function listActivities(request: Request, response: Response) {
     bookings: isMember ? [] : bookings.map((booking) => ({
       ...booking,
       member: { id: booking.member_user_id, name: gymUserName(personById.get(booking.member_user_id)), phone: relatedOne(personById.get(booking.member_user_id)?.profiles)?.phone ?? personById.get(booking.member_user_id)?.managed_phone ?? null },
+      payment_state: paymentState(booking, activityById.get(scheduleById.get(booking.class_schedule_id)?.extra_class_id ?? '')),
       payment: classAccess.bookings && booking.payment_id ? paymentById.get(booking.payment_id) ?? null : null,
     })),
     waitlists: isMember || classAccess.bookings ? waitlists.map((waitlist) => ({
@@ -296,12 +307,11 @@ export async function reserveClassForSelf(request: Request, response: Response) 
   if (request.tenant!.role !== 'member' || !scheduleId || !uuid.safeParse(scheduleId).success) {
     throw new AppError(403, 'MEMBER_SELF_BOOKING_REQUIRED', 'Esta reserva debe realizarla el propio miembro.');
   }
-  const { data, error } = await supabaseAdmin.rpc('reserve_included_class_backend', {
+  const { data, error } = await supabaseAdmin.rpc('reserve_member_class_backend', {
     target_gym_id: request.tenant!.gymId,
     target_class_schedule_id: scheduleId,
     target_member_user_id: request.tenant!.gymUserId,
     target_actor_gym_user_id: request.tenant!.gymUserId,
-    supplied_used_pin_elevation: false,
   });
   if (error) throw fromSupabaseError(error);
   response.status(201).json({ booking: data });
