@@ -3,6 +3,8 @@ import { Activity, ArrowUpRight, CreditCard, Eye, EyeOff, Flame, Users } from 'l
 import { useNavigate } from 'react-router-dom';
 import { useState } from 'react';
 import { api } from '../services/api';
+import { useAuth } from '../context/AuthContext';
+import { OwnerAnnouncementsPanel } from '../components/OwnerAnnouncementsPanel';
 
 type Member = { id: string; status: string; profiles?: { full_name?: string } };
 type Attendance = { id: string; member_user_id: string; checked_in_at: string; status: 'valid' | 'voided'; source: string };
@@ -23,6 +25,7 @@ function paymentMethod(method: string) {
 }
 
 export function DashboardPage() {
+  const { session } = useAuth();
   const navigate = useNavigate();
   const [showIncome, setShowIncome] = useState(true);
   const today = dateInGuayaquil();
@@ -55,6 +58,7 @@ export function DashboardPage() {
   ];
 
   return <div className="page"><div className="page-heading"><div><p className="eyebrow">RESUMEN DEL GIMNASIO</p><h1>Dashboard</h1><p>Una vista rápida de lo que está pasando hoy.</p></div><button className="primary" onClick={() => navigate('/memberships')}>Registrar pago <ArrowUpRight size={17}/></button></div>
+    {session?.gymUser?.role === 'owner' && <OwnerAnnouncementsPanel/>}
     <div className="stats-grid">{stats.map(({ label, value, detail, icon: Icon, tone, privateValue }) => <article className={`stat-card${privateValue ? ' private-stat' : ''}`} key={label}><span className={`stat-icon ${tone}`}><Icon/></span><div><p>{label}</p><strong className={privateValue && !showIncome ? 'masked-value' : undefined}>{value}</strong><small>{detail}</small></div>{privateValue && !incomeSummary.isError && <button type="button" className="stat-privacy-toggle" aria-label={showIncome ? 'Ocultar ingresos del mes' : 'Mostrar ingresos del mes'} title={showIncome ? 'Ocultar ingresos' : 'Mostrar ingresos'} onClick={() => setShowIncome((current) => !current)}>{showIncome ? <EyeOff/> : <Eye/>}</button>}</article>)}</div>
     <div className="dashboard-grid"><section className="panel"><div className="panel-title"><div><h2>Actividad reciente</h2><p>Últimos movimientos del gimnasio</p></div><button className="ghost" onClick={() => navigate('/attendances')}>Ver asistencias</button></div>{activity.length ? <div className="activity-list">{activity.map((item) => <article className="activity-row" key={`${item.kind}-${item.id}`}><span className={`activity-icon ${item.kind}`}>{item.kind === 'payment' ? <CreditCard/> : <Activity/>}</span><div><strong>{item.label}</strong><small>{names.get(item.memberUserId) ?? 'Miembro'} · {item.detail}</small></div><time>{new Date(item.date).toLocaleString('es-EC', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</time></article>)}</div> : <div className="empty"><Activity/><strong>Aún no hay actividad para mostrar</strong><span>Las asistencias y pagos aparecerán aquí.</span></div>}</section>
       <section className="panel streak-panel"><p className="eyebrow">MOTIVACIÓN</p><Flame size={42}/><h2>Rachas que construyen hábitos</h2><p>{bestStreak > 0 ? `La mejor racha actual del gimnasio alcanza ${bestStreak} días.` : 'Las rachas aparecerán cuando los miembros empiecen a registrar asistencias.'}</p><button className="secondary" onClick={() => navigate('/attendances')}>Ver rachas</button></section></div>
