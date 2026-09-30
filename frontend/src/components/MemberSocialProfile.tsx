@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { Activity, Flame, Heart, Medal, Save, Trash2, Upload } from 'lucide-react';
 import { api, apiErrorMessage } from '../services/api';
+import { MemberFriendshipActions } from './MemberFriendships';
 import '../social-profile.css';
 
 type Badge={badge_code:string;earned_at:string;loyalty_badges:{name:string;description:string}};
@@ -48,6 +49,7 @@ export function MemberSocialProfile({memberId}:{memberId?:string}) {
   {(p.own||p.gallery.some(Boolean))&&<><h3>Momentos de entrenamiento</h3><div className="social-gallery">{p.gallery.map((url,slot)=><div key={slot} className="social-photo">{url?<button className="social-photo-preview" type="button" onClick={()=>setPreview(url)} aria-label={`Ampliar foto ${slot+1}`}><img src={url} alt={`Momento de entrenamiento ${slot+1}`} loading="lazy"/></button>:<div className="social-photo-empty"><Upload/><span>Foto {slot+1}</span></div>}{p.own&&<div className="social-photo-actions"><label className="small-button" aria-disabled={photo.isPending}><Upload/>{url?'Cambiar':'Agregar'}<input type="file" accept="image/jpeg,image/png,image/webp" disabled={photo.isPending} onChange={e=>{const file=e.target.files?.[0];e.target.value='';if(file)photo.mutate({slot,file});}}/></label>{url&&<button className="small-button" aria-label={`Eliminar foto ${slot+1}`} disabled={photo.isPending} onClick={()=>{if(confirm('¿Eliminar esta foto de tu galería?'))photo.mutate({slot,file:null});}}><Trash2/></button>}</div>}</div>)}</div>{p.own&&<small>Hasta 3 fotos · JPG, PNG o WEBP · máximo 5 MB por archivo. {photo.isPending?'Procesando y subiendo…':''}</small>}</>}
   {p.badges.length>0&&<><h3>Medallas ganadas</h3><ProfileBadges badges={p.badges}/></>}
   {!p.own&&<button className={p.loved?'primary':'ghost'} disabled={love.isPending} aria-pressed={p.loved} onClick={()=>love.mutate()}><Heart/>{p.loved?'Quitar Me encanta':'Me encanta'}</button>}
+  {!p.own&&<MemberFriendshipActions memberId={p.id}/>}
   {[save.error,photo.error,love.error].filter(Boolean).map((error,i)=><p key={i} className="alert error" role="alert">{apiErrorMessage(error)}</p>)}
   {preview&&<div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Foto ampliada" onClick={()=>setPreview(null)} onKeyDown={e=>{if(e.key==='Escape')setPreview(null);}}><div className="social-preview"><button className="ghost" autoFocus onClick={()=>setPreview(null)}>Cerrar foto</button><img src={preview} alt="Foto de entrenamiento ampliada"/></div></div>}
  </section>;

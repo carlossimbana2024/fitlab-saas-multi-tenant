@@ -3,6 +3,13 @@ import { AppError } from '../errors/AppError.js';
 type DatabaseError = { code?: string; message: string; details?: string | null };
 
 const knownErrors: Record<string, { status: number; message: string }> = {
+  FRIEND_MEMBER_REQUIRED: { status: 403, message: 'Necesitas una cuenta de miembro activa en este gimnasio.' },
+  FRIEND_SELF_NOT_ALLOWED: { status: 400, message: 'No puedes enviarte una solicitud de amistad.' },
+  FRIEND_ACTION_INVALID: { status: 400, message: 'La acción de amistad no es válida.' },
+  FRIEND_PRIVACY_REQUIRED: { status: 403, message: 'Ambos miembros deben aparecer en Comunidad y permitir solicitudes de amistad.' },
+  FRIEND_INCOMING_PENDING: { status: 409, message: 'Ya recibiste una solicitud de esta persona. Puedes aceptarla o rechazarla.' },
+  FRIEND_STATE_INVALID: { status: 409, message: 'La solicitud cambió de estado o no te corresponde esta acción. Actualiza la vista.' },
+  FRIEND_REQUEST_COOLDOWN: { status: 429, message: 'Espera 24 horas antes de volver a enviar una solicitud a esta persona.' },
   SOCIAL_MEMBER_REQUIRED: { status: 403, message: 'Necesitas una cuenta de miembro activa en este gimnasio.' },
   SOCIAL_SLOT_INVALID: { status: 400, message: 'Tu galería admite hasta tres fotos.' },
   SOCIAL_PHOTO_INVALID: { status: 400, message: 'La foto no está disponible o no pertenece a tu perfil.' },

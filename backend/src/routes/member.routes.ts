@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { listMyFriendships, getMemberFriendship, changeMemberFriendship, saveMyFriendPreferences } from '../controllers/memberFriendship.controller.js';
 import { getMemberSocialProfile, updateMySocialProfile, prepareMyGalleryPhoto, changeMyGalleryPhoto } from '../controllers/memberSocialProfile.controller.js';
 import { convertMemberToPortal, createManagedMember, createMyAvatarUpload, finalizeMyAvatar, getMember, getMyFitnessProfile, getMyProgress, inviteMember, listMembers, recordMyWeight, reinstateMember, retireMember, revokeInvitation, updateMember, updateMemberStatus, updateMyProfile, upsertMyFitnessProfile } from '../controllers/member.controller.js';
 import { listMemberCommunity, toggleMemberCommunityReaction } from '../controllers/memberCommunity.controller.js';
@@ -34,6 +35,10 @@ const socialWriteLimit=databaseRateLimit({bucket:'members.social_profile',maximu
 memberRouter.put('/me/social-profile', socialWriteLimit, asyncHandler(updateMySocialProfile));
 memberRouter.post('/me/gallery-upload', socialWriteLimit, asyncHandler(prepareMyGalleryPhoto));
 memberRouter.put('/me/gallery', socialWriteLimit, asyncHandler(changeMyGalleryPhoto));
+memberRouter.get('/me/friends', asyncHandler(listMyFriendships));
+memberRouter.get('/me/friends/:memberId', asyncHandler(getMemberFriendship));
+memberRouter.post('/me/friends', socialWriteLimit, asyncHandler(changeMemberFriendship));
+memberRouter.put('/me/friend-preferences', socialWriteLimit, asyncHandler(saveMyFriendPreferences));
 memberRouter.post('/me/community/reactions', asyncHandler(toggleMemberCommunityReaction));
 memberRouter.post('/me/avatar-upload', asyncHandler(createMyAvatarUpload));
 memberRouter.put('/me/avatar', asyncHandler(finalizeMyAvatar));

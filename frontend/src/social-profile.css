@@ -1,4 +1,11 @@
 .social-profile { min-width:0; }
+.friend-actions {display:flex;align-items:center;flex-wrap:wrap;gap:.6rem;margin:.8rem 0;}
+.friend-actions>span {display:flex;align-items:center;gap:.4rem;}
+.friend-actions button {min-height:44px;}
+.friend-list article {display:flex;align-items:center;justify-content:space-between;gap:.8rem;padding:.8rem 0;border-bottom:1px solid var(--border);}
+.friend-list article>div {min-width:0;overflow-wrap:anywhere;}
+.friend-list small {display:block;color:var(--muted);margin-top:.4rem;}
+@media(max-width:600px){.friend-list article{flex-direction:column;align-items:stretch;}.friend-list .friend-actions{margin:.25rem 0;}}
 .social-identity {display:flex;align-items:center;gap:1rem;margin-bottom:1rem;}
 .social-identity>img {width:88px;height:88px;border-radius:50%;object-fit:cover;flex-shrink:0;}
 .social-identity>div {min-width:0;overflow-wrap:anywhere;}

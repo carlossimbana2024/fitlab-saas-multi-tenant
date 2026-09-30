@@ -5,6 +5,7 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { api, apiErrorMessage } from '../services/api';
 import { MemberSocialProfile } from '../components/MemberSocialProfile';
+import { MyFriendships } from '../components/MemberFriendships';
 import { selectMembershipCoverage } from '../utils/membershipCoverage';
 
 type PortalSection = 'home' | 'classes' | 'progress' | 'profile';
@@ -390,6 +391,7 @@ function ProfileView({ displayName, session, membership, period, remaining, paym
     </section>
 
     <MemberSocialProfile/>
+    <MyFriendships/>
     <section className="panel fitness-profile-card">
       <div className="panel-title"><div><h2>Datos deportivos</h2><p>Ayudan a personalizar tu experiencia.</p></div><button className="ghost" onClick={onEditFitness}><Pencil />Editar encuesta</button></div>
     {fitnessProfile ? <><div className="fitness-profile-grid"><div><span>Objetivo</span><strong>{goalLabel}</strong></div><div><span>Peso actual</span><strong>{fitnessProfile.weight_kg} kg</strong></div><div><span>Altura</span><strong>{fitnessProfile.height_cm} cm</strong></div><div><span>Experiencia</span><strong>{experienceLabels[fitnessProfile.experience_level]}</strong></div><div><span>Entrenamiento deseado</span><strong>{fitnessProfile.training_frequency_per_week} veces por semana</strong></div><div><span>Tipo preferido</span><strong>{fitnessProfile.preferred_training_type ?? 'Sin especificar'}</strong></div><div><span>Peso objetivo</span><strong>{fitnessProfile.target_weight_kg == null ? 'Sin especificar' : `${fitnessProfile.target_weight_kg} kg`}</strong></div><div><span>Plazo</span><strong>{fitnessProfile.goal_horizon_months == null ? 'Sin especificar' : `${fitnessProfile.goal_horizon_months} meses`}</strong></div></div><div className="privacy-heading"><ShieldCheck /><div><strong>Privacidad para Comunidad</strong><span>Controla desde aquí qué información compartes con otros miembros.</span></div></div><div className="privacy-list">{privacyItems.map(([label, enabled]) => <div key={label}><span>{label}</span><span className={enabled ? 'enabled' : 'disabled'}>{enabled ? 'Visible' : 'Oculto'}</span></div>)}</div>{fitnessProfile.public_message && <p className="profile-public-message">“{fitnessProfile.public_message}”</p>}</> : <div className="empty compact"><Dumbbell /><strong>Completa tu encuesta</strong><span>Configura tus objetivos para aprovechar el portal.</span></div>}
