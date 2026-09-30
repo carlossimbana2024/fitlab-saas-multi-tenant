@@ -7,6 +7,7 @@ import { AttendancesPage } from './pages/AttendancesPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { LoginPage } from './pages/LoginPage';
 import { MemberPortalPage } from './pages/MemberPortalPage';
+import { MemberPaymentsPage } from './pages/MemberPaymentsPage';
 import { MembersPage } from './pages/MembersPage';
 import { MembershipsPage } from './pages/MembershipsPage';
 import { CalendarPage } from './pages/CalendarPage';
@@ -55,6 +56,7 @@ export default function App() {
           <Route path="/portal/progress" element={<MemberPortalPage section="progress"/>}/>
           <Route path="/portal/community" element={<MemberCommunityPage/>}/>
           <Route path="/portal/profile" element={<MemberPortalPage section="profile"/>}/>
+          <Route path="/portal/payments" element={<MemberPaymentsPage/>}/>
           <Route path="/portal/rewards" element={<MemberRewardsPage/>}/>
         </Route>
       </Route>

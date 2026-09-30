@@ -26,6 +26,17 @@ function maskMemberName(name: string) {
   return [parts[0], ...parts.slice(1).map((part) => `${part[0]?.toUpperCase() ?? ''}.`)].join(' ');
 }
 
+export async function listMyPayments(request: Request, response: Response) {
+  if (request.tenant!.role !== 'member') throw new AppError(403, 'MEMBER_REQUIRED', 'Esta opción pertenece al portal del miembro.');
+  const { data, error } = await supabaseAdmin.from('member_payments')
+    .select('id,amount,currency,payment_method,status,paid_at,receipt_number,receipt_verification_token')
+    .eq('gym_id', request.tenant!.gymId).eq('member_user_id', request.tenant!.gymUserId)
+    .not('membership_id', 'is', null).order('paid_at', { ascending: false }).limit(100);
+  if (error) throw fromSupabaseError(error);
+  response.setHeader('Cache-Control', 'no-store');
+  response.json({ payments: data });
+}
+
 export async function listPayments(request: Request, response: Response) {
   let query = supabaseAdmin.from('member_payments').select(paymentListFields)
     .eq('gym_id', request.tenant!.gymId).not('membership_id', 'is', null)

@@ -162,7 +162,7 @@ export function MemberPortalPage({ section }: { section: PortalSection }) {
   const announcements = useQuery({ queryKey: ['gym-announcements', session?.gymUser?.gym_id, session?.gymUser?.default_location_id], queryFn: async () => (await api.get<{ announcements: GymAnnouncement[] }>('/announcements')).data.announcements, enabled: section === 'home' && Boolean(session?.gymUser), refetchInterval: 60_000 });
   const attendances = useQuery({ queryKey: ['my-attendances'], queryFn: async () => (await api.get<{ attendances: Attendance[] }>('/attendances')).data.attendances });
   const streaks = useQuery({ queryKey: ['my-streak'], queryFn: async () => (await api.get<{ streaks: Streak[] }>('/attendances/streaks')).data.streaks });
-  const payments = useQuery({ queryKey: ['my-payments'], queryFn: async () => (await api.get<{ payments: Payment[] }>('/member-payments')).data.payments });
+  const payments = useQuery({ queryKey: ['my-payments'], queryFn: async () => (await api.get<{ payments: Payment[] }>('/member-payments/me')).data.payments });
   const weekly = useQuery({ queryKey: ['my-weekly-progress'], queryFn: async () => (await api.get<{ progress: WeeklyProgress[] }>('/attendances/weekly-progress')).data.progress });
   const calendar = useQuery({ queryKey: ['my-calendar', range.from], queryFn: async () => (await api.get<Calendar>('/calendar', { params: { from: range.from, to: range.to } })).data });
   const classes = useQuery({ queryKey: ['my-activities'], queryFn: async () => (await api.get<PortalActivities>('/activities')).data });
@@ -274,7 +274,9 @@ export function MemberPortalPage({ section }: { section: PortalSection }) {
   return <>
     <div className="portal-view-heading"><div><p className="eyebrow">{copy[0]}</p><h1>{section === 'home' ? `Hola, ${displayName}` : copy[0]}</h1><p>{copy[1]}</p></div>{section !== 'profile' && section !== 'classes' && <Link className="checkin-button" to="/check-in">{hasAttendanceToday ? <CheckCircle2/> : <QrCode/>}<span>{hasAttendanceToday ? 'Entrada registrada hoy' : 'Registrar asistencia'}<small>Escanea el QR de tu sucursal</small></span></Link>}</div>
 
+    {section === 'profile' && <Link className="ghost" to="/portal/payments"><CreditCard/>Membresía y pagos</Link>}
     {section === 'home' && <>
+      <Link className="panel loyalty-home-link" to="/portal/payments"><CreditCard/><span><strong>Membresía y pagos</strong><small>Renueva, presenta tu comprobante y consulta el resultado.</small></span></Link>
       <Link className="panel loyalty-home-link" to="/portal/rewards"><Gift/><span><strong>Retos y recompensas</strong><small>Descubre los premios de tu gimnasio y sigue tu avance.</small></span></Link>
       <section className={`today-status ${isOpen ? 'open' : 'closed'}`}><Clock3/><div><strong>{isOpen ? 'Abierto ahora' : 'Cerrado ahora'}</strong><span>{todaySchedule?.day_mode === 'closed' ? todayException?.reason ?? 'No abre hoy' : todaySchedule ? `Horario de hoy: ${shortTime(todaySchedule.opens_at)}–${shortTime(todaySchedule.closes_at)}` : 'Horario no configurado'}</span></div><small>{calendar.data?.location.name}</small></section>
       {Boolean(announcements.data?.length) && <section className="portal-notices gym-announcement-notices"><div className="panel-title"><div><h2>Avisos de tu gimnasio</h2><p>Información compartida por el owner</p></div><Bell/></div>{announcements.data!.map((announcement) => <article className="gym-announcement" key={announcement.id}><small>{announcement.location_id ? 'Tu sucursal' : 'Todas las sucursales'} · {new Date(announcement.created_at).toLocaleDateString('es-EC')}</small><p>{announcement.body}</p></article>)}</section>}

@@ -25,6 +25,7 @@ import { activityRouter } from './routes/activity.routes.js';
 import { platformBillingRouter } from './routes/platformBilling.routes.js';
 import { loyaltyRouter } from './routes/loyalty.routes.js';
 import { announcementRouter } from './routes/announcement.routes.js';
+import { membershipPaymentRequestRouter } from './routes/membershipPaymentRequest.routes.js';
 
 export const app = express();
 
@@ -56,6 +57,7 @@ app.use('/api/members', memberRouter);
 app.use('/api/plans', planRouter);
 app.use('/api/memberships', membershipRouter);
 app.use('/api/member-payments', paymentRouter);
+app.use('/api/membership-payment-requests', membershipPaymentRequestRouter);
 app.use('/api/calendar', calendarRouter);
 app.use('/api/cron', cronRouter);
 app.use('/api/settings', settingsRouter);

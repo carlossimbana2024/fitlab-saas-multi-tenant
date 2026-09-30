@@ -1,0 +1,31 @@
+.member-payment-page { display: grid; gap: 18px; min-width: 0; }
+.membership-payment-summary { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+.membership-payment-summary > svg { color: var(--primary, #ed0000); flex-shrink: 0; }
+.membership-payment-summary > div { flex: 1; min-width: 0; }
+.membership-payment-summary small { display: block; margin-top: 8px; }
+.membership-payment-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.membership-payment-form label { display: grid; gap: 8px; min-width: 0; }
+.membership-payment-form .wide { grid-column: 1 / -1; }
+.membership-payment-form input, .membership-payment-form select, .membership-payment-form textarea { width: 100%; min-width: 0; box-sizing: border-box; }
+.membership-payment-instructions { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--surface-secondary, rgba(128,128,128,.08)); border-radius: 14px; padding: 16px; margin-bottom: 16px; }
+.membership-payment-review { margin-bottom: 20px; }
+.membership-payment-review .portal-history article, .member-payment-page .portal-history article { gap: 14px; align-items: start; flex-wrap: wrap; }
+.member-payment-page .portal-history article > div, .membership-payment-review .portal-history article > div { min-width: 0; overflow-wrap: anywhere; }
+.membership-payment-review .row-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.membership-payment-review .review-form { display: grid; gap: 12px; margin-top: 18px; }
+.membership-payment-review .review-form label { display: grid; gap: 8px; }
+.membership-payment-review .review-form .verification-check { display: flex; align-items: start; }
+.verification-check input { width: auto; margin-top: 3px; }
+.membership-payment-review textarea { width: 100%; box-sizing: border-box; }
+.member-payment-page .panel, .membership-payment-review { min-width: 0; }
+.member-payment-page .primary, .member-payment-page .ghost { margin-top: 8px; }
+.membership-payment-settings label { display: grid; gap: 8px; }
+.membership-payment-settings .method-checkbox { display: flex; align-items: center; }
+.membership-payment-settings input[type=checkbox] { width: auto; }
+@media (max-width: 600px) {
+  .membership-payment-form { grid-template-columns: minmax(0, 1fr); }
+  .member-payment-page .panel { padding: 18px; }
+  .member-payment-page .portal-history article > div { width: 100%; }
+  .membership-payment-review .row-actions button { min-height: 44px; }
+  .member-payment-page a, .membership-payment-review a { overflow-wrap: anywhere; }
+}

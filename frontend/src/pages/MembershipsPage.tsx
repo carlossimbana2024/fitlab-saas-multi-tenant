@@ -4,6 +4,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { api, apiErrorMessage } from '../services/api';
 import { rewardLabel, type LoyaltyData } from '../components/LoyaltyRewards';
+import { MembershipPaymentReview } from '../components/MembershipPaymentManagement';
 
 type Member = { id: string; status: string; account_mode: 'portal' | 'managed'; managed_full_name?: string | null; profiles?: { full_name?: string } | null };
 type Plan = { id: string; name: string; price: number; currency: string };
@@ -126,6 +127,7 @@ export function MembershipsPage() {
     <div className="page-heading"><div><p className="eyebrow">COBROS Y COBERTURA</p><h1>Membresías</h1><p>Renueva coberturas, consulta recibos y conserva el historial financiero.</p></div><div className="heading-actions">{canManage && <button className="ghost" onClick={() => setPlanOpen(true)}><Plus size={18}/>Crear plan</button>}{canRegister && <button className="primary" onClick={() => canCheckout && setOpen(true)} title={checkoutBlocker} disabled={!canCheckout}><Plus size={18}/>Registrar pago</button>}</div></div>
     {checkoutResult && <div className="alert success receipt-success"><span>{checkoutResult.receipt_number ? <>Pago registrado con recibo <strong>{receiptCode(checkoutResult.receipt_number)}</strong>.</> : <>Recompensa canjeada: cobertura gratuita registrada, sin cobro.</>} Cobertura: {checkoutResult.coverage_starts_on} al {checkoutResult.coverage_ends_on}.</span><button className="icon-button" onClick={() => setCheckoutResult(null)}><X/></button></div>}
     {!session?.gymUser?.default_location_id && canRegister && <div className="alert warning">Tu usuario no tiene una sucursal predeterminada. Asígnala antes de registrar cobros.</div>}
+    {canRegister && <MembershipPaymentReview/>}
     <section className="panel financial-panel">
       <div className={`directory-tabs ${canViewFinances ? '' : 'single-tab'}`}><button className={tab === 'memberships' ? 'active' : ''} onClick={() => setTab('memberships')}><WalletCards/>Coberturas <span>{memberships.data?.length ?? 0}</span></button>{canViewFinances && <button className={tab === 'payments' ? 'active' : ''} onClick={() => setTab('payments')}><FileText/>Pagos y recibos <span>{payments.data?.length ?? 0}</span></button>}</div>
       {tab === 'memberships' && (loading ? <Loading text="Cargando membresías…"/> : memberships.data?.length ? <div className="membership-list">{memberships.data.map((membership) => {

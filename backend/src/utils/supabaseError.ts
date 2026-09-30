@@ -3,6 +3,20 @@ import { AppError } from '../errors/AppError.js';
 type DatabaseError = { code?: string; message: string; details?: string | null };
 
 const knownErrors: Record<string, { status: number; message: string }> = {
+  PAYMENT_REQUEST_OWNER_REQUIRED: { status: 403, message: 'Solo el owner puede configurar los pagos.' },
+  PAYMENT_REQUEST_MEMBER_REQUIRED: { status: 403, message: 'Necesitas una cuenta de miembro activa en este gimnasio.' },
+  PAYMENT_REQUEST_LOCATION_INVALID: { status: 400, message: 'La sucursal no está disponible en este gimnasio.' },
+  PAYMENT_REQUEST_SETTINGS_REQUIRED: { status: 409, message: 'Tu sucursal todavía no ha habilitado pagos desde el portal.' },
+  PAYMENT_REQUEST_PENDING: { status: 409, message: 'Ya tienes un pago pendiente de revisión.' },
+  PAYMENT_REQUEST_CURRENT_PLAN_ONLY: { status: 409, message: 'Solo puedes renovar tu plan actual. Para cambiarlo, contacta a recepción.' },
+  PAYMENT_REQUEST_PLAN_UNAVAILABLE: { status: 409, message: 'El plan ya no está disponible para pago desde el portal.' },
+  PAYMENT_REQUEST_INVALID_STATE: { status: 409, message: 'La solicitud ya cambió de estado. Actualiza la pantalla.' },
+  PAYMENT_REQUEST_QUOTE_EXPIRED: { status: 409, message: 'La propuesta de pago venció. Solicita revisión o presenta una nueva solicitud.' },
+  PAYMENT_REQUEST_METHOD_UNAVAILABLE: { status: 409, message: 'Este método no está habilitado por tu sucursal.' },
+  PAYMENT_REQUEST_AMOUNT_OR_DATE_INVALID: { status: 400, message: 'El valor debe coincidir con el plan y la fecha no puede ser futura.' },
+  PAYMENT_REQUEST_PROOF_REQUIRED: { status: 400, message: 'Debes adjuntar el comprobante.' },
+  PAYMENT_REQUEST_WHATSAPP_UNAVAILABLE: { status: 409, message: 'Tu gimnasio todavía no ha configurado WhatsApp.' },
+  PAYMENT_REQUEST_REVIEW_INVALID: { status: 400, message: 'Indica una decisión y un motivo válidos.' },
   LOYALTY_OWNER_REQUIRED: { status: 403, message: 'Solo el owner puede administrar y canjear recompensas.' },
   LOYALTY_MEMBER_REQUIRED: { status: 403, message: 'El miembro no está activo en este gimnasio.' },
   PROMOTION_TERMS_LOCKED: { status: 409, message: 'Solo puedes editar promociones en borrador.' },
