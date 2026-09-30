@@ -3,6 +3,9 @@ import { AppError } from '../errors/AppError.js';
 type DatabaseError = { code?: string; message: string; details?: string | null };
 
 const knownErrors: Record<string, { status: number; message: string }> = {
+  SOCIAL_MEMBER_REQUIRED: { status: 403, message: 'Necesitas una cuenta de miembro activa en este gimnasio.' },
+  SOCIAL_SLOT_INVALID: { status: 400, message: 'Tu galería admite hasta tres fotos.' },
+  SOCIAL_PHOTO_INVALID: { status: 400, message: 'La foto no está disponible o no pertenece a tu perfil.' },
   PAYMENT_REQUEST_OWNER_REQUIRED: { status: 403, message: 'Solo el owner puede configurar los pagos.' },
   PAYMENT_REQUEST_MEMBER_REQUIRED: { status: 403, message: 'Necesitas una cuenta de miembro activa en este gimnasio.' },
   PAYMENT_REQUEST_LOCATION_INVALID: { status: 400, message: 'La sucursal no está disponible en este gimnasio.' },

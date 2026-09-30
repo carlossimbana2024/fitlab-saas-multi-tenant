@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { getMemberSocialProfile, updateMySocialProfile, prepareMyGalleryPhoto, changeMyGalleryPhoto } from '../controllers/memberSocialProfile.controller.js';
 import { convertMemberToPortal, createManagedMember, createMyAvatarUpload, finalizeMyAvatar, getMember, getMyFitnessProfile, getMyProgress, inviteMember, listMembers, recordMyWeight, reinstateMember, retireMember, revokeInvitation, updateMember, updateMemberStatus, updateMyProfile, upsertMyFitnessProfile } from '../controllers/member.controller.js';
 import { listMemberCommunity, toggleMemberCommunityReaction } from '../controllers/memberCommunity.controller.js';
 import { getMemberCommunityRankings } from '../controllers/memberCommunityRanking.controller.js';
@@ -27,6 +28,12 @@ memberRouter.get('/me/progress', asyncHandler(getMyProgress));
 memberRouter.post('/me/weight', asyncHandler(recordMyWeight));
 memberRouter.get('/me/community/rankings', asyncHandler(getMemberCommunityRankings));
 memberRouter.get('/me/community', asyncHandler(listMemberCommunity));
+memberRouter.get('/me/social-profile', asyncHandler(getMemberSocialProfile));
+memberRouter.get('/me/community/profiles/:memberId', asyncHandler(getMemberSocialProfile));
+const socialWriteLimit=databaseRateLimit({bucket:'members.social_profile',maximumHits:30,windowSeconds:600,subject:(request)=>`${request.tenant!.gymId}:${request.tenant!.gymUserId}`});
+memberRouter.put('/me/social-profile', socialWriteLimit, asyncHandler(updateMySocialProfile));
+memberRouter.post('/me/gallery-upload', socialWriteLimit, asyncHandler(prepareMyGalleryPhoto));
+memberRouter.put('/me/gallery', socialWriteLimit, asyncHandler(changeMyGalleryPhoto));
 memberRouter.post('/me/community/reactions', asyncHandler(toggleMemberCommunityReaction));
 memberRouter.post('/me/avatar-upload', asyncHandler(createMyAvatarUpload));
 memberRouter.put('/me/avatar', asyncHandler(finalizeMyAvatar));

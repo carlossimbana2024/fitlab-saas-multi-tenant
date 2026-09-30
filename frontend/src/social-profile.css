@@ -1,0 +1,30 @@
+.social-profile { min-width:0; }
+.social-identity {display:flex;align-items:center;gap:1rem;margin-bottom:1rem;}
+.social-identity>img {width:88px;height:88px;border-radius:50%;object-fit:cover;flex-shrink:0;}
+.social-identity>div {min-width:0;overflow-wrap:anywhere;}
+.social-identity h1 {font-size:clamp(1.7rem,4vw,2.6rem);}
+.social-stats {display:flex;flex-wrap:wrap;gap:.75rem;margin:1rem 0;}
+.social-stats>span {display:flex;gap:.4rem;align-items:center;font-size:.9rem;}
+.social-stats svg,.social-badges svg {width:19px;height:19px;color:#e60000;flex-shrink:0;}
+.social-form {display:grid;gap:.8rem;margin-bottom:1.5rem;}
+.social-form>label:not(.social-checkbox) {display:grid;gap:.4rem;}
+.social-form textarea {width:100%;min-width:0;box-sizing:border-box;font:inherit;font-size:1rem;line-height:1.5;color:var(--text);background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:.8rem;resize:vertical;}
+.social-form textarea:focus-visible {outline:2px solid var(--primary);outline-offset:2px;}
+.social-profile p {overflow-wrap:anywhere;white-space:pre-wrap;}
+.social-checkbox {display:flex;align-items:center;gap:.65rem;font-size:.9rem;}
+.social-checkbox input {width:18px;min-height:18px;height:18px;flex-shrink:0;}
+.social-form button {justify-self:start;}
+.social-gallery {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.65rem;margin:.8rem 0;}
+.social-photo {min-width:0;}
+.social-photo-preview,.social-photo-empty {width:100%;aspect-ratio:1;display:flex;align-items:center;justify-content:center;padding:0;border-radius:14px;overflow:hidden;background:var(--surface-2);}
+.social-photo-preview img {width:100%;height:100%;object-fit:cover;}
+.social-photo-empty {flex-direction:column;gap:.6rem;color:#94a3b8;}
+.social-photo-actions {display:flex;flex-wrap:wrap;gap:.3rem;margin-top:.4rem;}
+.social-photo-actions label {position:relative;cursor:pointer;}
+.social-photo-actions input {position:absolute;inset:0;opacity:0;width:100%;cursor:pointer;}
+.social-photo-actions .small-button {font-size:.8rem;min-height:44px;padding:.4rem .6rem;}
+.social-badges {display:flex;flex-wrap:wrap;gap:.6rem;margin:1rem 0;}
+.social-badges>span {display:flex;align-items:center;gap:.4rem;padding:.55rem .75rem;border-radius:30px;background:rgba(230,0,0,.08);font-size:.9rem;}
+.social-preview {display:grid;gap:.6rem;max-width:95vw;max-height:90dvh;}
+.social-preview img {max-width:95vw;max-height:78dvh;object-fit:contain;}
+@media(max-width:480px){.social-gallery{gap:.4rem;}.social-photo-actions .small-button{font-size:.75rem;padding:.3rem;}.social-photo-actions svg{width:16px;}.social-identity{align-items:flex-start;}.social-identity>img{width:64px;height:64px;}}

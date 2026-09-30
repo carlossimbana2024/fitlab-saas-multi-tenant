@@ -50,7 +50,7 @@ function clampPercent(value: number) {
   return Math.max(0, Math.min(100, Math.round(value * 10) / 10));
 }
 
-function goalProgress(profile: CommunityProfile, currentWeight: number | null) {
+export function goalProgress(profile: Pick<CommunityProfile,'weight_kg'|'target_weight_kg'|'goal_type'>, currentWeight: number | null) {
   if (currentWeight === null || profile.target_weight_kg === null) return null;
   const initialWeight = Number(profile.weight_kg);
   const targetWeight = Number(profile.target_weight_kg);
@@ -77,7 +77,7 @@ export async function listMemberCommunity(request: Request, response: Response) 
   if (!input.success) throw new AppError(400, 'INVALID_COMMUNITY_FILTER', 'El filtro de Comunidad no es válido.');
   const today = dateInTimezone(request.tenant!.timezone);
   const from = monthStart(today);
-  const [membersResult, profilesResult, streaksResult, attendanceResult, weightsResult, reactionsResult, viewerProfileResult] = await Promise.all([
+  const [membersResult, profilesResult, streaksResult, attendanceResult, weightsResult, reactionsResult, viewerProfileResult, socialResult] = await Promise.all([
     supabaseAdmin.from('gym_users').select('id,joined_at,profiles(full_name,avatar_url)')
       .eq('gym_id', request.tenant!.gymId).eq('role', 'member').eq('status', 'active').eq('account_mode', 'portal').limit(250),
     supabaseAdmin.from('member_fitness_profiles').select('member_user_id,weight_kg,target_weight_kg,goal_type,public_message,show_profile_photo,show_streak,show_attendance_count,show_weight_progress,show_goal')
@@ -91,8 +91,9 @@ export async function listMemberCommunity(request: Request, response: Response) 
     supabaseAdmin.from('member_community_reactions').select('actor_member_user_id,target_member_user_id,reaction_type')
       .eq('gym_id', request.tenant!.gymId).limit(10000),
     supabaseAdmin.from('member_fitness_profiles').select('goal_type').eq('gym_id', request.tenant!.gymId).eq('member_user_id', request.tenant!.gymUserId).maybeSingle(),
+    supabaseAdmin.from('member_social_profiles').select('member_user_id,bio').eq('gym_id', request.tenant!.gymId).limit(250),
   ]);
-  const error = membersResult.error ?? profilesResult.error ?? streaksResult.error ?? attendanceResult.error ?? weightsResult.error ?? reactionsResult.error ?? viewerProfileResult.error;
+  const error = membersResult.error ?? profilesResult.error ?? streaksResult.error ?? attendanceResult.error ?? weightsResult.error ?? reactionsResult.error ?? viewerProfileResult.error ?? socialResult.error;
   if (error) throw fromSupabaseError(error);
 
   const visibleProfiles = new Map<string, CommunityProfile>((profilesResult.data ?? []).map((profile) => [profile.member_user_id, profile as CommunityProfile]));
@@ -108,6 +109,7 @@ export async function listMemberCommunity(request: Request, response: Response) 
   }
   const reactions = reactionsResult.data ?? [];
   const viewerReactionByTarget = new Map<string, string>();
+  const bios = new Map((socialResult.data ?? []).map((profile)=>[profile.member_user_id,profile.bio]));
   const reactionCounts = new Map<string, { like: number; love: number }>();
   for (const reaction of reactions) {
     const counts = reactionCounts.get(reaction.target_member_user_id) ?? { like: 0, love: 0 };
@@ -134,7 +136,7 @@ export async function listMemberCommunity(request: Request, response: Response) 
       monthlyAttendances: profile.show_attendance_count ? monthlyAttendance.get(member.id) ?? 0 : null,
       goalType: profile.show_goal ? profile.goal_type : null,
       progressPercent,
-      publicMessage: profile.public_message,
+      publicMessage: bios.get(member.id) ?? profile.public_message,
       reactions: { like: counts.like, love: counts.love, mine: viewerReactionByTarget.get(member.id) ?? null },
       joinedAt: member.joined_at,
     };

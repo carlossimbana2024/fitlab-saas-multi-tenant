@@ -8,6 +8,7 @@ import { DashboardPage } from './pages/DashboardPage';
 import { LoginPage } from './pages/LoginPage';
 import { MemberPortalPage } from './pages/MemberPortalPage';
 import { MemberPaymentsPage } from './pages/MemberPaymentsPage';
+import { MemberPublicProfilePage } from './components/MemberSocialProfile';
 import { MembersPage } from './pages/MembersPage';
 import { MembershipsPage } from './pages/MembershipsPage';
 import { CalendarPage } from './pages/CalendarPage';
@@ -55,6 +56,7 @@ export default function App() {
           <Route path="/portal/classes" element={<MemberPortalPage section="classes"/>}/>
           <Route path="/portal/progress" element={<MemberPortalPage section="progress"/>}/>
           <Route path="/portal/community" element={<MemberCommunityPage/>}/>
+          <Route path="/portal/community/:memberId" element={<MemberPublicProfilePage/>}/>
           <Route path="/portal/profile" element={<MemberPortalPage section="profile"/>}/>
           <Route path="/portal/payments" element={<MemberPaymentsPage/>}/>
           <Route path="/portal/rewards" element={<MemberRewardsPage/>}/>
