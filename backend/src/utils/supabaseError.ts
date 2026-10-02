@@ -3,6 +3,14 @@ import { AppError } from '../errors/AppError.js';
 type DatabaseError = { code?: string; message: string; details?: string | null };
 
 const knownErrors: Record<string, { status: number; message: string }> = {
+  TRAINING_MEMBER_REQUIRED: {status:403,message:'Necesitas una cuenta de miembro activa.'},
+  TRAINING_ACTION_INVALID: {status:400,message:'La acción no es válida.'},
+  TRAINING_PRIVACY_REQUIRED: {status:403,message:'Ambos deben ser amigos, aparecer en Comunidad y permitir toques.'},
+  POKE_COOLDOWN: {status:429,message:'Puedes enviar un toque a esta persona cada 12 horas.'},
+  SHARED_STREAK_EXISTS: {status:409,message:'Ya existe una invitación o racha con esta persona.'},
+  SHARED_STREAK_COOLDOWN: {status:429,message:'Espera 24 horas antes de enviar otra invitación.'},
+  SHARED_STREAK_POKE_REQUIRED: {status:409,message:'Primero envía un toque. Puedes invitar durante las siguientes 24 horas.'},
+  SHARED_STREAK_STATE_INVALID: {status:409,message:'La invitación cambió de estado o esta acción no te corresponde.'},
   FRIEND_MEMBER_REQUIRED: { status: 403, message: 'Necesitas una cuenta de miembro activa en este gimnasio.' },
   FRIEND_SELF_NOT_ALLOWED: { status: 400, message: 'No puedes enviarte una solicitud de amistad.' },
   FRIEND_ACTION_INVALID: { status: 400, message: 'La acción de amistad no es válida.' },

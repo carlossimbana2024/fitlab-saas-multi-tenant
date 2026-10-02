@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Check,UserPlus,Users,X } from 'lucide-react';
 import { api,apiErrorMessage } from '../services/api';
+import {TrainingFriendActions} from './MemberTrainingSocial';
 import '../social-profile.css';
 
 type Action='request'|'accept'|'reject'|'cancel'|'remove';
@@ -23,6 +24,7 @@ export function MemberFriendshipActions({memberId}:{memberId:string}){
    r.status==='pending'?<><span>Solicitud recibida</span><button className="primary" disabled={action.isPending||!r.canRequest} onClick={()=>act('accept')}><Check/>Aceptar</button><button className="ghost" disabled={action.isPending} onClick={()=>act('reject')}><X/>Rechazar</button></>:
    r.canRequest?<button className="primary" disabled={action.isPending} onClick={()=>act('request')}><UserPlus/>Agregar amigo</button>:<p className="form-note">Para conectar, ambos deben aparecer en Comunidad y permitir solicitudes en su perfil.</p>}
   {action.isError&&<p className="alert error" role="alert">{apiErrorMessage(action.error)}</p>}
+  {r.status==='accepted'&&<TrainingFriendActions memberId={memberId}/>}
  </div>;
 }
 export function MyFriendships(){

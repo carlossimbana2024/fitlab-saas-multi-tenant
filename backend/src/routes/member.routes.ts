@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { getMyTrainingSocial,changeTrainingSocial,savePokePreferences } from '../controllers/memberTrainingSocial.controller.js';
 import { listMyFriendships, getMemberFriendship, changeMemberFriendship, saveMyFriendPreferences } from '../controllers/memberFriendship.controller.js';
 import { getMemberSocialProfile, updateMySocialProfile, prepareMyGalleryPhoto, changeMyGalleryPhoto } from '../controllers/memberSocialProfile.controller.js';
 import { convertMemberToPortal, createManagedMember, createMyAvatarUpload, finalizeMyAvatar, getMember, getMyFitnessProfile, getMyProgress, inviteMember, listMembers, recordMyWeight, reinstateMember, retireMember, revokeInvitation, updateMember, updateMemberStatus, updateMyProfile, upsertMyFitnessProfile } from '../controllers/member.controller.js';
@@ -39,6 +40,9 @@ memberRouter.get('/me/friends', asyncHandler(listMyFriendships));
 memberRouter.get('/me/friends/:memberId', asyncHandler(getMemberFriendship));
 memberRouter.post('/me/friends', socialWriteLimit, asyncHandler(changeMemberFriendship));
 memberRouter.put('/me/friend-preferences', socialWriteLimit, asyncHandler(saveMyFriendPreferences));
+memberRouter.get('/me/training-social', asyncHandler(getMyTrainingSocial));
+memberRouter.post('/me/training-social', socialWriteLimit, asyncHandler(changeTrainingSocial));
+memberRouter.put('/me/poke-preferences', socialWriteLimit, asyncHandler(savePokePreferences));
 memberRouter.post('/me/community/reactions', asyncHandler(toggleMemberCommunityReaction));
 memberRouter.post('/me/avatar-upload', asyncHandler(createMyAvatarUpload));
 memberRouter.put('/me/avatar', asyncHandler(finalizeMyAvatar));
