@@ -47,10 +47,12 @@ describe('perfil deportivo, privacidad y fotografía del miembro', () => {
 
   it('ofrece encuesta de primera entrada, carga directa y controles de privacidad', () => {
     const portal = source('frontend/src/pages/MemberPortalPage.tsx');
+    const social = source('frontend/src/components/MemberSocialProfile.tsx');
     expect(portal).toContain("'/members/me/fitness-profile'");
     expect(portal).toContain("'/members/me/avatar-upload'");
     expect(portal).toContain("new FormData()");
-    expect(portal).toContain('member-avatar-input');
+    expect(social).toContain('avatarInput');
+    expect(social).toContain('onAvatarFile(file)');
     expect(portal).toContain('showInCommunity');
     expect(portal).toContain('fitnessSetupRequired');
     expect(portal).not.toContain('URL de foto opcional');

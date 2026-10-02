@@ -9,6 +9,7 @@ import { LoginPage } from './pages/LoginPage';
 import { MemberPortalPage } from './pages/MemberPortalPage';
 import { MemberPaymentsPage } from './pages/MemberPaymentsPage';
 import { MemberPublicProfilePage } from './components/MemberSocialProfile';
+import { MyFriendships } from './components/MemberFriendships';
 import { MembersPage } from './pages/MembersPage';
 import { MembershipsPage } from './pages/MembershipsPage';
 import { CalendarPage } from './pages/CalendarPage';
@@ -58,6 +59,8 @@ export default function App() {
           <Route path="/portal/community" element={<MemberCommunityPage/>}/>
           <Route path="/portal/community/:memberId" element={<MemberPublicProfilePage/>}/>
           <Route path="/portal/profile" element={<MemberPortalPage section="profile"/>}/>
+          <Route path="/portal/settings" element={<MemberPortalPage section="settings"/>}/>
+          <Route path="/portal/friends" element={<div className="profile-dedicated-page"><MyFriendships/></div>}/>
           <Route path="/portal/payments" element={<MemberPaymentsPage/>}/>
           <Route path="/portal/rewards" element={<MemberRewardsPage/>}/>
         </Route>

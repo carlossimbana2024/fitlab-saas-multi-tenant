@@ -1,5 +1,5 @@
 import { Dumbbell, Flame, Home, LogOut, UserRound, UsersRound } from 'lucide-react';
-import { NavLink, Outlet } from 'react-router-dom';
+import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { MemberChatWidget } from './MemberChatWidget';
 import { ThemeToggle } from './ThemeToggle';
@@ -14,6 +14,7 @@ const links = [
 
 export function MemberPortalLayout() {
   const { session, logout } = useAuth();
+  const {pathname}=useLocation();
 
   return <div className="member-portal">
     <header>
@@ -22,7 +23,7 @@ export function MemberPortalLayout() {
     </header>
     <nav className="member-portal-nav" aria-label="Navegación del portal del miembro">
       <div className="member-portal-nav-inner">
-        {links.map(({ to, label, icon: Icon, end }) => <NavLink key={to} to={to} end={end} className={({ isActive }) => isActive ? 'active' : undefined}>
+        {links.map(({ to, label, icon: Icon, end }) => <NavLink key={to} to={to} end={end} className={({ isActive }) => isActive || to==='/portal/profile'&&['/portal/settings','/portal/friends','/portal/payments'].includes(pathname) ? 'active' : undefined}>
           <Icon/><span>{label}</span>
         </NavLink>)}
       </div>

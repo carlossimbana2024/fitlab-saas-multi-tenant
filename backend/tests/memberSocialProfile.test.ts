@@ -14,6 +14,14 @@ describe('perfil social privado',()=>{
   expect(socialProfileSchema.safeParse({bio:'Hola',showGallery:false,showBadges:false,memberId:other}).success).toBe(false);
   expect(galleryChangeSchema.safeParse({slot:3,path:null}).success).toBe(false);
  });
+ it('permite cambios individuales sin enviar ni sobrescribir otras preferencias',async()=>{
+  expect(socialProfileSchema.safeParse({}).success).toBe(false);
+  expect(socialProfileSchema.safeParse({showGallery:true}).success).toBe(true);
+  expect(socialProfileSchema.safeParse({bio:'Nueva bio'}).success).toBe(true);
+  mock.rpc.mockResolvedValue({data:{},error:null});
+  await updateMySocialProfile(request({showBadges:true}),response());
+  expect(mock.rpc).toHaveBeenCalledWith('update_member_social_profile_backend',{g,actor,input:{showBadges:true}});
+ });
  it('valida propiedad del gimnasio y miembro y contenido real de imágenes',()=>{
   const path=`${g}/${actor}/${other}.webp`;
   expect(galleryPathOwned(path,g,actor)).toBe(true);expect(galleryPathOwned(path,g,other)).toBe(false);

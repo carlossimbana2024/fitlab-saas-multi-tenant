@@ -1,20 +1,22 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Activity, Bell, CalendarCheck, CheckCircle2, Clock3, CreditCard, Dumbbell, Flame, Gift, LoaderCircle, Mail, MapPin, MessageCircle, Pencil, Phone, QrCode, ShieldCheck, Upload, X } from 'lucide-react';
+import { Activity, Bell, CalendarCheck, CheckCircle2, Clock3, CreditCard, Dumbbell, Flame, Gift, LoaderCircle, Pencil, QrCode, ShieldCheck, X } from 'lucide-react';
 import { useMemo, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { api, apiErrorMessage } from '../services/api';
-import { MemberSocialProfile, OwnProfileHeader } from '../components/MemberSocialProfile';
-import { MyFriendships } from '../components/MemberFriendships';
-import {MyTrainingSocial} from '../components/MemberTrainingSocial';
+import { MemberSocialProfile, SocialPrivacySettings } from '../components/MemberSocialProfile';
+import { FriendRequestsPreference } from '../components/MemberFriendships';
+import { MyTrainingSocial, PokePreference } from '../components/MemberTrainingSocial';
+import { PrivacySwitch } from '../components/PrivacySwitch';
+import { ProfileDialog } from '../components/ProfileDialog';
+import '../profile-header.css';
 import { selectMembershipCoverage } from '../utils/membershipCoverage';
 
-type PortalSection = 'home' | 'classes' | 'progress' | 'profile';
+type PortalSection = 'home' | 'classes' | 'progress' | 'profile' | 'settings';
 type Period = { starts_on: string; ends_on: string; status: string };
 type Membership = { id: string; status: string; price_at_purchase: number; currency: string; attendance_mode_snapshot: 'daily' | 'weekly'; weekly_target_snapshot?: number | null; plans?: { name?: string }; membership_periods?: Period[] };
 type Attendance = { id: string; attendance_date: string; checked_in_at: string; status: 'valid' | 'voided'; source: string; counts_toward_streak: boolean };
 type Streak = { status: string; current_streak: number; longest_streak: number; last_attendance_date?: string | null };
-type Payment = { id: string; amount: number; currency: string; payment_method: string; status: string; paid_at: string };
 type GymAnnouncement = { id: string; location_id: string | null; body: string; created_at: string };
 type WeeklyProgress = { id: string; week_starts_on: string; week_ends_on: string; target_attendances: number; completed_attendances: number; goal_met: boolean; is_grace_week: boolean };
 type Hour = { weekday: number; opens_at: string | null; closes_at: string | null; day_mode: 'required' | 'bonus' | 'closed' };
@@ -115,7 +117,7 @@ function fitnessFormFromProfile(profile?: FitnessProfile | null): FitnessForm {
 }
 
 const localDate = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Guayaquil' }).format(new Date());
-const methodLabel = (method: string) => ({ cash: 'Efectivo', bank_transfer: 'Transferencia', external_card: 'Tarjeta', external_deuna: 'DEUNA', other: 'Otro' } as Record<string, string>)[method] ?? method;
+function fitnessPayload(form:FitnessForm){return {weightKg:Number(form.weightKg),heightCm:Number(form.heightCm),goalType:form.goalType,experienceLevel:form.experienceLevel,trainingFrequencyPerWeek:Number(form.trainingFrequencyPerWeek),availableDays:form.availableDays,targetWeightKg:form.targetWeightKg?Number(form.targetWeightKg):null,preferredTrainingType:form.preferredTrainingType.trim()||null,goalHorizonMonths:form.goalHorizonMonths?Number(form.goalHorizonMonths):null,publicMessage:form.publicMessage.trim()||null,showInCommunity:form.showInCommunity,showProfilePhoto:form.showProfilePhoto,showStreak:form.showStreak,showAttendanceCount:form.showAttendanceCount,showWeightProgress:form.showWeightProgress,showGoal:form.showGoal};}
 const money = (amount: number, currency: string) => new Intl.NumberFormat('es-EC', { style: 'currency', currency }).format(Number(amount));
 const shortTime = (value: string | null) => value?.slice(0, 5) ?? '—';
 
@@ -146,6 +148,7 @@ function sectionCopy(section: PortalSection) {
     classes: ['Entrena con intención', 'Consulta horarios y reserva tus próximas clases.'],
     progress: ['La constancia construye resultados', 'Mira tus asistencias y el avance de tu rutina.'],
     profile: ['Tu información, siempre contigo', 'Administra tus datos y consulta tu cobertura.'],
+    settings: ['Configuración', 'Tu cuenta, privacidad y datos deportivos.'],
   }[section];
 }
 
@@ -161,7 +164,6 @@ export function MemberPortalPage({ section }: { section: PortalSection }) {
   const announcements = useQuery({ queryKey: ['gym-announcements', session?.gymUser?.gym_id, session?.gymUser?.default_location_id], queryFn: async () => (await api.get<{ announcements: GymAnnouncement[] }>('/announcements')).data.announcements, enabled: section === 'home' && Boolean(session?.gymUser), refetchInterval: 60_000 });
   const attendances = useQuery({ queryKey: ['my-attendances'], queryFn: async () => (await api.get<{ attendances: Attendance[] }>('/attendances')).data.attendances });
   const streaks = useQuery({ queryKey: ['my-streak'], queryFn: async () => (await api.get<{ streaks: Streak[] }>('/attendances/streaks')).data.streaks });
-  const payments = useQuery({ queryKey: ['my-payments'], queryFn: async () => (await api.get<{ payments: Payment[] }>('/member-payments/me')).data.payments });
   const weekly = useQuery({ queryKey: ['my-weekly-progress'], queryFn: async () => (await api.get<{ progress: WeeklyProgress[] }>('/attendances/weekly-progress')).data.progress });
   const calendar = useQuery({ queryKey: ['my-calendar', range.from], queryFn: async () => (await api.get<Calendar>('/calendar', { params: { from: range.from, to: range.to } })).data });
   const classes = useQuery({ queryKey: ['my-activities'], queryFn: async () => (await api.get<PortalActivities>('/activities')).data });
@@ -175,7 +177,6 @@ export function MemberPortalPage({ section }: { section: PortalSection }) {
   const streak = streaks.data?.[0];
   const currentWeek = weekly.data?.[0];
   const remaining = daysUntil(period?.ends_on, range.today);
-  const lastPayment = payments.data?.[0];
   const validAttendances = attendances.data?.filter((item) => item.status === 'valid') ?? [];
   const hasAttendanceToday = validAttendances.some((item) => item.attendance_date === range.today);
   const todayDate = new Date(`${range.today}T12:00:00`); const todayWeekday = todayDate.getDay() || 7;
@@ -204,26 +205,19 @@ export function MemberPortalPage({ section }: { section: PortalSection }) {
     onSuccess: async () => { await refresh(); setPasswords({ current: '', next: '', confirmation: '' }); setEditing(false); },
   });
   const saveFitnessProfile = useMutation({
-    mutationFn: async (form: FitnessForm) => api.put('/members/me/fitness-profile', {
-      weightKg: Number(form.weightKg),
-      heightCm: Number(form.heightCm),
-      goalType: form.goalType,
-      experienceLevel: form.experienceLevel,
-      trainingFrequencyPerWeek: Number(form.trainingFrequencyPerWeek),
-      availableDays: form.availableDays,
-      targetWeightKg: form.targetWeightKg ? Number(form.targetWeightKg) : null,
-      preferredTrainingType: form.preferredTrainingType.trim() || null,
-      goalHorizonMonths: form.goalHorizonMonths ? Number(form.goalHorizonMonths) : null,
-      publicMessage: form.publicMessage.trim() || null,
-      showInCommunity: form.showInCommunity,
-      showProfilePhoto: form.showProfilePhoto,
-      showStreak: form.showStreak,
-      showAttendanceCount: form.showAttendanceCount,
-      showWeightProgress: form.showWeightProgress,
-      showGoal: form.showGoal,
-    }),
-    onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['my-fitness-profile'] }); setFitnessEditing(false); },
+    mutationFn: async (form: FitnessForm) => {
+      // A sports edit must preserve privacy switches changed since the dialog opened.
+      const latest=(await api.get<{fitnessProfile:FitnessProfile|null}>('/members/me/fitness-profile')).data.fitnessProfile;
+      const privacy=latest&&!fitnessSetupRequired?fitnessFormFromProfile(latest):null;
+      return api.put('/members/me/fitness-profile',fitnessPayload(privacy?{...form,...Object.fromEntries(privacyOptions.map(([key])=>[key,privacy[key]]))}:form));
+    },
+    onSuccess: async () => { await Promise.all(['my-fitness-profile','member-social-profile','member-community','my-progress'].map(key=>queryClient.invalidateQueries({queryKey:[key]}))); setFitnessEditing(false); },
   });
+  const savePrivacy=useMutation({mutationFn:async({key,value}:{key:PrivacyKey;value:boolean})=>{
+    const latest=(await api.get<{fitnessProfile:FitnessProfile|null}>('/members/me/fitness-profile')).data.fitnessProfile;
+    if(!latest)throw new Error('Completa primero tu perfil deportivo.');
+    return api.put('/members/me/fitness-profile',fitnessPayload({...fitnessFormFromProfile(latest),[key]:value}));
+  },onSettled:()=>Promise.all(['my-fitness-profile','member-social-profile','member-community','member-friendship','member-friends','member-training-social'].map(key=>queryClient.invalidateQueries({queryKey:[key]})))});
   const recordWeight = useMutation({
     mutationFn: async () => api.post('/members/me/weight', { weightKg: Number(weightValue), measuredOn: weightDate }),
     onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['my-progress'] }); setRecordingWeight(false); setWeightValue(''); setWeightDate(range.today); },
@@ -261,20 +255,14 @@ export function MemberPortalPage({ section }: { section: PortalSection }) {
     return { day, date, mode: schedule?.day_mode ?? 'closed', attendance };
   });
   const firstOffset = (new Date(`${range.from}T12:00:00`).getDay() + 6) % 7;
-  const contactPhone = calendar.data?.location.phone ?? calendar.data?.gym.phone;
-  const whatsappPhone = calendar.data?.location.whatsapp_phone ?? calendar.data?.gym.whatsapp_phone;
-  const whatsapp = whatsappPhone?.replace(/\D/g, '').replace(/^0/, '593');
-  const contactEmail = calendar.data?.location.email ?? calendar.data?.gym.email;
   const copy = sectionCopy(section);
-  const showHeadingCheckIn = section !== 'profile' && section !== 'classes';
+  const showHeadingCheckIn = section !== 'profile' && section !== 'classes' && section !== 'settings';
 
   const submitProfile = (event: FormEvent) => { event.preventDefault(); saveProfile.mutate(); };
   const mutationError = reserveClass.error ?? cancelClass.error ?? joinWaitlist.error ?? leaveWaitlist.error;
 
   return <>
-    {section !== 'profile' && <div className="portal-view-heading"><div><p className="eyebrow">{copy[0]}</p><h1>{section === 'home' ? `Hola, ${displayName}` : copy[0]}</h1><p>{copy[1]}</p></div>{showHeadingCheckIn && <Link className="checkin-button" to="/check-in">{hasAttendanceToday ? <CheckCircle2/> : <QrCode/>}<span>{hasAttendanceToday ? 'Entrada registrada hoy' : 'Registrar asistencia'}<small>Escanea el QR de tu sucursal</small></span></Link>}</div>}
-
-    {section === 'profile' && <Link className="ghost" to="/portal/payments"><CreditCard/>Membresía y pagos</Link>}
+    {section !== 'profile' && section !== 'settings' && <div className="portal-view-heading"><div><p className="eyebrow">{copy[0]}</p><h1>{section === 'home' ? `Hola, ${displayName}` : copy[0]}</h1><p>{copy[1]}</p></div>{showHeadingCheckIn && <Link className="checkin-button" to="/check-in">{hasAttendanceToday ? <CheckCircle2/> : <QrCode/>}<span>{hasAttendanceToday ? 'Entrada registrada hoy' : 'Registrar asistencia'}<small>Escanea el QR de tu sucursal</small></span></Link>}</div>}
     {section === 'home' && <>
       <Link className="panel loyalty-home-link" to="/portal/payments"><CreditCard/><span><strong>Membresía y pagos</strong><small>Renueva, presenta tu comprobante y consulta el resultado.</small></span></Link>
       <Link className="panel loyalty-home-link" to="/portal/rewards"><Gift/><span><strong>Retos y recompensas</strong><small>Descubre los premios de tu gimnasio y sigue tu avance.</small></span></Link>
@@ -290,18 +278,19 @@ export function MemberPortalPage({ section }: { section: PortalSection }) {
 
     {section === 'progress' && <ProgressView range={range} days={days} firstOffset={firstOffset} membership={membership} currentWeek={currentWeek} streak={streak} attendances={attendances.data ?? []} validCount={validAttendances.length} progress={progress.data} progressLoading={progress.isLoading} onRecordWeight={() => { setWeightValue(progress.data?.weights.at(-1)?.weightKg ? String(progress.data.weights.at(-1)!.weightKg) : ''); setWeightDate(range.today); setRecordingWeight(true); }} />}
 
-    {section === 'profile' && <ProfileView displayName={displayName} session={session} membership={membership} period={period} remaining={remaining} payments={payments.data ?? []} lastPayment={lastPayment} calendar={calendar.data} contactPhone={contactPhone} whatsapp={whatsapp} contactEmail={contactEmail} fitnessProfile={fitnessProfile.data} onEdit={() => setEditing(true)} onEditFitness={() => setFitnessEditing(true)} onAvatarFile={(file) => avatarUpload.mutate(file)} avatarUploading={avatarUpload.isPending} avatarUploadError={avatarUpload.error}/>}
+    {section === 'profile' && <MemberSocialProfile owner={{name:displayName,avatarUrl:session?.gymUser?.profiles?.avatar_url??null,onEditAccount:()=>setEditing(true),onAvatarFile:file=>avatarUpload.mutate(file),avatarUploading:avatarUpload.isPending,avatarError:avatarUpload.error,activity:<><ProfileGoalSummary profile={fitnessProfile.data} progress={progress.data}/><MyTrainingSocial/></>}}/>}
+    {section === 'settings'&&<ProfileSettingsView session={session} profile={fitnessProfile.data} onEdit={()=>setEditing(true)} onEditFitness={()=>setFitnessEditing(true)} onPrivacySave={(key,value)=>savePrivacy.mutate({key,value})} pending={savePrivacy.isPending} variables={savePrivacy.variables} error={savePrivacy.error} saved={savePrivacy.isSuccess}/>}
 
-    {editing && <div className="modal-backdrop"><form className="modal profile-modal" onSubmit={submitProfile}><div className="modal-heading"><div><p className="eyebrow">TU CUENTA</p><h2>Editar perfil</h2></div><button type="button" className="icon-button" onClick={() => setEditing(false)}><X/></button></div><div className="checkout-form single"><label>Nombre completo<input required minLength={2} maxLength={150} value={profile.fullName} onChange={(event) => setProfile({ ...profile, fullName: event.target.value })}/></label><label>Teléfono<input maxLength={30} value={profile.phone} onChange={(event) => setProfile({ ...profile, phone: event.target.value })}/></label><div className="form-divider"><strong>Actualizar contraseña</strong><span>Déjalo vacío si no deseas cambiarla.</span></div><label>Contraseña actual<input type="password" minLength={8} maxLength={128} autoComplete="current-password" value={passwords.current} onChange={(event) => setPasswords({ ...passwords, current: event.target.value })}/></label><label>Nueva contraseña<input type="password" minLength={8} maxLength={128} autoComplete="new-password" value={passwords.next} onChange={(event) => setPasswords({ ...passwords, next: event.target.value })}/></label><label>Confirmar nueva contraseña<input type="password" minLength={8} maxLength={128} autoComplete="new-password" value={passwords.confirmation} onChange={(event) => setPasswords({ ...passwords, confirmation: event.target.value })}/></label>{saveProfile.isError && <div className="alert error">{saveProfile.error instanceof Error && !('response' in saveProfile.error) ? saveProfile.error.message : apiErrorMessage(saveProfile.error)}</div>}<div className="modal-actions"><button type="button" className="ghost" onClick={() => setEditing(false)}>Cancelar</button><button className="primary" disabled={saveProfile.isPending}>{saveProfile.isPending ? 'Guardando…' : 'Guardar cambios'}</button></div></div></form></div>}
+    {editing && <ProfileDialog title="Editar cuenta" onClose={()=>setEditing(false)} busy={saveProfile.isPending}><form className="profile-modal" onSubmit={submitProfile}><div className="checkout-form single"><label>Nombre completo<input required minLength={2} maxLength={150} value={profile.fullName} onChange={(event) => setProfile({ ...profile, fullName: event.target.value })}/></label><label>Teléfono<input maxLength={30} value={profile.phone} onChange={(event) => setProfile({ ...profile, phone: event.target.value })}/></label><div className="form-divider"><strong>Actualizar contraseña</strong><span>Déjalo vacío si no deseas cambiarla.</span></div><label>Contraseña actual<input type="password" minLength={8} maxLength={128} autoComplete="current-password" value={passwords.current} onChange={(event) => setPasswords({ ...passwords, current: event.target.value })}/></label><label>Nueva contraseña<input type="password" minLength={8} maxLength={128} autoComplete="new-password" value={passwords.next} onChange={(event) => setPasswords({ ...passwords, next: event.target.value })}/></label><label>Confirmar nueva contraseña<input type="password" minLength={8} maxLength={128} autoComplete="new-password" value={passwords.confirmation} onChange={(event) => setPasswords({ ...passwords, confirmation: event.target.value })}/></label>{saveProfile.isError && <div className="alert error">{saveProfile.error instanceof Error && !('response' in saveProfile.error) ? saveProfile.error.message : apiErrorMessage(saveProfile.error)}</div>}<div className="modal-actions"><button type="button" className="ghost" disabled={saveProfile.isPending} onClick={() => setEditing(false)}>Cancelar</button><button className="primary" disabled={saveProfile.isPending}>{saveProfile.isPending ? 'Guardando…' : 'Guardar cambios'}</button></div></div></form></ProfileDialog>}
     {(fitnessSetupRequired || fitnessEditing) && (
-      <FitnessProfileModal
+      <div className={fitnessSetupRequired?'':'sports-edit-only'}><FitnessProfileModal
         initial={fitnessProfile.data}
         required={fitnessSetupRequired}
         pending={saveFitnessProfile.isPending}
         error={saveFitnessProfile.error}
         onClose={() => setFitnessEditing(false)}
         onSave={(form) => saveFitnessProfile.mutate(form)}
-      />
+      /></div>
     )}
     {recordingWeight && <WeightEntryModal value={weightValue} date={weightDate} pending={recordWeight.isPending} error={recordWeight.error} onValueChange={setWeightValue} onDateChange={setWeightDate} onClose={() => { if (!recordWeight.isPending) setRecordingWeight(false); }} onSave={() => recordWeight.mutate()} maxDate={range.today} />}
   </>;
@@ -343,58 +332,20 @@ function ProgressView({ range, days, firstOffset, membership, currentWeek, strea
   </>;
 }
 
-type ProfileViewProps = {
-  displayName: string;
-  session: ReturnType<typeof useAuth>['session'];
-  membership?: Membership;
-  period?: Period;
-  remaining: number | null;
-  payments: Payment[];
-  lastPayment?: Payment;
-  calendar?: Calendar;
-  contactPhone?: string | null;
-  whatsapp?: string;
-  contactEmail?: string | null;
-  fitnessProfile?: FitnessProfile | null;
-  onEdit: () => void;
-  onEditFitness: () => void;
-  onAvatarFile: (file: File) => void;
-  avatarUploading: boolean;
-  avatarUploadError: unknown;
-};
+function ProfileGoalSummary({profile,progress}:{profile?:FitnessProfile|null;progress?:MemberProgress}) {
+ const goal=progress?.goal;const label=fitnessGoals.find(item=>item.value===profile?.goal_type)?.label??'Configura tu objetivo';
+ const measurable=goal&&goal.targetWeightKg!=null&&goal.initialWeightKg!==goal.targetWeightKg;
+ return <section className="profile-goal-summary"><p className="eyebrow">MI OBJETIVO</p><h2>{label}</h2>{measurable?<><div className="profile-goal-values"><span>{goal.initialWeightKg} kg iniciales</span><strong>{goal.progressPercent}%</strong><span>{goal.targetWeightKg} kg objetivo</span></div><progress aria-label="Avance hacia mi objetivo" max={100} value={goal.progressPercent}/><p>Peso registrado más reciente: {goal.currentWeightKg} kg</p></>:<p>{profile?`${profile.training_frequency_per_week} entrenamientos por semana · Sin datos suficientes para mostrar un porcentaje.`:'Completa tu perfil deportivo en Configuración.'}</p>}<Link to="/portal/progress">Ver progreso →</Link></section>;
+}
 
-function ProfileView({ displayName, session, membership, period, remaining, payments, lastPayment, calendar, contactPhone, whatsapp, contactEmail, fitnessProfile, onEdit, onEditFitness, onAvatarFile, avatarUploading, avatarUploadError }: ProfileViewProps) {
-  const goalLabel = fitnessGoals.find((goal) => goal.value === fitnessProfile?.goal_type)?.label ?? 'Sin configurar';
-  const privacyItems = [
-    ['Aparecer en Comunidad', fitnessProfile?.show_in_community],
-    ['Mostrar foto', fitnessProfile?.show_profile_photo],
-    ['Mostrar racha', fitnessProfile?.show_streak],
-    ['Mostrar asistencias', fitnessProfile?.show_attendance_count],
-    ['Mostrar progreso de peso', fitnessProfile?.show_weight_progress],
-    ['Mostrar objetivo', fitnessProfile?.show_goal],
-  ] as const;
-  return <>
-    <section className="panel profile-hero-card">
-      <OwnProfileHeader name={displayName} avatarUrl={session?.gymUser?.profiles?.avatar_url ?? null} actions={<>
-        <button type="button" className="ghost" onClick={onEdit}><Pencil />Editar perfil</button>
-        <button type="button" className="ghost profile-avatar-upload" disabled={avatarUploading} onClick={() => document.getElementById('member-avatar-input')?.click()}><Upload />{avatarUploading ? 'Subiendo…' : 'Cambiar foto'}</button>
-        <input id="member-avatar-input" type="file" accept="image/jpeg,image/png,image/webp" disabled={avatarUploading} onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) onAvatarFile(file); }} />
-      </>}/>
-      {avatarUploadError != null && <div className="alert error">{apiErrorMessage(avatarUploadError)}</div>}
-      <details className="profile-contact-details"><summary>Datos de mi cuenta</summary><div className="profile-lines"><div><span>Correo</span><strong>{session?.user.email ?? 'Sin correo'}</strong></div><div><span>Teléfono</span><strong>{session?.gymUser?.profiles?.phone ?? 'Sin teléfono'}</strong></div><div><span>Estado</span><strong className="success-text">Activo</strong></div></div></details>
-    </section>
-
-    <MemberSocialProfile/>
-    <MyFriendships/>
-    <MyTrainingSocial/>
-    <section className="panel fitness-profile-card">
-      <div className="panel-title"><div><h2>Datos deportivos</h2><p>Ayudan a personalizar tu experiencia.</p></div><button className="ghost" onClick={onEditFitness}><Pencil />Editar encuesta</button></div>
-    {fitnessProfile ? <><div className="fitness-profile-grid"><div><span>Objetivo</span><strong>{goalLabel}</strong></div><div><span>Peso actual</span><strong>{fitnessProfile.weight_kg} kg</strong></div><div><span>Altura</span><strong>{fitnessProfile.height_cm} cm</strong></div><div><span>Experiencia</span><strong>{experienceLabels[fitnessProfile.experience_level]}</strong></div><div><span>Entrenamiento deseado</span><strong>{fitnessProfile.training_frequency_per_week} veces por semana</strong></div><div><span>Tipo preferido</span><strong>{fitnessProfile.preferred_training_type ?? 'Sin especificar'}</strong></div><div><span>Peso objetivo</span><strong>{fitnessProfile.target_weight_kg == null ? 'Sin especificar' : `${fitnessProfile.target_weight_kg} kg`}</strong></div><div><span>Plazo</span><strong>{fitnessProfile.goal_horizon_months == null ? 'Sin especificar' : `${fitnessProfile.goal_horizon_months} meses`}</strong></div></div><div className="privacy-heading"><ShieldCheck /><div><strong>Privacidad para Comunidad</strong><span>Controla desde aquí qué información compartes con otros miembros.</span></div></div><div className="privacy-list">{privacyItems.map(([label, enabled]) => <div key={label}><span>{label}</span><span className={enabled ? 'enabled' : 'disabled'}>{enabled ? 'Visible' : 'Oculto'}</span></div>)}</div>{fitnessProfile.public_message && <p className="profile-public-message">“{fitnessProfile.public_message}”</p>}</> : <div className="empty compact"><Dumbbell /><strong>Completa tu encuesta</strong><span>Configura tus objetivos para aprovechar el portal.</span></div>}
-    </section>
-
-    <div className="portal-sections"><section className="panel"><div className="panel-title"><div><h2>Membresía</h2><p>Tu cobertura actual</p></div><CreditCard /></div><div className="profile-lines"><div><span>Plan</span><strong>{membership?.plans?.name ?? 'Sin membresía activa'}</strong></div><div><span>Vigencia</span><strong>{period ? `${period.starts_on} → ${period.ends_on}` : 'Sin cobertura'}</strong></div><div><span>Estado</span><strong>{membershipCoverageLabel(remaining, period)}</strong></div><div><span>Asistencia</span><strong>{membership?.attendance_mode_snapshot === 'weekly' ? `${membership.weekly_target_snapshot} por semana` : 'Diaria'}</strong></div></div>{lastPayment && <div className="last-payment"><CreditCard /><div><span>Último pago</span><strong>{money(lastPayment.amount, lastPayment.currency)}</strong><small>{methodLabel(lastPayment.payment_method)} · {new Date(lastPayment.paid_at).toLocaleDateString('es-EC')}</small></div></div>}</section><section className="panel"><div className="panel-title"><div><h2>Contacta al gimnasio</h2><p>{calendar?.gym.name ?? 'Tu gimnasio'}</p></div><MapPin /></div><div className="contact-info"><span><MapPin />{calendar?.location.address ? `${calendar.location.address}, ${calendar.location.city}` : calendar?.location.city ?? 'Dirección no configurada'}</span>{contactPhone && <a href={`tel:${contactPhone}`}><Phone />Llamar</a>}{whatsapp && <a href={`https://wa.me/${whatsapp}`} target="_blank" rel="noreferrer"><MessageCircle />WhatsApp</a>}{contactEmail && <a href={`mailto:${contactEmail}`}><Mail />Correo</a>}</div></section></div>
-    {payments.length > 0 && <section className="panel"><div className="panel-title"><div><h2>Pagos registrados</h2><p>Solo consulta informativa</p></div><CreditCard /></div><div className="portal-history">{payments.slice(0, 8).map((item) => <article key={item.id}><div><strong>{money(item.amount, item.currency)}</strong><small>{methodLabel(item.payment_method)} · {new Date(item.paid_at).toLocaleDateString('es-EC')}</small></div><span className={`badge ${item.status}`}>{item.status}</span></article>)}</div></section>}
-  </>;
+const privacyOptions=[['showInCommunity','show_in_community','Aparecer en Comunidad'],['showProfilePhoto','show_profile_photo','Mostrar mi foto'],['showStreak','show_streak','Mostrar mi racha'],['showAttendanceCount','show_attendance_count','Mostrar asistencias'],['showWeightProgress','show_weight_progress','Mostrar progreso de peso'],['showGoal','show_goal','Mostrar mi objetivo']] as const;
+type PrivacyKey=typeof privacyOptions[number][0];
+function ProfileSettingsView({session,profile,onEdit,onEditFitness,onPrivacySave,pending,variables,error,saved}:{session:ReturnType<typeof useAuth>['session'];profile?:FitnessProfile|null;onEdit:()=>void;onEditFitness:()=>void;onPrivacySave:(key:PrivacyKey,value:boolean)=>void;pending:boolean;variables?:{key:PrivacyKey;value:boolean};error:unknown;saved:boolean}){
+ const goal=fitnessGoals.find(item=>item.value===profile?.goal_type)?.label??'Sin configurar';
+ return <div className="profile-dedicated-page"><Link to="/portal/profile" className="ghost">← Volver al perfil</Link><h1>Configuración</h1>
+ <section className="panel"><h2>Cuenta</h2><div className="profile-lines"><div><span>Nombre</span><strong>{session?.gymUser?.profiles?.full_name}</strong></div><div><span>Correo</span><strong>{session?.user.email}</strong></div><div><span>Teléfono</span><strong>{session?.gymUser?.profiles?.phone??'Sin teléfono'}</strong></div></div><button className="ghost" onClick={onEdit}><Pencil/>Editar cuenta y contraseña</button></section>
+ <section className="panel"><h2>Privacidad y comunidad</h2><p className="form-note">Cada cambio se guarda al instante. Tus preferencias se conservan; tu peso permanece privado salvo que decidas compartir su progreso.</p>{privacyOptions.map(([key,field,label])=><PrivacySwitch key={key} label={label} disabled={!profile||pending} checked={pending&&variables?.key===key?variables.value:Boolean(profile?.[field])} onChange={value=>onPrivacySave(key,value)}/>)}{pending&&<small role="status">Guardando…</small>}{saved&&<small role="status">✓ Guardado</small>}{error!=null&&<p className="alert error" role="alert">{apiErrorMessage(error)}</p>}<SocialPrivacySettings/><FriendRequestsPreference/><PokePreference/></section>
+ <section className="panel"><h2>Perfil deportivo</h2>{profile?<><div className="fitness-profile-grid"><div><span>Objetivo</span><strong>{goal}</strong></div><div><span>Peso inicial</span><strong>{profile.weight_kg} kg</strong></div><div><span>Altura</span><strong>{profile.height_cm} cm</strong></div><div><span>Experiencia</span><strong>{experienceLabels[profile.experience_level]}</strong></div><div><span>Entrenamiento deseado</span><strong>{profile.training_frequency_per_week} veces por semana</strong></div><div><span>Tipo preferido</span><strong>{profile.preferred_training_type??'Sin especificar'}</strong></div><div><span>Peso objetivo</span><strong>{profile.target_weight_kg==null?'Sin especificar':`${profile.target_weight_kg} kg`}</strong></div><div><span>Plazo</span><strong>{profile.goal_horizon_months==null?'Sin especificar':`${profile.goal_horizon_months} meses`}</strong></div></div>{profile.public_message&&<p>{profile.public_message}</p>}</>:<p>Completa tu encuesta.</p>}<button className="ghost" disabled={pending} onClick={onEditFitness}><Pencil/>Editar datos deportivos</button><Link className="ghost" to="/portal/progress">Ver progreso</Link></section></div>;
 }
 
 function WeightEntryModal({ value, date, maxDate, pending, error, onValueChange, onDateChange, onClose, onSave }: { value: string; date: string; maxDate: string; pending: boolean; error: unknown; onValueChange: (value: string) => void; onDateChange: (value: string) => void; onClose: () => void; onSave: () => void }) {

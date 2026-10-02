@@ -8,7 +8,7 @@ import { paymentProofMimeType } from '../security/paymentProof.js';
 import { dateInTimezone } from '../utils/gymDate.js';
 import { goalProgress } from './memberCommunity.controller.js';
 
-export const socialProfileSchema=z.object({bio:z.string().trim().max(160),showGallery:z.boolean(),showBadges:z.boolean()}).strict();
+export const socialProfileSchema=z.object({bio:z.string().trim().max(160),showGallery:z.boolean(),showBadges:z.boolean()}).partial().strict().refine(input=>Object.values(input).some(value=>value!==undefined),'Indica el cambio a guardar.');
 export const galleryChangeSchema=z.object({slot:z.number().int().min(0).max(2),path:z.string().max(300).nullable()}).strict();
 const bucket='member-gallery';
 function member(request:Request) { if(request.tenant?.role!=='member') throw new AppError(403,'MEMBER_ONLY_ENDPOINT','Solo disponible para miembros.'); }

@@ -5,6 +5,7 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { api, apiErrorMessage } from '../services/api';
 import { selectMembershipCoverage } from '../utils/membershipCoverage';
+import { GymContactCard } from '../components/GymContactCard';
 import { gymWhatsAppNumber, membershipMoney, membershipPaymentMethodLabels as methods, membershipPaymentStatusLabels as statuses, membershipWhatsAppMessage, type MembershipPaymentPlan, type MembershipPaymentRequest } from '../utils/membershipPayments';
 import '../membership-payments.css';
 
@@ -20,6 +21,7 @@ export function MemberPaymentsPage() {
   const { session } = useAuth();
   const client = useQueryClient();
   const query = useQuery({ queryKey: ['my-membership-payments', session?.gymUser?.id], queryFn: async () => (await api.get<PortalPayments>('/membership-payment-requests/me')).data, refetchInterval: 30_000 });
+  const otherPayments=useQuery({queryKey:['my-payments'],queryFn:async()=>(await api.get<{payments:Array<{id:string;amount:number;currency:string;payment_method:string;status:string;paid_at:string}>}>('/member-payments/me')).data.payments});
   const [planId, setPlanId] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [channel, setChannel] = useState<'fitlab' | 'whatsapp'>('fitlab');
@@ -90,5 +92,8 @@ export function MemberPaymentsPage() {
     {proofUrl && <a className="small-button" href={proofUrl} target="_blank" rel="noreferrer">Descargar comprobante · enlace válido por 1 minuto</a>}
     <section className="panel"><h2>Mis solicitudes</h2><div className="portal-history">{data!.requests.filter((r) => r.status !== 'draft').map((r) => <article key={r.id}><div><strong>{r.plan_snapshot.name} · {membershipMoney(r.amount, r.currency)}</strong><small>{r.paid_on ?? r.created_at.slice(0, 10)} · {r.method ? methods[r.method] : ''}</small>{r.review_reason && <p>{r.review_reason}</p>}</div><div><span className={`badge ${r.status}`}>{statuses[r.status]}</span>{r.channel === 'fitlab' && <button className="small-button" disabled={proof.isPending} onClick={() => proof.mutate(r.id)}><FileText/>Comprobante</button>}</div></article>)}</div>{!data!.requests.some((r) => r.status !== 'draft') && <p>Todavía no has presentado solicitudes.</p>}</section>
     <section className="panel"><h2>Historial de pagos</h2><div className="portal-history">{data!.payments.map((p) => <article key={p.id}><div><strong>{membershipMoney(p.amount, p.currency)}</strong><small>{new Date(p.paid_at).toLocaleDateString('es-EC', { timeZone: data!.gym.timezone })} · {methods[p.payment_method] ?? p.payment_method}</small></div><div><span className={`badge ${p.status}`}>{statuses[p.status] ?? p.status}</span><Link className="small-button" to={`/receipt/verify/${p.receipt_verification_token}`}>Ver recibo {p.receipt_number}</Link></div></article>)}</div>{!data!.payments.length && <p>Todavía no tienes pagos registrados.</p>}</section>
+    {otherPayments.isError&&<p className="alert error">No se pudieron cargar otros pagos registrados. <button className="small-button" onClick={()=>void otherPayments.refetch()}>Reintentar historial</button></p>}
+    {otherPayments.data?.some(payment=>!data!.payments.some(item=>item.id===payment.id))&&<section className="panel"><h2>Otros pagos registrados</h2><div className="portal-history">{otherPayments.data.filter(payment=>!data!.payments.some(item=>item.id===payment.id)).map(payment=><article key={payment.id}><div><strong>{membershipMoney(payment.amount,payment.currency)}</strong><small>{methods[payment.payment_method]??payment.payment_method} · {new Date(payment.paid_at).toLocaleDateString('es-EC',{timeZone:data!.gym.timezone})}</small></div><span className={`badge ${payment.status}`}>{statuses[payment.status]??payment.status}</span></article>)}</div></section>}
+    <GymContactCard/>
   </div>;
 }
