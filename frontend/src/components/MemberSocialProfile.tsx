@@ -1,13 +1,20 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { Activity, Flame, Heart, Medal, Save, Trash2, Upload } from 'lucide-react';
+import { Heart, Medal, Save, Trash2, Upload } from 'lucide-react';
 import { api, apiErrorMessage } from '../services/api';
 import { MemberFriendshipActions } from './MemberFriendships';
+import { ProfileHeader } from './ProfileHeader';
+import { ProfilePhotoViewer } from './ProfilePhotoViewer';
 import '../social-profile.css';
 
 type Badge={badge_code:string;earned_at:string;loyalty_badges:{name:string;description:string}};
 type Profile={id:string;own:boolean;name:string;avatarUrl:string|null;bio:string;gallery:Array<string|null>;communityVisible:boolean;showGallery:boolean;showBadges:boolean;goalType:string|null;progressPercent?:number|null;streak:{current_streak:number;longest_streak:number}|null;monthlyAttendances:number|null;badges:Badge[];loveCount:number;loved:boolean};
+export function OwnProfileHeader({ name, avatarUrl, actions }: { name: string; avatarUrl: string | null; actions: ReactNode }) {
+ const query=useQuery({queryKey:['member-social-profile','me'],queryFn:async()=>(await api.get<{profile:Profile}>('/members/me/social-profile')).data.profile,refetchInterval:240000});
+ const profile=query.data;
+ return <ProfileHeader profile={profile ? {...profile,name,avatarUrl:avatarUrl??profile.avatarUrl} : {name,avatarUrl,bio:'',own:true,monthlyAttendances:null,streak:null,loveCount:0,badges:[],showBadges:false}} actions={actions} loading={query.isPending} showStats={Boolean(profile)} shareUrl={profile?.communityVisible ? `${window.location.origin}/portal/community/${profile.id}` : undefined}/>;
+}
 export function ProfileBadges({badges}:{badges:Badge[]}) {
  return <div className="social-badges">{badges.map(b=><span key={b.badge_code} title={b.loyalty_badges.description}><Medal/>{b.loyalty_badges.name}</span>)}</div>;
 }
@@ -41,17 +48,14 @@ export function MemberSocialProfile({memberId}:{memberId?:string}) {
  if(query.isError)return <section className="panel"><p className="alert error">{apiErrorMessage(query.error)}</p><button className="ghost" onClick={()=>void query.refetch()}>Reintentar</button></section>;
  const p=query.data;
  return <section className="panel social-profile">
-  {!p.own&&<div className="social-identity">{p.avatarUrl&&<img src={p.avatarUrl} alt={`Foto de ${p.name}`}/>}<div><p className="eyebrow">COMUNIDAD FITLAB</p><h1>{p.name}</h1>{p.bio&&<p>{p.bio}</p>}</div></div>}
+  {!p.own&&<ProfileHeader profile={p} actions={<><button className={p.loved?'primary':'ghost'} disabled={love.isPending} aria-pressed={p.loved} onClick={()=>love.mutate()}><Heart/>{p.loved?'Quitar Me encanta':'Me encanta'}</button><MemberFriendshipActions memberId={p.id}/></>}/>}
   {p.own&&<><div className="panel-title"><div><h2>Tu identidad fitness</h2><p>Bio, momentos y logros. Tú eliges qué compartir.</p></div><Medal/></div><p className="form-note">{p.communityVisible?'Tu perfil es visible para miembros de tu gimnasio.':'Tu perfil está oculto en Comunidad. Actívalo en la configuración de privacidad de tu encuesta si deseas compartirlo.'}</p></>}
-  <div className="social-stats">{p.monthlyAttendances!==null&&<span><Activity/><strong>{p.monthlyAttendances}</strong> visitas este mes</span>}{p.streak&&<span><Flame/><strong>{p.streak.current_streak}</strong> días de racha</span>}<span><Heart/><strong>{p.loveCount}</strong> Me encanta</span></div>
   {p.progressPercent!=null&&<p>Avance hacia tu objetivo: <strong>{p.progressPercent}%</strong></p>}
   {p.own&&<form className="social-form" onSubmit={e=>{e.preventDefault();save.mutate();}}><label>Tu bio<textarea maxLength={160} rows={3} value={form.bio} onChange={e=>setForm({...form,bio:e.target.value})} placeholder="Entrenando para ser mi mejor versión 💪"/><small>{form.bio.length}/160 caracteres</small></label><label className="social-checkbox"><input type="checkbox" checked={form.showGallery} onChange={e=>setForm({...form,showGallery:e.target.checked})}/>Compartir mi galería en Comunidad</label><label className="social-checkbox"><input type="checkbox" checked={form.showBadges} onChange={e=>setForm({...form,showBadges:e.target.checked})}/>Compartir mis medallas en Comunidad</label><button className="primary" disabled={save.isPending}><Save/>{save.isPending?'Guardando…':'Guardar perfil social'}</button>{save.isSuccess&&<p role="status">Perfil guardado.</p>}</form>}
   {(p.own||p.gallery.some(Boolean))&&<><h3>Momentos de entrenamiento</h3><div className="social-gallery">{p.gallery.map((url,slot)=><div key={slot} className="social-photo">{url?<button className="social-photo-preview" type="button" onClick={()=>setPreview(url)} aria-label={`Ampliar foto ${slot+1}`}><img src={url} alt={`Momento de entrenamiento ${slot+1}`} loading="lazy"/></button>:<div className="social-photo-empty"><Upload/><span>Foto {slot+1}</span></div>}{p.own&&<div className="social-photo-actions"><label className="small-button" aria-disabled={photo.isPending}><Upload/>{url?'Cambiar':'Agregar'}<input type="file" accept="image/jpeg,image/png,image/webp" disabled={photo.isPending} onChange={e=>{const file=e.target.files?.[0];e.target.value='';if(file)photo.mutate({slot,file});}}/></label>{url&&<button className="small-button" aria-label={`Eliminar foto ${slot+1}`} disabled={photo.isPending} onClick={()=>{if(confirm('¿Eliminar esta foto de tu galería?'))photo.mutate({slot,file:null});}}><Trash2/></button>}</div>}</div>)}</div>{p.own&&<small>Hasta 3 fotos · JPG, PNG o WEBP · máximo 5 MB por archivo. {photo.isPending?'Procesando y subiendo…':''}</small>}</>}
   {p.badges.length>0&&<><h3>Medallas ganadas</h3><ProfileBadges badges={p.badges}/></>}
-  {!p.own&&<button className={p.loved?'primary':'ghost'} disabled={love.isPending} aria-pressed={p.loved} onClick={()=>love.mutate()}><Heart/>{p.loved?'Quitar Me encanta':'Me encanta'}</button>}
-  {!p.own&&<MemberFriendshipActions memberId={p.id}/>}
   {[save.error,photo.error,love.error].filter(Boolean).map((error,i)=><p key={i} className="alert error" role="alert">{apiErrorMessage(error)}</p>)}
-  {preview&&<div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Foto ampliada" onClick={()=>setPreview(null)} onKeyDown={e=>{if(e.key==='Escape')setPreview(null);}}><div className="social-preview"><button className="ghost" autoFocus onClick={()=>setPreview(null)}>Cerrar foto</button><img src={preview} alt="Foto de entrenamiento ampliada"/></div></div>}
+  {preview&&<ProfilePhotoViewer src={preview} name={`Momento de ${p.name}`} onClose={()=>setPreview(null)}/>}
  </section>;
 }
 export function MemberPublicProfilePage(){const {memberId}=useParams();return <><Link className="ghost" to="/portal/community">Volver a Comunidad</Link><MemberSocialProfile memberId={memberId}/></>;}

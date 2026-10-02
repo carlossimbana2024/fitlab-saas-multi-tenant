@@ -1,0 +1,35 @@
+.fitlab-profile-header {min-width:0;max-width:760px;margin-inline:auto;width:100%;}
+.fitlab-profile-identity {display:flex;align-items:center;gap:1rem;}
+.fitlab-profile-identity>div {min-width:0;flex:1;}
+.fitlab-profile-identity h1 {font-size:clamp(1.6rem,5vw,2.3rem);line-height:1.15;margin:.2rem 0;overflow-wrap:anywhere;}
+.fitlab-profile-avatar {position:relative;display:flex;align-items:center;justify-content:center;width:92px;height:92px;min-width:92px;padding:0;border:2px solid #e60000;border-radius:50%;overflow:hidden;background:var(--surface-2);color:var(--text);}
+button.fitlab-profile-avatar {cursor:zoom-in;}
+.fitlab-profile-avatar img {width:100%;height:100%;object-fit:cover;}
+.fitlab-profile-avatar>span {position:absolute;bottom:0;width:100%;background:#000b;color:#fff;font-size:.65rem;text-align:center;padding:3px;}
+.fitlab-profile-initials {font-size:1.7rem;font-weight:700;}
+.fitlab-profile-bio {margin:.5rem 0 0;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.45;}
+.fitlab-profile-stats {display:flex;justify-content:space-between;gap:.4rem;border-block:1px solid var(--border);padding:.85rem 0;margin:1rem 0;}
+.fitlab-profile-stats>span {display:grid;grid-template-columns:auto auto;justify-content:center;align-items:center;gap:.2rem .35rem;min-width:0;text-align:center;}
+.fitlab-profile-stats svg {width:18px;height:18px;color:#e60000;}
+.fitlab-profile-stats strong {font-size:1.05rem;}
+.fitlab-profile-stats small {grid-column:1/-1;font-size:.75rem;color:var(--muted);line-height:1.3;}
+.fitlab-profile-actions {display:flex;align-items:center;flex-wrap:wrap;gap:.5rem;}
+.fitlab-profile-actions .ghost {min-height:44px;padding:.5rem .75rem;font-size:.85rem;}
+.fitlab-profile-actions .friend-actions {margin:0;}
+.fitlab-profile-header button:focus-visible,.profile-photo-dialog button:focus-visible {outline:2px solid #e60000;outline-offset:3px;}
+.profile-photo-dialog {width:min(960px,96vw);max-width:96vw;max-height:94dvh;padding:12px;border:1px solid #374151;border-radius:16px;background:#0b0e15;color:#fff;overflow:hidden;box-sizing:border-box;}
+.profile-photo-dialog::backdrop {background:rgba(0,0,0,.9);}
+.profile-photo-toolbar {display:flex;align-items:center;gap:.35rem;flex-wrap:wrap;margin-bottom:10px;}
+.profile-photo-toolbar>span {flex:1;min-width:100px;overflow-wrap:anywhere;font-size:.85rem;}
+.profile-photo-toolbar button {display:flex;align-items:center;justify-content:center;width:44px;height:44px;padding:8px;border-radius:10px;border:1px solid #374151;background:#171e2b;color:#fff;cursor:pointer;}
+.profile-photo-toolbar button:disabled {opacity:.4;cursor:default;}
+.profile-photo-toolbar output {font-size:.8rem;min-width:38px;text-align:center;}
+.profile-photo-stage {position:relative;height:min(65dvh,650px);width:100%;display:flex;align-items:center;justify-content:center;overflow:hidden;touch-action:none;cursor:grab;}
+.profile-photo-loading {position:absolute;top:10px;font-size:.85rem;}
+.profile-contact-details {max-width:760px;margin:1rem auto 0;font-size:.85rem;}
+.profile-contact-details summary {cursor:pointer;color:var(--muted);padding:.5rem 0;}
+.profile-photo-stage:active {cursor:grabbing;}
+.profile-photo-stage img {max-width:100%;max-height:100%;object-fit:contain;user-select:none;}
+.profile-photo-hint {font-size:.75rem;color:#cbd5e1;text-align:center;margin:10px 0 0;}
+@media(max-width:430px){.fitlab-profile-identity{gap:.75rem;}.fitlab-profile-avatar{width:72px;height:72px;min-width:72px;}.fitlab-profile-stats small{font-size:.7rem;}.profile-photo-toolbar>span{flex-basis:100%;}.profile-photo-toolbar{justify-content:flex-end;}}
+@media(prefers-reduced-motion:no-preference){.profile-photo-dialog[open]{animation:profile-photo-enter .15s ease-out;}@keyframes profile-photo-enter{from{opacity:0;transform:scale(.97);}to{opacity:1;transform:scale(1);}}}

@@ -4,7 +4,7 @@ import { useMemo, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { api, apiErrorMessage } from '../services/api';
-import { MemberSocialProfile } from '../components/MemberSocialProfile';
+import { MemberSocialProfile, OwnProfileHeader } from '../components/MemberSocialProfile';
 import { MyFriendships } from '../components/MemberFriendships';
 import {MyTrainingSocial} from '../components/MemberTrainingSocial';
 import { selectMembershipCoverage } from '../utils/membershipCoverage';
@@ -140,10 +140,6 @@ function membershipCoverageLabel(remaining: number | null, period?: Period) {
   return 'Cobertura vencida';
 }
 
-function initials(name: string) {
-  return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || 'AT';
-}
-
 function sectionCopy(section: PortalSection) {
   return {
     home: ['Tu centro de entrenamiento', 'Todo lo importante, de un vistazo.'],
@@ -244,7 +240,7 @@ export function MemberPortalPage({ section }: { section: PortalSection }) {
       if (!uploadResponse.ok) throw new Error('No se pudo subir la foto. Intenta nuevamente.');
       return (await api.put<{ profile: { avatar_url: string | null }; avatarPath: string }>('/members/me/avatar', { path: prepared.path })).data;
     },
-    onSuccess: async () => { await refresh(); },
+    onSuccess: async () => { await refresh(); await queryClient.invalidateQueries({ queryKey: ['member-social-profile'] }); },
   });
 
   const loading = memberships.isLoading || attendances.isLoading || streaks.isLoading;
@@ -270,12 +266,13 @@ export function MemberPortalPage({ section }: { section: PortalSection }) {
   const whatsapp = whatsappPhone?.replace(/\D/g, '').replace(/^0/, '593');
   const contactEmail = calendar.data?.location.email ?? calendar.data?.gym.email;
   const copy = sectionCopy(section);
+  const showHeadingCheckIn = section !== 'profile' && section !== 'classes';
 
   const submitProfile = (event: FormEvent) => { event.preventDefault(); saveProfile.mutate(); };
   const mutationError = reserveClass.error ?? cancelClass.error ?? joinWaitlist.error ?? leaveWaitlist.error;
 
   return <>
-    <div className="portal-view-heading"><div><p className="eyebrow">{copy[0]}</p><h1>{section === 'home' ? `Hola, ${displayName}` : copy[0]}</h1><p>{copy[1]}</p></div>{section !== 'profile' && section !== 'classes' && <Link className="checkin-button" to="/check-in">{hasAttendanceToday ? <CheckCircle2/> : <QrCode/>}<span>{hasAttendanceToday ? 'Entrada registrada hoy' : 'Registrar asistencia'}<small>Escanea el QR de tu sucursal</small></span></Link>}</div>
+    {section !== 'profile' && <div className="portal-view-heading"><div><p className="eyebrow">{copy[0]}</p><h1>{section === 'home' ? `Hola, ${displayName}` : copy[0]}</h1><p>{copy[1]}</p></div>{showHeadingCheckIn && <Link className="checkin-button" to="/check-in">{hasAttendanceToday ? <CheckCircle2/> : <QrCode/>}<span>{hasAttendanceToday ? 'Entrada registrada hoy' : 'Registrar asistencia'}<small>Escanea el QR de tu sucursal</small></span></Link>}</div>}
 
     {section === 'profile' && <Link className="ghost" to="/portal/payments"><CreditCard/>Membresía y pagos</Link>}
     {section === 'home' && <>
@@ -378,17 +375,13 @@ function ProfileView({ displayName, session, membership, period, remaining, paym
   ] as const;
   return <>
     <section className="panel profile-hero-card">
-      <div className="profile-identity-large">
-        {session?.gymUser?.profiles?.avatar_url ? <img src={session.gymUser.profiles.avatar_url} alt={`Foto de ${displayName}`} /> : <span className="avatar avatar-large">{initials(displayName)}</span>}
-        <div><p className="eyebrow">MI PERFIL</p><h2>{displayName}</h2><span>{session?.user.email ?? 'Sin correo'}</span></div>
-        <button className="icon-button" onClick={onEdit} aria-label="Editar perfil"><Pencil /></button>
-      </div>
-      <div className="profile-avatar-actions">
-        <label className="ghost profile-avatar-upload" htmlFor="member-avatar-input"><Upload />{avatarUploading ? 'Subiendo…' : 'Cambiar foto'}</label>
+      <OwnProfileHeader name={displayName} avatarUrl={session?.gymUser?.profiles?.avatar_url ?? null} actions={<>
+        <button type="button" className="ghost" onClick={onEdit}><Pencil />Editar perfil</button>
+        <button type="button" className="ghost profile-avatar-upload" disabled={avatarUploading} onClick={() => document.getElementById('member-avatar-input')?.click()}><Upload />{avatarUploading ? 'Subiendo…' : 'Cambiar foto'}</button>
         <input id="member-avatar-input" type="file" accept="image/jpeg,image/png,image/webp" disabled={avatarUploading} onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) onAvatarFile(file); }} />
-      </div>
+      </>}/>
       {avatarUploadError != null && <div className="alert error">{apiErrorMessage(avatarUploadError)}</div>}
-      <div className="profile-lines"><div><span>Teléfono</span><strong>{session?.gymUser?.profiles?.phone ?? 'Sin teléfono'}</strong></div><div><span>Estado</span><strong className="success-text">Activo</strong></div></div>
+      <details className="profile-contact-details"><summary>Datos de mi cuenta</summary><div className="profile-lines"><div><span>Correo</span><strong>{session?.user.email ?? 'Sin correo'}</strong></div><div><span>Teléfono</span><strong>{session?.gymUser?.profiles?.phone ?? 'Sin teléfono'}</strong></div><div><span>Estado</span><strong className="success-text">Activo</strong></div></div></details>
     </section>
 
     <MemberSocialProfile/>
