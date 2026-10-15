@@ -33,15 +33,19 @@ describe('Comunidad privada del miembro', () => {
     expect(routes).toContain("memberRouter.post('/me/community/reactions'");
   });
 
-  it('ofrece filtros, perfiles sin datos sensibles y reacciones positivas', () => {
+  it('ofrece filtros, perfiles sin datos sensibles y solo Me encanta como reacción', () => {
     const page = source('frontend/src/pages/MemberCommunityPage.tsx');
     const layout = source('frontend/src/components/MemberPortalLayout.tsx');
     const app = source('frontend/src/App.tsx');
     expect(page).toContain("'/members/me/community'");
     expect(page).toContain("'/members/me/community/reactions'");
     expect(page).toContain('Objetivos similares');
-    expect(page).toContain('Me gusta');
+    expect(page).not.toContain('Me gusta');
+    expect(page).not.toContain('ThumbsUp');
     expect(page).toContain('Me encanta');
+    expect(page).toContain("reactionType: 'love'");
+    expect(page).not.toContain("onReact('like')");
+    expect(page).toContain("['member-community', 'member-social-profile']");
     expect(layout).toContain("'/portal/community'");
     expect(app).toContain('MemberCommunityPage');
   });

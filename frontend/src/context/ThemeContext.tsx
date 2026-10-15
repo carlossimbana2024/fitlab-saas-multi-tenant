@@ -1,15 +1,18 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 
-type Theme = 'light' | 'dark' | 'system';
-const ThemeContext = createContext<{ theme: Theme; setTheme: (theme: Theme) => void }>({ theme: 'system', setTheme: () => undefined });
+type Theme = 'light' | 'dark';
+const ThemeContext = createContext<{ theme: Theme; setTheme: (theme: Theme) => void }>({ theme: 'light', setTheme: () => undefined });
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem('fitlab-theme') as Theme | null) ?? 'system');
+  const [theme, setTheme] = useState<Theme>(() => {
+    const saved = localStorage.getItem('fitlab-theme');
+    if (saved === 'light' || saved === 'dark') return saved;
+    // Resolve the former automatic setting once, preserving the current appearance.
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  });
   useEffect(() => {
-    const media = window.matchMedia('(prefers-color-scheme: dark)');
-    const apply = () => document.documentElement.dataset.theme = theme === 'system' ? (media.matches ? 'dark' : 'light') : theme;
-    apply(); localStorage.setItem('fitlab-theme', theme); media.addEventListener('change', apply);
-    return () => media.removeEventListener('change', apply);
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem('fitlab-theme', theme);
   }, [theme]);
   return <ThemeContext.Provider value={useMemo(() => ({ theme, setTheme }), [theme])}>{children}</ThemeContext.Provider>;
 }
