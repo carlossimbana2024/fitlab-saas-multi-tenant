@@ -1,0 +1,10 @@
+.attendance-qr-card {display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:clamp(.65rem,2vw,1rem);width:100%;min-height:80px;padding:.8rem 1rem;box-sizing:border-box;border:1px solid #ff343e;border-radius:16px;background:linear-gradient(115deg,#da060f,#a5040b);color:#fff;text-decoration:none;box-shadow:0 5px 20px rgba(225,6,0,.16);}
+.attendance-qr-card .attendance-qr-icon {display:grid;place-items:center;width:48px;height:48px;border-radius:14px;border:1px solid rgba(255,255,255,.25);background:rgba(0,0,0,.14);}
+.attendance-qr-icon svg {width:27px;height:27px;flex:none;}
+.attendance-qr-card .attendance-qr-copy {display:grid;gap:.2rem;min-width:0;overflow-wrap:anywhere;line-height:1.35;}
+.attendance-qr-copy strong {font:800 clamp(.9rem,2.4vw,1.08rem)/1.35 Inter,sans-serif;}
+.attendance-qr-copy small {font:400 clamp(.72rem,2vw,.85rem)/1.4 Inter,sans-serif;color:#fff;opacity:.9;}
+.attendance-qr-card .attendance-qr-arrow {width:22px;height:22px;flex:none;}
+.attendance-qr-card:focus-visible {outline:3px solid var(--text);outline-offset:3px;}
+@media(max-width:360px){.attendance-qr-card{gap:.6rem;padding:.75rem;}.attendance-qr-card .attendance-qr-icon{width:40px;height:44px;}.attendance-qr-card .attendance-qr-arrow{width:18px;}}
+@media(prefers-reduced-motion:no-preference){.attendance-qr-card{transition:background-color .18s ease,box-shadow .18s ease;}.attendance-qr-arrow{transition:transform .18s ease;}.attendance-qr-card:hover{box-shadow:0 5px 24px rgba(225,6,0,.28);}.attendance-qr-card:hover .attendance-qr-arrow{transform:translateX(2px);}.attendance-qr-card:active{box-shadow:0 2px 10px rgba(225,6,0,.16);}}

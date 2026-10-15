@@ -3,6 +3,7 @@ import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { MemberChatWidget } from './MemberChatWidget';
 import { ThemeToggle } from './ThemeToggle';
+import '../home.css';
 
 const links = [
   { to: '/portal', label: 'Inicio', icon: Home, end: true },
@@ -15,10 +16,12 @@ const links = [
 export function MemberPortalLayout() {
   const { session, logout } = useAuth();
   const {pathname}=useLocation();
+  const isHome=pathname.replace(/\/$/,'')==='/portal';
 
-  return <div className="member-portal">
+  return <div className={`member-portal${isHome?' member-home':''}`}>
     <header>
       <div className="brand"><img src="/fitlab-logo.png" alt="FitLab"/><span>FITLAB</span></div>
+      {isHome && <div className="home-header-account" aria-label="Cuenta activa"><span>{session?.gymUser?.profiles?.full_name ?? session?.user.email ?? 'Miembro'}</span><small>Portal del miembro</small></div>}
       <div className="portal-tools"><ThemeToggle/><button className="ghost" onClick={() => void logout()}><LogOut/>Salir</button></div>
     </header>
     <nav className="member-portal-nav" aria-label="Navegación del portal del miembro">
@@ -29,10 +32,10 @@ export function MemberPortalLayout() {
       </div>
     </nav>
     <main>
-      <div className="portal-account-context" aria-label="Cuenta activa">
+      {!isHome && <div className="portal-account-context" aria-label="Cuenta activa">
         <span>{session?.gymUser?.profiles?.full_name ?? session?.user.email ?? 'Miembro'}</span>
         <small>Portal del miembro</small>
-      </div>
+      </div>}
       <Outlet/>
     </main>
     <MemberChatWidget/>
