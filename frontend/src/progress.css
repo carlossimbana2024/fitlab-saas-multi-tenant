@@ -1,0 +1,86 @@
+.portal-view-heading.progress-view-heading {display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:1rem;margin-bottom:.8rem;padding:clamp(1rem,3vw,1.6rem);border:1px solid var(--border);border-radius:20px;background:radial-gradient(ellipse at 100% 0%,rgba(225,6,0,.16),transparent 65%),linear-gradient(115deg,var(--surface),var(--surface-2));}
+.progress-view-heading>div {min-width:0;}
+.progress-view-heading h1 {font-size:clamp(2.2rem,6vw,3.4rem);line-height:1.05;margin:.3rem 0;}
+.progress-view-heading p:last-child {font-size:.9rem;line-height:1.45;margin:.5rem 0 0;}
+.progress-view-heading .checkin-button {min-height:52px;padding:.8rem 1rem;border-radius:13px;text-decoration:none;box-shadow:0 5px 20px rgba(225,6,0,.15);font-size:.9rem;}
+.progress-view-heading .checkin-button>svg {flex:none;}
+.progress-page {display:grid;gap:.8rem;min-width:0;padding-bottom:100px;}
+.progress-page .panel {min-width:0;padding:clamp(.8rem,2vw,1.1rem);border-radius:18px;background:linear-gradient(130deg,var(--surface),var(--surface-2));}
+.progress-page .panel-title {align-items:center;gap:.6rem;min-width:0;}
+.progress-page .panel-title>div {min-width:0;}
+.progress-page .panel-title h2 {display:flex;align-items:center;gap:.5rem;font-size:clamp(1.2rem,3vw,1.5rem);line-height:1.2;margin:0;}
+.progress-page .panel-title h2 svg {width:22px;height:22px;color:var(--primary);flex:none;}
+.progress-page .panel-title p {margin:.3rem 0 0;font-size:.75rem;line-height:1.45;color:var(--muted);}
+.progress-page .progress-motivation {margin:0;padding:.85rem 1rem;box-shadow:none;gap:.8rem;background:linear-gradient(110deg,rgba(245,158,11,.06),var(--surface));}
+.progress-page .progress-motivation>div {min-width:0;}
+.progress-page .progress-motivation strong {font-size:clamp(.95rem,2.5vw,1.05rem);line-height:1.35;}
+.progress-page .progress-motivation span {font-size:.8rem;line-height:1.45;overflow-wrap:anywhere;}
+.progress-page .progress-section-heading {display:flex;align-items:center;justify-content:space-between;gap:.7rem;flex-wrap:wrap;margin:.3rem 0 -.2rem;}
+.progress-section-heading h2 {margin:0;color:var(--primary);font:700 .78rem Inter,sans-serif;text-transform:uppercase;letter-spacing:.1em;}
+.progress-section-heading>span {display:flex;align-items:center;gap:.4rem;color:var(--muted);font-size:.75rem;}
+.progress-section-heading svg {width:18px;color:var(--primary);}
+.progress-page .portal-progress-stats {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.65rem;margin:0;}
+.progress-page .portal-card {display:grid;grid-template-columns:40px minmax(0,1fr);align-content:center;column-gap:.65rem;row-gap:.05rem;min-width:0;padding:.8rem;border-radius:14px;box-shadow:none;}
+.progress-page .portal-card>svg {grid-row:1/4;align-self:center;width:40px;height:48px;margin:0;padding:9px;box-sizing:border-box;border-radius:11px;background:rgba(225,6,0,.08);}
+.progress-page .portal-card:nth-child(3)>svg {color:var(--warning);background:rgba(245,158,11,.08);}
+.progress-page .portal-card span {font-size:.75rem;line-height:1.3;}
+.progress-page .portal-card strong {font-size:1.8rem;line-height:1.1;}
+.progress-page .portal-card small {font-size:.7rem;line-height:1.3;}
+.progress-page .progress-charts-grid {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem;margin-top:.8rem;padding-top:.7rem;border-top:1px solid var(--border);}
+.progress-charts-grid>div {min-width:0;}
+.progress-charts-grid>div+div {padding-left:1rem;border-left:1px solid var(--border);}
+.progress-charts-grid h3 {display:flex;align-items:center;gap:.4rem;font-size:.85rem;font-weight:700;font-family:Inter,sans-serif;text-transform:none;margin:0;}
+.progress-charts-grid h3 svg {width:18px;height:18px;color:var(--primary);flex:none;}
+.progress-page .attendance-chart,.progress-page .attendance-chart.weekly {height:135px;margin-top:.6rem;gap:clamp(.25rem,1vw,.6rem);}
+.progress-page .attendance-bar-track,.progress-page .attendance-chart.weekly .attendance-bar-track {height:83px;padding:0 .15rem;}
+.progress-page .attendance-chart-column small {max-width:100%;white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere;text-align:center;line-height:1.25;font-size:.65rem;}
+.progress-page .attendance-chart-column>strong {font-size:.75rem;}
+.progress-page .progress-weight-summary {display:grid;grid-template-columns:minmax(0,1fr) minmax(210px,.8fr);gap:1rem;align-items:center;margin-top:.8rem;}
+.progress-page .weight-progress-values {grid-template-columns:repeat(3,minmax(0,1fr));margin:0;gap:.5rem;}
+.progress-page .weight-progress-values>div {min-width:0;padding:.65rem;}
+.progress-page .weight-progress-values>div:last-child {grid-column:auto;}
+.progress-page .weight-progress-values strong {font-size:1.4rem;line-height:1.2;overflow-wrap:anywhere;}
+.progress-page .progress-weight-action {display:grid;gap:.45rem;}
+.progress-page .weight-progress-caption {margin:0;display:block;}
+.progress-page .weight-progress-track {margin:0;height:10px;}
+.progress-page .progress-weight-action>.primary {justify-content:center;min-height:44px;padding:.55rem .8rem;font-size:.85rem;box-shadow:0 5px 16px rgba(225,6,0,.1);}
+.progress-page .progress-history-link {font-size:.75rem;min-height:44px;text-decoration:none;white-space:nowrap;padding:.5rem .65rem;}
+.progress-page .weight-chart {height:105px;margin-top:.75rem;gap:.35rem;}
+.progress-page .weight-chart-track {height:58px;padding:0 .15rem;}
+.progress-page .weight-chart-column small {font-size:.62rem;overflow-wrap:anywhere;text-align:center;}
+.progress-page .progress-detail-grid {display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);grid-template-areas:'calendar goal' 'calendar history';gap:.8rem;align-items:start;}
+.progress-page .progress-calendar {grid-area:calendar;align-self:start;}
+.progress-page .progress-week-goal {grid-area:goal;}
+.progress-page .progress-weight-history {grid-area:history;scroll-margin-top:90px;}
+.progress-page .progress-calendar-legend {display:flex;flex-wrap:wrap;gap:.35rem .7rem;}
+.progress-calendar-legend>span {display:inline-flex;align-items:center;gap:.3rem;}
+.progress-calendar-legend>span::before {content:'';width:7px;height:7px;border-radius:50%;background:var(--success);flex:none;}
+.progress-calendar-legend>span:nth-child(2)::before {background:var(--accent);}
+.progress-calendar-legend>span:nth-child(3)::before {background:var(--error);}
+.progress-page .month-weekdays {margin-top:.75rem;gap:.35rem;}
+.progress-page .month-grid {gap:.35rem;}
+.progress-page .month-day {aspect-ratio:auto;min-height:34px;font-size:.8rem;border-radius:7px;}
+.progress-page .month-day svg {width:10px;height:10px;right:2px;bottom:2px;}
+.progress-page .progress-block {margin-top:.7rem;}
+.progress-page .progress-block>div {flex-wrap:wrap;gap:.3rem .6rem;font-size:.8rem;}
+.progress-page .progress-block progress {height:11px;margin-top:.65rem;}
+.progress-page .daily-goal {gap:.6rem;margin-top:.7rem;padding:.75rem;border-radius:12px;}
+.progress-page .daily-goal>svg {width:25px;height:25px;}
+.progress-page .daily-goal strong {font-size:.85rem;}
+.progress-page .daily-goal span {font-size:.75rem;line-height:1.45;}
+.progress-page .portal-history {margin-top:.6rem;}
+.progress-page .portal-history article {gap:.6rem;padding:.55rem 0;min-width:0;}
+.progress-page .portal-history article>div {min-width:0;}
+.progress-page .portal-history strong {font-size:.85rem;}
+.progress-page .portal-history small {font-size:.73rem;overflow-wrap:anywhere;}
+.progress-page .badge {font-size:.7rem;flex:none;}
+.progress-page .progress-weight-history .ghost {min-height:44px;font-size:.75rem;padding:.45rem .6rem;}
+.progress-page .progress-recent-attendance .portal-history article>div {display:grid;grid-template-columns:110px minmax(0,1fr);gap:.7rem;align-items:center;flex:1;}
+.progress-page .empty.compact {min-height:100px;padding:.8rem;gap:.35rem;font-size:.8rem;}
+.progress-page .empty.compact button {min-height:44px;}
+.progress-page button:focus-visible,.progress-page a:focus-visible,.progress-view-heading a:focus-visible {outline:2px solid var(--primary);outline-offset:3px;}
+@media(max-width:1000px){.progress-page .portal-progress-stats{grid-template-columns:repeat(2,minmax(0,1fr));}}
+@media(max-width:700px){.portal-view-heading.progress-view-heading{grid-template-columns:minmax(0,1fr);gap:.8rem;}.portal-view-heading.progress-view-heading .checkin-button{width:100%;box-sizing:border-box;justify-content:flex-start;}.progress-page .progress-detail-grid{grid-template-columns:minmax(0,1fr);grid-template-areas:'calendar' 'goal' 'history';}.progress-page .progress-weight-summary{grid-template-columns:minmax(0,1fr);gap:.65rem;}.progress-page .progress-weight-action{grid-template-columns:minmax(0,1fr) auto;align-items:center;}.progress-page .progress-weight-action .weight-progress-caption{grid-column:1;}.progress-page .progress-weight-action .weight-progress-track{grid-column:1;grid-row:2;}.progress-page .progress-weight-action .primary{grid-column:2;grid-row:1/3;}.progress-page .progress-section-heading>span{font-size:.7rem;}.progress-page .weight-chart-column>strong{font-size:.65rem;}}
+@media(max-width:540px){.progress-page .progress-charts-grid{grid-template-columns:minmax(0,1fr);gap:.8rem;}.progress-charts-grid>div+div{border-left:0;padding-left:0;border-top:1px solid var(--border);padding-top:.7rem;}.progress-page .attendance-chart,.progress-page .attendance-chart.weekly{height:125px;}.progress-page .attendance-bar-track,.progress-page .attendance-chart.weekly .attendance-bar-track{height:73px;}}
+@media(max-width:360px){.progress-page .portal-card{grid-template-columns:30px minmax(0,1fr);column-gap:.4rem;padding:.65rem;}.progress-page .portal-card>svg{width:30px;height:40px;padding:6px;}.progress-page .portal-card span{font-size:.7rem;}.progress-page .portal-card small{font-size:.65rem;}.progress-page .progress-recent-attendance .portal-history article>div{grid-template-columns:minmax(0,1fr);gap:.15rem;}.progress-page .weight-progress-values>div{padding:.5rem;}.progress-page .panel-title{flex-wrap:wrap;}.progress-page .weight-chart{gap:.15rem;}.progress-page .weight-chart-column small{font-size:.58rem;}}
+@media(prefers-reduced-motion:no-preference){.progress-page button,.progress-view-heading .checkin-button,.progress-page .progress-history-link{transition:background-color .18s ease,border-color .18s ease,box-shadow .18s ease;}.progress-page .weight-progress-track span{transition:width .2s ease;}}
