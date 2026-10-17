@@ -19,7 +19,7 @@ export function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const candidate: unknown = location.state?.returnTo;
-  const returnTo = typeof candidate === 'string' && /^\/check-in#token=[A-Za-z0-9_-]{43}$/.test(candidate) ? candidate : '/';
+  const returnTo = typeof candidate === 'string' && (candidate === '/check-in' || /^\/check-in#token=[A-Za-z0-9_-]{43}$/.test(candidate)) ? candidate : '/';
   const [error, setError] = useState('');
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<Form>({ resolver: zodResolver(schema) });
   if (session) return <Navigate to={returnTo} replace/>;

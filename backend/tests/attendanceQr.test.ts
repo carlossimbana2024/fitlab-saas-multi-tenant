@@ -58,6 +58,18 @@ describe('QR estático de asistencia', () => {
     expect(parameters.supplied_token_hash).toBe(hashAttendanceQr(payload.token));
     expect(JSON.stringify(parameters)).not.toContain(payload.token);
   });
+  it('conserva la sucursal resuelta por SQL, sin reemplazarla con la sucursal por defecto', async () => {
+    const { token, hash } = createAttendanceQr();
+    const branch = '33333333-3333-4333-8333-333333333333';
+    const data = { location_id: branch, location_name: 'Sucursal Sur', already_registered: false, attendance: { id: gym, location_name: 'Sucursal Sur' } };
+    rpc.mockResolvedValue({ data, error: null });
+    const req = request({ token });
+    Object.assign(req.tenant!, { defaultLocationId: gym });
+    const res = response();
+    await registerQrAttendance(req, res);
+    expect(rpc).toHaveBeenCalledExactlyOnceWith('register_attendance_qr_backend', { target_gym_id: gym, target_member_id: member, supplied_token_hash: hash });
+    expect(res.json).toHaveBeenCalledWith(data);
+  });
   it.each([false, true])('devuelve el resultado idempotente (ya registrado: %s)', async (already) => {
     const data = { already_registered: already, attendance: { id: gym } };
     rpc.mockResolvedValue({ data, error: null });

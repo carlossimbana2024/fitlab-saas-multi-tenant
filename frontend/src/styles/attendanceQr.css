@@ -6,3 +6,27 @@
 .qr-coverage{display:flex;flex-direction:column;gap:.4rem;padding:1rem;border:1px solid var(--border);border-radius:12px}
 .qr-back{display:block;text-align:center;margin-top:1.5rem;color:var(--text)}.qr-checkin-info{text-align:center}.qr-checkin-info svg{color:var(--primary)}
 .qr-settings{margin-top:1.2rem}.qr-controls{display:flex;flex-wrap:wrap;gap:.7rem}.qr-poster{text-align:center;border:1px solid var(--border);border-radius:12px;padding:1rem}.qr-poster img{width:min(100%,300px);height:auto;background:white}.qr-poster .qr-controls{justify-content:center}.qr-settings .muted{font-size:.85rem;line-height:1.5}
+.qr-checkin-page,.qr-checkin-page *{box-sizing:border-box}
+.qr-checkin-card{min-width:0;max-width:540px;overflow-wrap:anywhere}
+.qr-checkin-card h1{font-size:clamp(1.9rem,7vw,2.3rem);line-height:1.1}
+.qr-checkin-card .full-width{display:flex;align-items:center;justify-content:center;gap:.5rem;min-height:44px;text-decoration:none;white-space:normal;text-align:center}
+.qr-checkin-card .full-width svg{flex:none;width:21px;height:21px}
+.qr-rescan{margin-top:.8rem}
+.attendance-scanner>p{margin-top:0;font-size:.9rem;color:var(--muted)}
+.attendance-scanner-camera{position:relative;display:grid;place-items:center;width:100%;aspect-ratio:4/3;max-height:45dvh;background:#030712;border:1px solid var(--border);border-radius:16px;overflow:hidden;margin:.8rem 0}
+.attendance-scanner-camera[hidden]{display:none}
+.attendance-scanner-camera video{display:block;width:100%;height:100%;min-height:0;object-fit:contain}
+.attendance-scanner-frame{position:absolute;inset:12%;border:2px solid rgba(255,255,255,.9);border-radius:14px;pointer-events:none;box-shadow:0 0 0 100px rgba(0,0,0,.12)}
+.attendance-scanner-loading{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.7rem;padding:1rem;color:#fff;text-align:center;background:rgba(3,7,18,.85);font-size:.85rem;line-height:1.5}
+.attendance-scanner-loading svg{flex:none;width:28px;height:28px}
+.attendance-scanner-actions{display:flex;gap:.6rem;flex-wrap:wrap;margin:.7rem 0}
+.attendance-scanner-actions button{flex:1;min-height:44px;display:flex;align-items:center;justify-content:center;gap:.4rem;white-space:normal;font-size:.85rem}
+.attendance-scanner-actions svg{flex:none;width:19px;height:19px}
+.attendance-scanner-privacy{display:block;font-size:.74rem;line-height:1.5;color:var(--muted)}
+.attendance-scanner-message{padding:.7rem .8rem;border:1px solid var(--border);border-radius:10px;background:var(--surface-2);font-size:.82rem;line-height:1.5}
+.attendance-scanner-alternative{margin-top:.9rem;border-top:1px solid var(--border);padding-top:.35rem}
+.attendance-scanner-alternative summary{min-height:44px;cursor:pointer;font-size:.85rem;font-weight:700;padding:.6rem 0;line-height:1.4}
+.attendance-scanner-alternative p{font-size:.82rem;color:var(--muted);line-height:1.5}
+.attendance-scanner button:focus-visible,.attendance-scanner summary:focus-visible{outline:2px solid var(--primary);outline-offset:3px}
+@media(max-width:360px){.qr-checkin-page{padding:.65rem}.qr-checkin-card{padding:1rem}.qr-checkin-tools{margin-bottom:1rem}.attendance-scanner-actions{flex-direction:column}}
+@media(prefers-reduced-motion:no-preference){.attendance-scanner button{transition:background-color .18s ease,border-color .18s ease}}
