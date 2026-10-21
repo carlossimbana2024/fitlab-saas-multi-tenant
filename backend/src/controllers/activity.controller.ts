@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { supabaseAdmin } from '../config/supabase.js';
 import { AppError } from '../errors/AppError.js';
 import { fromSupabaseError } from '../utils/supabaseError.js';
+import { classBookingEconomics } from '../utils/classBookingEconomics.js';
 import {
   activitiesListSchema,
   activitySchema,
@@ -99,8 +100,9 @@ export async function listActivities(request: Request, response: Response) {
 
   let bookingsQuery = scheduleIds.length
     ? supabaseAdmin.from('class_bookings')
-      .select('id,class_schedule_id,member_user_id,status,payment_id,booked_at,booked_by,cancelled_at,cancellation_reason,attendance_marked_at,attendance_marked_by')
+      .select('id,class_schedule_id,member_user_id,status,payment_id,booked_at,booked_by,cancelled_at,cancellation_reason,attendance_marked_at,attendance_marked_by,economic_versions:class_booking_terms(version,billing_mode,agreed_amount,currency,contracted_at,cancelled_at,evidence_state,source,payment_evidence_id)')
       .eq('gym_id', request.tenant!.gymId).in('class_schedule_id', scheduleIds)
+      .order('version', { referencedTable: 'economic_versions', ascending: false })
       .order('booked_at', { ascending: false })
     : null;
   if (bookingsQuery && isMember) bookingsQuery = bookingsQuery.eq('member_user_id', request.tenant!.gymUserId);
@@ -121,7 +123,8 @@ export async function listActivities(request: Request, response: Response) {
   // bookings for schedules they may read. Loading the payment status here lets
   // both roles distinguish an included class from an unpaid additional class
   // without exposing payment references or financial details.
-  const paymentIds = bookings.map((booking) => booking.payment_id).filter(Boolean) as string[];
+  const paymentIds = [...new Set(bookings.flatMap((booking) => [booking.payment_id,
+    ...(booking.economic_versions ?? []).map((terms) => terms.payment_evidence_id)]).filter(Boolean))] as string[];
   const paymentsResult = paymentIds.length
     ? await supabaseAdmin.from('member_payments')
       .select('id,class_booking_id,amount,currency,payment_method,status,receipt_number,paid_at,external_reference,refund_reason')
@@ -140,15 +143,19 @@ export async function listActivities(request: Request, response: Response) {
     : (waitlistsResult.data ?? []).filter(item => ['waiting', 'offered'].includes(item.status));
 
   const activityById = new Map(activities.map((activity) => [activity.id, activity]));
-  const scheduleById = new Map(schedules.map((schedule) => [schedule.id, schedule]));
   const locationById = new Map((locationsResult.data ?? []).map((location) => [location.id, location]));
   const people = peopleResult.data ?? [];
   const personById = new Map(people.map((person) => [person.id, person]));
   const paymentById = new Map((paymentsResult.data ?? []).map((payment) => [payment.id, payment]));
-  const paymentState = (booking: typeof bookings[number], activity?: typeof activities[number]) => {
-    if (activity?.billing_mode === 'included') return 'included';
-    if (!booking.payment_id) return 'pending';
-    return paymentById.get(booking.payment_id)?.status ?? 'registered';
+  const bookingEconomics = (booking: typeof bookings[number]) => {
+    const current = [...(booking.economic_versions ?? [])].sort((a,b) => b.version-a.version)[0];
+    const paymentId = booking.payment_id ?? current?.payment_evidence_id;
+    const { economic_versions: _versions, ...publicBooking } = booking;
+    const economics = classBookingEconomics(booking, booking.economic_versions ?? [],
+      paymentId ? paymentById.get(paymentId) : undefined);
+    // Coaches keep the payment status without receiving financial history.
+    return isMember || classAccess.bookings ? { ...publicBooking, ...economics }
+      : { ...publicBooking, payment_state: economics.payment_state };
   };
   const bookingsBySchedule = new Map<string, typeof bookings>();
   for (const booking of bookings) {
@@ -184,7 +191,7 @@ export async function listActivities(request: Request, response: Response) {
         available: Math.max(0, capacity - occupied),
         isFull: occupied >= capacity,
         myBooking: isMember && scheduleBookings[0]
-          ? { ...scheduleBookings[0], payment_state: paymentState(scheduleBookings[0], activity) }
+          ? bookingEconomics(scheduleBookings[0])
           : null,
         waitlistCount: isMember ? undefined : waitlists.filter((waitlist) => waitlist.class_schedule_id === schedule.id).length,
         myWaitlist: isMember ? (waitlistsResult.data ?? []).find((waitlist) => waitlist.class_schedule_id === schedule.id && waitlist.member_user_id === request.tenant!.gymUserId) ?? null : null,
@@ -192,9 +199,8 @@ export async function listActivities(request: Request, response: Response) {
     }).filter(schedule => !isMember || schedule.myBooking || schedule.myWaitlist
       || (schedule.referenceState === 'active' && schedule.status === 'scheduled')),
     bookings: isMember ? [] : bookings.map((booking) => ({
-      ...booking,
+      ...bookingEconomics(booking),
       member: { id: booking.member_user_id, name: gymUserName(personById.get(booking.member_user_id)), phone: relatedOne(personById.get(booking.member_user_id)?.profiles)?.phone ?? personById.get(booking.member_user_id)?.managed_phone ?? null },
-      payment_state: paymentState(booking, activityById.get(scheduleById.get(booking.class_schedule_id)?.extra_class_id ?? '')),
       payment: classAccess.bookings && booking.payment_id ? paymentById.get(booking.payment_id) ?? null : null,
     })),
     waitlists: isMember || classAccess.bookings ? waitlists.map((waitlist) => ({
@@ -439,7 +445,8 @@ export async function getClassReceipt(request: Request, response: Response) {
   const bookingId = request.params.id;
   if (!bookingId || !uuid.safeParse(bookingId).success) throw new AppError(400, 'INVALID_CLASS_BOOKING', 'La reserva no es válida.');
   const bookingResult = await supabaseAdmin.from('class_bookings')
-    .select('id,class_schedule_id,member_user_id,status,payment_id')
+    .select('id,class_schedule_id,member_user_id,status,payment_id,economic_versions:class_booking_terms(version,billing_mode,agreed_amount,currency,contracted_at,cancelled_at,evidence_state,source,payment_evidence_id)')
+    .order('version', { referencedTable: 'economic_versions', ascending: false })
     .eq('id', bookingId).eq('gym_id', request.tenant!.gymId).maybeSingle();
   if (bookingResult.error) throw fromSupabaseError(bookingResult.error);
   const booking = bookingResult.data;
@@ -467,14 +474,16 @@ export async function getClassReceipt(request: Request, response: Response) {
     throw new AppError(404, 'CLASS_RECEIPT_NOT_FOUND', 'No fue posible completar los datos del recibo.');
   }
   const [activityResult, locationResult, instructorResult, registererResult] = await Promise.all([
-    supabaseAdmin.from('extra_classes').select('name,description,billing_mode').eq('id', schedule.extra_class_id).single(),
+    supabaseAdmin.from('extra_classes').select('name,description').eq('id', schedule.extra_class_id).eq('gym_id', request.tenant!.gymId).single(),
     supabaseAdmin.from('gym_locations').select('name,address,city,email,phone,whatsapp_phone').eq('id', schedule.location_id).eq('gym_id', request.tenant!.gymId).single(),
     schedule.instructor_user_id ? supabaseAdmin.from('gym_users').select('managed_full_name,profiles(full_name)').eq('id', schedule.instructor_user_id).single() : Promise.resolve({ data: null, error: null }),
     supabaseAdmin.from('gym_users').select('managed_full_name,profiles(full_name)').eq('id', payment.registered_by).single(),
   ]);
   const relatedError = activityResult.error ?? locationResult.error ?? instructorResult.error ?? registererResult.error;
   if (relatedError) throw fromSupabaseError(relatedError);
+  const economics = classBookingEconomics(booking, booking.economic_versions ?? [], payment);
   response.json({ receipt: {
+    ...economics,
     number: payment.receipt_number,
     issuedAt: payment.receipt_issued_at,
     verificationToken: payment.receipt_verification_token,
@@ -490,7 +499,7 @@ export async function getClassReceipt(request: Request, response: Response) {
     gym,
     location: locationResult.data,
     member: { name: gymUserName(member), phone: relatedOne(member.profiles)?.phone ?? member.managed_phone ?? null },
-    activity: activityResult.data,
+    activity: activityResult.data ? { ...activityResult.data, billing_mode: economics.economic_terms?.billing_mode ?? null } : null,
     schedule: { startsAt: schedule.starts_at, endsAt: schedule.ends_at },
     instructor: instructorResult.data ? { name: gymUserName(instructorResult.data) } : null,
     registeredBy: { name: gymUserName(registererResult.data ?? undefined) },

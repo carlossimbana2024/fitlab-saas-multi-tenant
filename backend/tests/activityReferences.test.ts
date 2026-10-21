@@ -3,6 +3,7 @@ import type {Request,Response} from 'express';
 import {readFileSync} from 'node:fs';
 import {createRequire} from 'node:module';
 import ts from 'typescript';
+import { ClassBookingConditions, economicsLabels } from './helpers/class-economics-render.js';
 const db=vi.hoisted(()=>({from:vi.fn()}));
 vi.mock('../src/config/supabase.js',()=>({supabaseAdmin:db}));
 import {listActivities} from '../src/controllers/activity.controller.js';
@@ -73,7 +74,7 @@ const page=readFileSync(new URL('../../frontend/src/pages/MemberPortalPage.tsx',
 const components=page.slice(page.indexOf('function classReferenceIssue'),page.indexOf('function ProgressView'));
 const compiled=ts.transpileModule(components+'\nexports.cards={ClassCard,ClassSummary};',{compilerOptions:{jsx:ts.JsxEmit.React,target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
 const output:any={};
-new Function('exports','React','Link','Clock3','UserRound','UsersRound','ChevronRight','money',compiled)(output,React,Link,icons.Clock3,icons.UserRound,icons.UsersRound,icons.ChevronRight,(n:number)=>String(n));
+new Function('exports','React','Link','Clock3','UserRound','UsersRound','ChevronRight','money','ClassBookingConditions','classPaymentLabel',compiled)(output,React,Link,icons.Clock3,icons.UserRound,icons.UsersRound,icons.ChevronRight,(n:number)=>String(n),ClassBookingConditions,economicsLabels.classPaymentLabel);
 describe('Home and Classes rendering',()=>{
  it('shows the same zero availability in Home and Classes and offers the existing waitlist action',()=>{
   const schedule:any={...base,activity:{name:'Boxeo',is_active:true,billing_mode:'included'},location:{name:'Centro',is_active:true},available:0,occupied:5,capacity:5,isFull:true};
