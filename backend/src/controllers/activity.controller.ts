@@ -57,14 +57,13 @@ export async function listActivities(request: Request, response: Response) {
   let activitiesQuery = supabaseAdmin.from('extra_classes')
     .select('id,name,description,billing_mode,price,currency,capacity,duration_minutes,is_active,created_at,updated_at')
     .eq('gym_id', request.tenant!.gymId).order('name');
-  if (isMember || !input.data.includeInactive) activitiesQuery = activitiesQuery.eq('is_active', true);
+  // Resolve session references independently from the selectable active catalog.
 
   let schedulesQuery = supabaseAdmin.from('class_schedules')
     .select('id,location_id,extra_class_id,instructor_user_id,starts_at,ends_at,capacity_override,status,cancelled_at,cancellation_reason,created_at')
     .eq('gym_id', request.tenant!.gymId).gte('starts_at', from).lte('starts_at', to)
     .order('starts_at').limit(500);
   if (input.data.locationId) schedulesQuery = schedulesQuery.eq('location_id', input.data.locationId);
-  if (isMember) schedulesQuery = schedulesQuery.eq('status', 'scheduled');
   if (request.tenant!.role === 'staff' && classAccess.attendance && !classAccess.manage && !classAccess.bookings) {
     schedulesQuery = schedulesQuery.eq('instructor_user_id', request.tenant!.gymUserId);
   }
@@ -73,7 +72,7 @@ export async function listActivities(request: Request, response: Response) {
     activitiesQuery,
     schedulesQuery,
     supabaseAdmin.from('gym_locations').select('id,name,is_main,is_active,timezone')
-      .eq('gym_id', request.tenant!.gymId).eq('is_active', true)
+      .eq('gym_id', request.tenant!.gymId)
       .order('is_main', { ascending: false }).order('name'),
   ]);
   const baseError = activitiesResult.error ?? schedulesResult.error ?? locationsResult.error;
@@ -81,6 +80,22 @@ export async function listActivities(request: Request, response: Response) {
   const activities = activitiesResult.data ?? [];
   const schedules = schedulesResult.data ?? [];
   const scheduleIds = schedules.map((schedule) => schedule.id);
+  // Exact HEAD counts are independent of row-return limits and reveal no participants.
+  // Bound concurrency for large date ranges instead of issuing 500 requests at once.
+  const occupiedBySchedule = new Map<string, number>();
+  for (let offset = 0; offset < scheduleIds.length; offset += 8) {
+    await Promise.all(scheduleIds.slice(offset, offset + 8).map(async (scheduleId) => {
+      const { count, error } = await supabaseAdmin.from('class_bookings')
+        .select('id', { count: 'exact', head: true })
+        .eq('gym_id', request.tenant!.gymId).eq('class_schedule_id', scheduleId)
+        .in('status', ['reserved', 'attended']);
+      if (error) throw fromSupabaseError(error);
+      if (count === null || count === undefined) {
+        throw new AppError(503, 'CLASS_OCCUPANCY_UNAVAILABLE', 'No se pudo consultar la disponibilidad de las clases.');
+      }
+      occupiedBySchedule.set(scheduleId, count);
+    }));
+  }
 
   let bookingsQuery = scheduleIds.length
     ? supabaseAdmin.from('class_bookings')
@@ -117,12 +132,12 @@ export async function listActivities(request: Request, response: Response) {
     ? await supabaseAdmin.from('class_waitlists')
       .select('id,class_schedule_id,member_user_id,status,joined_at,offered_at,cancelled_at,cancellation_reason')
       .eq('gym_id', request.tenant!.gymId).in('class_schedule_id', scheduleIds)
-      .in('status', ['waiting', 'offered']).order('joined_at')
+      .order('joined_at')
     : { data: [], error: null };
   if (waitlistsResult.error) throw fromSupabaseError(waitlistsResult.error);
   const waitlists = isMember
-    ? (waitlistsResult.data ?? []).filter((waitlist) => waitlist.member_user_id === request.tenant!.gymUserId)
-    : waitlistsResult.data ?? [];
+    ? (waitlistsResult.data ?? []).filter((waitlist) => waitlist.member_user_id === request.tenant!.gymUserId && ['waiting', 'offered'].includes(waitlist.status))
+    : (waitlistsResult.data ?? []).filter(item => ['waiting', 'offered'].includes(item.status));
 
   const activityById = new Map(activities.map((activity) => [activity.id, activity]));
   const scheduleById = new Map(schedules.map((schedule) => [schedule.id, schedule]));
@@ -142,32 +157,40 @@ export async function listActivities(request: Request, response: Response) {
 
   response.json({
     access: classAccess,
-    activities,
-    locations: locationsResult.data ?? [],
+    activities: activities.filter(item => (!isMember && input.data.includeInactive) || item.is_active),
+    locations: (locationsResult.data ?? []).filter(item => item.is_active),
     instructors: classAccess.manage ? people.filter((person) => person.status === 'active' && ['owner', 'staff'].includes(person.role))
       .map((person) => ({ id: person.id, name: gymUserName(person), defaultLocationId: person.default_location_id })) : [],
     members: classAccess.bookings ? people.filter((person) => person.role === 'member' && person.status === 'active')
       .map((person) => ({ id: person.id, name: gymUserName(person), phone: relatedOne(person.profiles)?.phone ?? person.managed_phone ?? null })) : [],
     schedules: schedules.map((schedule) => {
       const scheduleBookings = bookingsBySchedule.get(schedule.id) ?? [];
-      const occupied = scheduleBookings.filter((booking) => ['reserved', 'attended'].includes(booking.status)).length;
+      const occupied = occupiedBySchedule.get(schedule.id)!;
       const activity = activityById.get(schedule.extra_class_id);
+      const location = locationById.get(schedule.location_id);
+      const referenceState = !activity || !location ? 'missing'
+        : !activity.is_active && !location.is_active ? 'both_inactive'
+        : !activity.is_active ? 'activity_inactive'
+        : !location.is_active ? 'location_inactive' : 'active';
       const capacity = schedule.capacity_override ?? activity?.capacity ?? 0;
       return {
         ...schedule,
         activity: activity ?? null,
+        referenceState,
         location: locationById.get(schedule.location_id) ?? null,
         instructor: schedule.instructor_user_id ? { id: schedule.instructor_user_id, name: gymUserName(personById.get(schedule.instructor_user_id)) } : null,
         occupied,
         capacity,
         available: Math.max(0, capacity - occupied),
+        isFull: occupied >= capacity,
         myBooking: isMember && scheduleBookings[0]
           ? { ...scheduleBookings[0], payment_state: paymentState(scheduleBookings[0], activity) }
           : null,
         waitlistCount: isMember ? undefined : waitlists.filter((waitlist) => waitlist.class_schedule_id === schedule.id).length,
-        myWaitlist: isMember ? waitlists.find((waitlist) => waitlist.class_schedule_id === schedule.id) ?? null : null,
+        myWaitlist: isMember ? (waitlistsResult.data ?? []).find((waitlist) => waitlist.class_schedule_id === schedule.id && waitlist.member_user_id === request.tenant!.gymUserId) ?? null : null,
       };
-    }),
+    }).filter(schedule => !isMember || schedule.myBooking || schedule.myWaitlist
+      || (schedule.referenceState === 'active' && schedule.status === 'scheduled')),
     bookings: isMember ? [] : bookings.map((booking) => ({
       ...booking,
       member: { id: booking.member_user_id, name: gymUserName(personById.get(booking.member_user_id)), phone: relatedOne(personById.get(booking.member_user_id)?.profiles)?.phone ?? personById.get(booking.member_user_id)?.managed_phone ?? null },

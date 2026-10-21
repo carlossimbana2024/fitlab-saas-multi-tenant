@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { updateMyPrivacy } from '../controllers/member.controller.js';
 import { getMyTrainingSocial,changeTrainingSocial,savePokePreferences } from '../controllers/memberTrainingSocial.controller.js';
 import { listMyFriendships, getMemberFriendship, changeMemberFriendship, saveMyFriendPreferences } from '../controllers/memberFriendship.controller.js';
 import { getMemberSocialProfile, updateMySocialProfile, prepareMyGalleryPhoto, changeMyGalleryPhoto } from '../controllers/memberSocialProfile.controller.js';
@@ -26,6 +27,7 @@ memberRouter.delete('/invitations/:id', checkPermission('members.manage'), async
 memberRouter.put('/me/profile', asyncHandler(updateMyProfile));
 memberRouter.get('/me/fitness-profile', asyncHandler(getMyFitnessProfile));
 memberRouter.put('/me/fitness-profile', asyncHandler(upsertMyFitnessProfile));
+memberRouter.patch('/me/privacy', asyncHandler(updateMyPrivacy));
 memberRouter.get('/me/progress', asyncHandler(getMyProgress));
 memberRouter.post('/me/weight', asyncHandler(recordMyWeight));
 memberRouter.get('/me/community/rankings', asyncHandler(getMemberCommunityRankings));

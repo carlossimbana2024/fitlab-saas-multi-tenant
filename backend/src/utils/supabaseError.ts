@@ -3,6 +3,9 @@ import { AppError } from '../errors/AppError.js';
 type DatabaseError = { code?: string; message: string; details?: string | null };
 
 const knownErrors: Record<string, { status: number; message: string }> = {
+  MEMBER_PRIVACY_REQUIRES_PARTIAL_UPDATE: { status: 409, message: 'Actualiza la página y cambia cada preferencia desde los controles de privacidad.' },
+  MEMBER_FITNESS_PROFILE_REQUIRED: { status: 409, message: 'Completa primero tu perfil deportivo.' },
+  INVALID_MEMBER_PRIVACY_PATCH: { status: 400, message: 'La preferencia de privacidad no es válida.' },
   TRAINING_MEMBER_REQUIRED: {status:403,message:'Necesitas una cuenta de miembro activa.'},
   TRAINING_ACTION_INVALID: {status:400,message:'La acción no es válida.'},
   TRAINING_PRIVACY_REQUIRED: {status:403,message:'Ambos deben ser amigos, aparecer en Comunidad y permitir toques.'},

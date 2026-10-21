@@ -28,13 +28,36 @@ const fitnessProfileSchema = z.object({
   preferredTrainingType: z.string().trim().min(2).max(80).nullable().optional(),
   goalHorizonMonths: z.coerce.number().int().min(1).max(36).nullable().optional(),
   publicMessage: z.string().trim().min(1).max(160).nullable().optional(),
-  showInCommunity: z.boolean().default(false),
-  showProfilePhoto: z.boolean().default(false),
-  showStreak: z.boolean().default(false),
-  showAttendanceCount: z.boolean().default(false),
-  showWeightProgress: z.boolean().default(false),
-  showGoal: z.boolean().default(false),
+  showInCommunity: z.boolean().optional(),
+  showProfilePhoto: z.boolean().optional(),
+  showStreak: z.boolean().optional(),
+  showAttendanceCount: z.boolean().optional(),
+  showWeightProgress: z.boolean().optional(),
+  showGoal: z.boolean().optional(),
 });
+const privacyFields = {
+  showInCommunity: 'show_in_community', showProfilePhoto: 'show_profile_photo',
+  showStreak: 'show_streak', showAttendanceCount: 'show_attendance_count',
+  showWeightProgress: 'show_weight_progress', showGoal: 'show_goal',
+} as const;
+const privacyPatchSchema = z.object({
+  key: z.enum(['showInCommunity', 'showProfilePhoto', 'showStreak', 'showAttendanceCount', 'showWeightProgress', 'showGoal']),
+  value: z.boolean(),
+}).strict();
+
+export async function updateMyPrivacy(request: Request, response: Response) {
+  memberOnly(request);
+  const input = privacyPatchSchema.safeParse(request.body);
+  if (!input.success) throw new AppError(400, 'INVALID_MEMBER_PRIVACY_PATCH', 'Selecciona una sola preferencia de privacidad.');
+  const { data, error } = await supabaseAdmin.rpc('update_member_privacy_backend', {
+    target_gym_id: request.tenant!.gymId,
+    target_member_user_id: request.tenant!.gymUserId,
+    preference_key: privacyFields[input.data.key],
+    preference_value: input.data.value,
+  });
+  if (error) throw fromSupabaseError(error);
+  response.json({ fitnessProfile: Array.isArray(data) ? data[0] : data });
+}
 const avatarUploadSchema = z.object({ contentType: z.string().trim().toLowerCase() });
 const avatarFinalizeSchema = z.object({ path: z.string().trim().min(1).max(300) });
 const memberWeightSchema = z.object({
@@ -171,12 +194,12 @@ export async function upsertMyFitnessProfile(request: Request, response: Respons
     supplied_preferred_training_type: input.data.preferredTrainingType ?? null,
     supplied_goal_horizon_months: input.data.goalHorizonMonths ?? null,
     supplied_public_message: input.data.publicMessage ?? null,
-    supplied_show_in_community: input.data.showInCommunity,
-    supplied_show_profile_photo: input.data.showProfilePhoto,
-    supplied_show_streak: input.data.showStreak,
-    supplied_show_attendance_count: input.data.showAttendanceCount,
-    supplied_show_weight_progress: input.data.showWeightProgress,
-    supplied_show_goal: input.data.showGoal,
+    supplied_show_in_community: input.data.showInCommunity ?? null,
+    supplied_show_profile_photo: input.data.showProfilePhoto ?? null,
+    supplied_show_streak: input.data.showStreak ?? null,
+    supplied_show_attendance_count: input.data.showAttendanceCount ?? null,
+    supplied_show_weight_progress: input.data.showWeightProgress ?? null,
+    supplied_show_goal: input.data.showGoal ?? null,
   });
   if (error) throw fromSupabaseError(error);
   const fitnessProfile = Array.isArray(data) ? data[0] : data;
