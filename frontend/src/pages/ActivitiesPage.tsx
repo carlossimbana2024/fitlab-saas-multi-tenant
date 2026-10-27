@@ -5,12 +5,13 @@ import { useAuth } from '../context/AuthContext';
 import { api, apiErrorMessage } from '../services/api';
 import { ClassBookingConditions } from '../components/ClassBookingConditions';
 import { classPaymentLabel, type ClassBookingEconomics } from '../utils/classBookingEconomics';
+import { refreshClassQueries } from '../utils/classWaitlist';
 
 type ActivityItem = { id: string; name: string; description?: string | null; billing_mode: 'included' | 'additional_fee'; price: number; currency: string; capacity: number; duration_minutes: number; is_active: boolean };
 type Location = { id: string; name: string; is_main?: boolean; timezone: string };
 type Person = { id: string; name: string; phone?: string | null; defaultLocationId?: string | null };
 type Booking = ClassBookingEconomics & { id: string; class_schedule_id: string; member_user_id: string; status: 'reserved' | 'attended' | 'cancelled' | 'no_show'; payment_id?: string | null; booked_at: string; cancellation_reason?: string | null; member: Person; payment?: { id: string; amount: number; currency: string; payment_method: string; status: string; receipt_number: number } | null };
-type Schedule = { id: string; location_id: string; extra_class_id: string; instructor_user_id?: string | null; starts_at: string; ends_at: string; status: 'scheduled' | 'cancelled' | 'completed'; cancellation_reason?: string | null; activity: ActivityItem; location: Location; instructor?: Person | null; occupied: number; capacity: number; available: number; waitlistCount?: number; myWaitlist?: { id: string; position: number; status: string } | null };
+type Schedule = { id: string; location_id: string; extra_class_id: string; instructor_user_id?: string | null; starts_at: string; ends_at: string; status: 'scheduled' | 'cancelled' | 'completed'; cancellation_reason?: string | null; activity: ActivityItem; location: Location; instructor?: Person | null; occupied: number; capacity: number; available: number; offeredCount?: number; waitlistCount?: number; myWaitlist?: { id: string; position: number; status: string } | null };
 type ActivitiesResponse = { access: { manage: boolean; bookings: boolean; attendance: boolean }; activities: ActivityItem[]; locations: Location[]; instructors: Person[]; members: Person[]; schedules: Schedule[]; bookings: Booking[]; waitlists?: Array<{ id: string; class_schedule_id: string; member_user_id: string; status: string; position: number; member?: Person | null }> };
 type ActivitySummary = { totals: { classes: number; reservations: number; reserved: number; attended: number; noShow: number; cancelled: number; attendanceRate: number | null }; byActivity: Array<{ name: string; reservations: number; attended: number; noShow: number }>; byLocation: Array<{ name: string; classes: number; reservations: number }> };
 type Receipt = ClassBookingEconomics & { number: number; issuedAt: string; status: string; amount: number; currency: string; paymentMethod: string; externalReference?: string | null; paidAt: string; refundReason?: string | null; gym: { name: string; legal_name?: string | null }; location: { name: string; address?: string | null; city?: string | null }; member: Person; activity: Pick<ActivityItem, 'name' | 'description'> & { billing_mode: ActivityItem['billing_mode'] | null }; schedule: { startsAt: string; endsAt: string }; instructor?: Person | null; registeredBy: Person; bookingStatus: string };
@@ -66,20 +67,22 @@ export function ActivitiesPage() {
   const bookingChargeBlocked = Boolean(memberBooking && !memberBooking.can_collect_payment);
 
   useEffect(() => { if (selectedSchedule && selectedSchedule.id !== selectedScheduleId) setSelectedScheduleId(selectedSchedule.id); }, [selectedSchedule, selectedScheduleId]);
-  const refresh = async () => { await Promise.all([client.invalidateQueries({ queryKey: ['activities'] }), client.invalidateQueries({ queryKey: ['activity-summary'] })]); };
+  const refresh = () => refreshClassQueries(client);
 
   const saveActivity = useMutation({
     mutationFn: async () => {
       const payload = { name: activityForm.name, description: activityForm.description || null, billingMode: activityForm.billingMode, price: Number(activityForm.price), currency: activityForm.currency.toUpperCase(), capacity: Number(activityForm.capacity), durationMinutes: Number(activityForm.durationMinutes), isActive: activityForm.isActive };
       return activityTarget ? api.put(`/activities/catalog/${activityTarget.id}`, payload) : api.post('/activities/catalog', payload);
     },
-    onSuccess: async () => { setActivityTarget(undefined); setActivityForm(emptyActivity); setError(''); await refresh(); },
+    onSuccess: async () => { setActivityTarget(undefined); setActivityForm(emptyActivity); setError(''); },
     onError: (cause) => setError(apiErrorMessage(cause)),
+    onSettled: refresh,
   });
   const createSchedule = useMutation({
     mutationFn: async () => api.post('/activities/schedules', { activityId: scheduleForm.activityId, locationId: scheduleForm.locationId, instructorUserId: scheduleForm.instructorUserId || null, startsAt: new Date(scheduleForm.startsAt).toISOString(), capacityOverride: scheduleForm.capacityOverride ? Number(scheduleForm.capacityOverride) : null }),
-    onSuccess: async () => { setScheduleOpen(false); setScheduleForm(emptySchedule); setError(''); await refresh(); },
+    onSuccess: async () => { setScheduleOpen(false); setScheduleForm(emptySchedule); setError(''); },
     onError: (cause) => setError(apiErrorMessage(cause)),
+    onSettled: refresh,
   });
   const createBooking = useMutation({
     mutationFn: async () => {
@@ -88,8 +91,9 @@ export function ActivitiesPage() {
       const paid = bookingIsPaid;
       return api.post(`/activities/schedules/${bookingSchedule.id}/bookings`, { memberUserId: bookingForm.memberUserId, payment: paid ? { method: bookingForm.method, externalReference: bookingForm.externalReference || null, notes: bookingForm.notes || null } : null });
     },
-    onSuccess: async () => { setBookingSchedule(null); setBookingForm(emptyBooking); setCollectingBookingId(null); setError(''); await refresh(); },
+    onSuccess: async () => { setBookingSchedule(null); setBookingForm(emptyBooking); setCollectingBookingId(null); setError(''); },
     onError: (cause) => setError(apiErrorMessage(cause)),
+    onSettled: refresh,
   });
   const runReasonAction = useMutation({
     mutationFn: async () => {
@@ -97,13 +101,15 @@ export function ActivitiesPage() {
       if (reasonAction.type === 'schedule') return api.patch(`/activities/schedules/${reasonAction.id}/cancel`, { reason });
       return api.patch(`/activities/bookings/${reasonAction.id}/${reasonAction.type === 'refund' ? 'refund' : 'cancel'}`, { reason });
     },
-    onSuccess: async () => { setReasonAction(null); setReason(''); setError(''); await refresh(); },
+    onSuccess: async () => { setReasonAction(null); setReason(''); setError(''); },
     onError: (cause) => setError(apiErrorMessage(cause)),
+    onSettled: refresh,
   });
   const attendance = useMutation({
     mutationFn: async ({ id, status }: { id: string; status: 'attended' | 'no_show' }) => api.patch(`/activities/bookings/${id}/attendance`, { status }),
-    onSuccess: refresh,
+    onSuccess: () => setError(''),
     onError: (cause) => setError(apiErrorMessage(cause)),
+    onSettled: refresh,
   });
 
   const openActivity = (item?: ActivityItem) => {
@@ -152,7 +158,7 @@ function Roster({ schedule, bookings, canManage, canBook, canAttend, canRegister
   if (!schedule) return <aside className="roster-panel"><Empty title="Selecciona una clase" text="Aquí verás sus participantes y acciones."/></aside>;
   return <aside className="roster-panel">
     <header><div><p className="eyebrow">LISTA DE CLASE</p><h2>{schedule.activity.name}</h2><span>{dateTime(schedule.starts_at)} · {schedule.location.name}</span><span>Instructor: {schedule.instructor?.name ?? 'Sin asignar'}</span></div><span className={`badge ${schedule.status}`}>{schedule.status === 'scheduled' ? 'Programada' : 'Cancelada'}</span></header>
-    <div className="roster-summary"><span><Users/><b>{schedule.occupied}</b> reservados</span><span><b>{schedule.available}</b> disponibles</span></div>
+    <div className="roster-summary"><span><Users/><b>{schedule.occupied}</b> reservados/asistieron</span><span><b>{schedule.available}</b> disponibles</span>{Boolean(schedule.offeredCount) && <span><b>{schedule.offeredCount}</b> cupos ofrecidos temporalmente</span>}</div>
     <div className="roster-list">{bookings.map((booking) => {
       const paymentPending = Boolean(booking.can_collect_payment);
       return <article key={booking.id}><div><strong>{booking.member.name}</strong><small>{booking.member.phone || 'Sin teléfono'} · {bookingPaymentLabel(booking)}</small><ClassBookingConditions booking={booking}/></div><span className={`badge ${booking.status}`}>{bookingNames[booking.status]}</span><div className="row-actions">{paymentPending && canBook && canRegisterPayment && booking.status === 'reserved' && <button className="small-button warning-text" onClick={() => onBook(schedule, booking.member_user_id, booking.id)}><ReceiptText/>Registrar pago</button>}{booking.payment && <button className="small-button" onClick={() => onReceipt(booking.id)}><ReceiptText/>Recibo</button>}{canAttend && booking.status === 'reserved' && <><button className="small-button" onClick={() => onAttendance(booking.id, 'attended')}><Check/>Llegó</button><button className="small-button" onClick={() => onAttendance(booking.id, 'no_show')}><X/>No llegó</button></>}{canBook && booking.status === 'reserved' && <button className="small-button danger-text" onClick={() => onCancelBooking(booking)}><Ban/>Cancelar</button>}{canRefund && booking.payment?.status === 'confirmed' && <button className="small-button warning-text" onClick={() => onRefund(booking)}><RotateCcw/>Reembolsar</button>}</div></article>;

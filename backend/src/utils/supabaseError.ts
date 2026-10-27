@@ -114,6 +114,16 @@ const knownErrors: Record<string, { status: number; message: string }> = {
   CLASS_WAITLIST_NOT_NEEDED: { status: 409, message: 'Todavía hay cupos disponibles; puedes reservar directamente.' },
   CLASS_WAITLIST_PAYMENT_REQUIRED: { status: 409, message: 'Las actividades con pago adicional se reservan y pagan en recepción.' },
   CLASS_WAITLIST_NOT_FOUND: { status: 404, message: 'La entrada en la lista de espera no existe o ya no está activa.' },
+  CLASS_WAITLIST_OFFER_NOT_FOUND: { status: 404, message: 'La oferta no existe o no pertenece a tu cuenta en este gimnasio.' },
+  CLASS_WAITLIST_OFFER_EXPIRED: { status: 409, message: 'El plazo para aceptar el cupo venció. Puedes volver a unirte a la lista si sigue llena.' },
+  CLASS_WAITLIST_OFFER_UNAVAILABLE: { status: 409, message: 'La oferta ya no está disponible. Actualiza tus clases para consultar su estado.' },
+  CLASS_WAITLIST_OFFERS_DISABLED: { status: 409, message: 'La aceptación de ofertas todavía no está habilitada por el gimnasio.' },
+  CLASS_WAITLIST_MEMBER_INELIGIBLE: { status: 409, message: 'No cumples los requisitos para esta lista de espera o ya tienes una reserva con historial. Consulta con recepción.' },
+  CLASS_WAITLIST_OFFER_ACCEPT_REQUIRED: { status: 409, message: 'Ya estás en lista de espera. Si tienes una oferta, usa Aceptar cupo.' },
+  CLASS_WAITLIST_PRIORITY_REQUIRED: { status: 409, message: 'Los cupos libres están retenidos para la lista de espera. No puedes reservar por delante de una oferta.' },
+  CLASS_ACTOR_MUST_BE_ACTIVE_IN_GYM: { status: 403, message: 'Necesitas una cuenta activa con acceso al portal de este gimnasio.' },
+  PAST_CLASS_CANNOT_BE_BOOKED: { status: 409, message: 'La clase ya comenzó y no admite nuevas reservas.' },
+  PAST_CLASS_CANNOT_BE_REBOOKED: { status: 409, message: 'La clase ya comenzó y no admite otra reserva.' },
   MEMBER_WEIGHT_ENTRY_DATE_INVALID: { status: 400, message: 'La fecha debe estar entre hoy y los últimos cinco años.' },
   MEMBER_WEIGHT_ENTRY_MEMBER_MISMATCH: { status: 403, message: 'La medición no pertenece a un miembro activo de este gimnasio.' },
   MEMBER_WEIGHT_ENTRY_SOURCE_INVALID: { status: 400, message: 'El origen de la medición no es válido.' },
@@ -134,6 +144,9 @@ export function fromSupabaseError(error: DatabaseError): AppError {
   if (referral) return new AppError(400, referral[0], referral[1]);
   const known = Object.entries(knownErrors).find(([code]) => error.message.includes(code));
   if (known) return new AppError(known[1].status, known[0], known[1].message);
+  if (error.code === '40P01' || error.code === '40001') {
+    return new AppError(409, 'DATABASE_TRANSACTION_RETRY_REQUIRED', 'Otra operación modificó estos datos al mismo tiempo. Actualiza la pantalla y vuelve a intentarlo.');
+  }
   if (error.code === '23505') return new AppError(409, 'RESOURCE_ALREADY_EXISTS', 'El registro ya existe.');
   if (error.code === '42501') return new AppError(403, 'DATABASE_PERMISSION_DENIED', 'No tienes permiso para esta operación.');
   return new AppError(400, 'DATABASE_OPERATION_FAILED', 'La operación no pudo completarse.');

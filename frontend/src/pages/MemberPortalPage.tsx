@@ -11,6 +11,8 @@ import { PrivacySwitch } from '../components/PrivacySwitch';
 import { ProfileDialog } from '../components/ProfileDialog';
 import { AttendanceQrCard } from '../components/AttendanceQrCard';
 import { ClassBookingConditions } from '../components/ClassBookingConditions';
+import { ClassWaitlistOffer } from '../components/ClassWaitlistOffer';
+import { classWaitlistPollInterval, refreshClassQueries, waitlistExitNotice, type ClassWaitlistEntry } from '../utils/classWaitlist';
 import { classPaymentLabel, type ClassBookingEconomics } from '../utils/classBookingEconomics';
 import '../profile-header.css';
 import '../progress.css';
@@ -27,8 +29,8 @@ type Hour = { weekday: number; opens_at: string | null; closes_at: string | null
 type Exception = { calendar_date: string; opens_at: string | null; closes_at: string | null; day_mode: 'required' | 'bonus' | 'closed'; reason?: string | null };
 type Calendar = { gym: { name: string; email?: string | null; phone?: string | null; whatsapp_phone?: string | null; timezone: string }; location: { name: string; address?: string | null; city: string; timezone: string; email?: string | null; phone?: string | null; whatsapp_phone?: string | null }; hours: Hour[]; exceptions: Exception[] };
 type PortalClassBooking = ClassBookingEconomics & { id: string; status: 'reserved' | 'attended' | 'cancelled' | 'no_show'; payment_id?: string | null };
-type PortalClassSchedule = { id: string; starts_at: string; ends_at: string; status: string; occupied: number; capacity: number; available: number; isFull: boolean; activity: { name: string; description?: string | null; billing_mode: 'included' | 'additional_fee'; price: number; currency: string; duration_minutes: number; is_active?: boolean } | null; location: { name: string; is_active?: boolean } | null; referenceState?: string; instructor?: { name: string } | null; myBooking?: PortalClassBooking | null; myWaitlist?: { id: string; position: number; status: 'waiting' | 'offered' } | null };
-type PortalActivities = { schedules: PortalClassSchedule[] };
+type PortalClassSchedule = { id: string; starts_at: string; ends_at: string; status: string; occupied: number; capacity: number; available: number; isFull: boolean; offeredCount?: number; activity: { name: string; description?: string | null; billing_mode: 'included' | 'additional_fee'; price: number; currency: string; duration_minutes: number; is_active?: boolean } | null; location: { name: string; is_active?: boolean } | null; referenceState?: string; instructor?: { name: string } | null; myBooking?: PortalClassBooking | null; myWaitlist?: ClassWaitlistEntry | null };
+type PortalActivities = { schedules: PortalClassSchedule[]; serverTime?: string; offersEnabled?: boolean; receivedAt?: number };
 type FitnessGoal = 'lose_weight' | 'gain_weight' | 'build_muscle' | 'improve_fitness' | 'maintain_weight' | 'general_wellness';
 type FitnessProfile = {
   id: string;
@@ -175,7 +177,13 @@ export function MemberPortalPage({ section }: { section: PortalSection }) {
     const start=new Date(classHistoryMonth+'-01T00:00:00Z'); const end=new Date(start);end.setUTCMonth(end.getUTCMonth()+1);end.setTime(end.getTime()-1);
     return (await api.get<PortalActivities>('/activities',{params:{from:start.toISOString(),to:end.toISOString()}})).data;
   }});
-  const classes = useQuery({ queryKey: ['my-activities'], queryFn: async () => (await api.get<PortalActivities>('/activities')).data });
+  const classes = useQuery({
+    queryKey: ['my-activities'],
+    queryFn: async () => ({ ...(await api.get<PortalActivities>('/activities')).data, receivedAt: performance.now() }),
+    refetchInterval: query => (section === 'home' || section === 'classes') && query.state.data?.offersEnabled !== false
+      ? classWaitlistPollInterval(query.state.data?.schedules) : false,
+    refetchIntervalInBackground: false,
+  });
   const fitnessProfile = useQuery({ queryKey: ['my-fitness-profile'], queryFn: async () => (await api.get<{ fitnessProfile: FitnessProfile | null }>('/members/me/fitness-profile')).data.fitnessProfile });
   const progress = useQuery({ queryKey: ['my-progress'], queryFn: async () => (await api.get<{ progress: MemberProgress }>('/members/me/progress')).data.progress });
   const [recordingWeight, setRecordingWeight] = useState(false);
@@ -198,10 +206,27 @@ export function MemberPortalPage({ section }: { section: PortalSection }) {
   const availableClasses = upcomingClasses.filter((item) => !upcomingReservations.includes(item));
   const displayName = session?.gymUser?.profiles?.full_name ?? 'Atleta';
 
-  const reserveClass = useMutation({ mutationFn: async (scheduleId: string) => api.post(`/activities/schedules/${scheduleId}/bookings/self`), onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['my-activities'] }) });
-  const cancelClass = useMutation({ mutationFn: async (bookingId: string) => api.patch(`/activities/bookings/${bookingId}/cancel-self`, { reason: 'Cancelada desde el portal del miembro' }), onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['my-activities'] }) });
-  const joinWaitlist = useMutation({ mutationFn: async (scheduleId: string) => api.post(`/activities/schedules/${scheduleId}/waitlist/self`), onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['my-activities'] }) });
-  const leaveWaitlist = useMutation({ mutationFn: async (waitlistId: string) => api.patch(`/activities/waitlist/${waitlistId}/cancel-self`, { reason: 'Salida desde el portal del miembro' }), onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['my-activities'] }) });
+  const [classActionError, setClassActionError] = useState<unknown>(null);
+  const [classNotice, setClassNotice] = useState<string | null>(null);
+  const refreshClasses = () => refreshClassQueries(queryClient);
+  const classActionCallbacks = {
+    onMutate: () => { setClassActionError(null); setClassNotice(null); },
+    onError: (error: unknown) => setClassActionError(error),
+    // A conflict may have expired an offer and promoted the next member in SQL.
+    onSettled: refreshClasses,
+  };
+  const reserveClass = useMutation({ mutationFn: async (scheduleId: string) => api.post(`/activities/schedules/${scheduleId}/bookings/self`), ...classActionCallbacks, onSuccess: () => setClassNotice('Reserva confirmada. Consulta sus condiciones y pago.') });
+  const cancelClass = useMutation({ mutationFn: async (bookingId: string) => api.patch(`/activities/bookings/${bookingId}/cancel-self`, { reason: 'Cancelada desde el portal del miembro' }), ...classActionCallbacks, onSuccess: () => setClassNotice('Reserva cancelada. Disponibilidad actualizada.') });
+  const joinWaitlist = useMutation({ mutationFn: async (scheduleId: string) => api.post(`/activities/schedules/${scheduleId}/waitlist/self`), ...classActionCallbacks, onSuccess: () => setClassNotice('Ya estás en la lista de espera. Tu posición se consulta al servidor.') });
+  const leaveWaitlist = useMutation({ mutationFn: async (waitlistId: string) => api.patch<{ waitlist: { state?: string } }>(`/activities/waitlist/${waitlistId}/cancel-self`, { reason: 'Salida o rechazo desde el portal del miembro' }), ...classActionCallbacks, onSuccess: response => setClassNotice(waitlistExitNotice(response.data.waitlist.state)) });
+  const acceptOffer = useMutation({ mutationFn: async (offerId: string) => api.post(`/activities/waitlist/offers/${offerId}/accept-self`), ...classActionCallbacks, onSuccess: () => setClassNotice('Cupo aceptado. Tu reserva y sus condiciones están confirmadas.') });
+  const refreshExpiredOffer = () => {
+    setClassNotice('El plazo visual de una oferta terminó. Consultando su estado real…');
+    void refreshClasses().then(() => {
+      setClassNotice(queryClient.getQueryState(['my-activities'])?.status === 'error' ? null
+        : 'Estado actualizado. Si la oferta ya no aparece, dejó de estar disponible; puedes consultar las opciones actuales de la clase.');
+    }).catch(error => { setClassNotice(null); setClassActionError(error); });
+  };
   const saveProfile = useMutation({
     mutationFn: async () => {
       if (passwords.current || passwords.next || passwords.confirmation) {
@@ -266,7 +291,7 @@ export function MemberPortalPage({ section }: { section: PortalSection }) {
   const showHeadingCheckIn = section !== 'profile' && section !== 'classes' && section !== 'settings';
 
   const submitProfile = (event: FormEvent) => { event.preventDefault(); saveProfile.mutate(); };
-  const mutationError = reserveClass.error ?? cancelClass.error ?? joinWaitlist.error ?? leaveWaitlist.error;
+  const mutationError = classActionError;
 
   return <>
     {section !== 'profile' && section !== 'settings' && <div className={`portal-view-heading ${section==='progress'?'progress-view-heading':section==='home'?'home-view-heading':''}`}><div><p className="eyebrow">{copy[0]}</p><h1>{section === 'home' ? `Hola, ${displayName}` : section==='progress'?'Tu progreso':copy[0]}</h1><p>{copy[1]}</p></div>{showHeadingCheckIn && <AttendanceQrCard hasAttendanceToday={hasAttendanceToday}/>}</div>}
@@ -281,7 +306,7 @@ export function MemberPortalPage({ section }: { section: PortalSection }) {
       <section className="panel portal-classes portal-home-classes"><div className="panel-title"><CalendarCheck aria-hidden="true"/><div><h2>Próximas clases</h2><p>Reserva desde tu sección de Clases.</p></div><Link className="ghost" to="/portal/classes">Ver todas<ChevronRight aria-hidden="true"/></Link></div><div className="home-class-grid">{!classes.isLoading && !classes.isError && upcomingClasses.slice(0, 3).map((item) => <ClassSummary key={item.id} schedule={item}/>)}</div>{classes.isLoading && <p role="status">Consultando cupos…</p>}{classes.isError && <p role="alert">No se pudo consultar la disponibilidad. <button onClick={() => classes.refetch()}>Reintentar</button></p>}{!classes.isLoading && !classes.isError && !upcomingClasses.length && <div className="empty compact"><Dumbbell/><strong>No hay próximas clases publicadas</strong><span>Cuando el gimnasio programe una actividad aparecerá aquí.</span></div>}</section>
     </div>}
 
-    {section === 'classes' && <section className="panel portal-classes"><div className="panel-title"><div><h2>Actividades y clases</h2><p>Reserva desde aquí. Las actividades adicionales se pagan presencialmente en recepción.</p></div><Dumbbell/></div>{mutationError && <div className="alert error">{apiErrorMessage(mutationError)}</div>}{classes.isError ? <p role="alert">No se pudo consultar la disponibilidad. <button onClick={() => classes.refetch()}>Reintentar</button></p> : classes.isLoading ? <div className="empty compact"><LoaderCircle className="spin"/><strong>Cargando clases…</strong></div> : upcomingClasses.length ? <><div className="portal-class-section-heading"><strong>Mis reservas</strong><span>{upcomingReservations.length ? 'Tu cupo ya está guardado.' : 'Todavía no tienes próximas reservas.'}</span></div>{upcomingReservations.length > 0 && <div className="portal-class-grid">{upcomingReservations.map((item) => <ClassCard key={item.id} schedule={item} membership={membership} reservePending={reserveClass.isPending} cancelPending={cancelClass.isPending} waitlistPending={joinWaitlist.isPending} leavePending={leaveWaitlist.isPending} onReserve={() => reserveClass.mutate(item.id)} onCancel={() => item.myBooking && cancelClass.mutate(item.myBooking.id)} onJoinWaitlist={() => joinWaitlist.mutate(item.id)} onLeaveWaitlist={() => item.myWaitlist && leaveWaitlist.mutate(item.myWaitlist.id)}/>)}</div>}<div className="portal-class-section-heading"><strong>Clases disponibles</strong><span>Elige una fecha y confirma tu cupo.</span></div><div className="portal-class-grid">{availableClasses.map((item) => <ClassCard key={item.id} schedule={item} membership={membership} reservePending={reserveClass.isPending} cancelPending={cancelClass.isPending} waitlistPending={joinWaitlist.isPending} leavePending={leaveWaitlist.isPending} onReserve={() => reserveClass.mutate(item.id)} onCancel={() => item.myBooking && cancelClass.mutate(item.myBooking.id)} onJoinWaitlist={() => joinWaitlist.mutate(item.id)} onLeaveWaitlist={() => item.myWaitlist && leaveWaitlist.mutate(item.myWaitlist.id)}/>)}</div></> : <div className="empty compact"><Dumbbell/><strong>No hay próximas clases publicadas</strong><span>Cuando el gimnasio programe una actividad aparecerá aquí.</span></div>}</section>}
+    {section === 'classes' && <section className="panel portal-classes"><div className="panel-title"><div><h2>Actividades y clases</h2><p>Reserva desde aquí. Las actividades adicionales se pagan presencialmente en recepción.</p></div><Dumbbell/></div>{Boolean(mutationError) && <div className="alert error" role="alert">{apiErrorMessage(mutationError)}</div>}{classNotice && <p role="status">{classNotice}</p>}{classes.isError ? <p role="alert">No se pudo consultar la disponibilidad. <button onClick={() => classes.refetch()}>Reintentar</button></p> : classes.isLoading ? <div className="empty compact"><LoaderCircle className="spin"/><strong>Cargando clases…</strong></div> : upcomingClasses.length ? <><div className="portal-class-section-heading"><strong>Mis reservas</strong><span>{upcomingReservations.length ? 'Tu cupo ya está guardado.' : 'Todavía no tienes próximas reservas.'}</span></div>{upcomingReservations.length > 0 && <div className="portal-class-grid">{upcomingReservations.map((item) => <ClassCard key={item.id} schedule={item} membership={membership} reservePending={reserveClass.isPending} cancelPending={cancelClass.isPending} waitlistPending={joinWaitlist.isPending} leavePending={leaveWaitlist.isPending} offerPending={acceptOffer.isPending} serverTime={classes.data?.serverTime} receivedAt={classes.data?.receivedAt} offersEnabled={classes.data?.offersEnabled} onAcceptOffer={offerId => acceptOffer.mutate(offerId)} onOfferRefresh={refreshExpiredOffer} onReserve={() => reserveClass.mutate(item.id)} onCancel={() => item.myBooking && cancelClass.mutate(item.myBooking.id)} onJoinWaitlist={() => joinWaitlist.mutate(item.id)} onLeaveWaitlist={() => item.myWaitlist && leaveWaitlist.mutate(item.myWaitlist.id)}/>)}</div>}<div className="portal-class-section-heading"><strong>Clases disponibles</strong><span>Elige una fecha y confirma tu cupo.</span></div><div className="portal-class-grid">{availableClasses.map((item) => <ClassCard key={item.id} schedule={item} membership={membership} reservePending={reserveClass.isPending} cancelPending={cancelClass.isPending} waitlistPending={joinWaitlist.isPending} leavePending={leaveWaitlist.isPending} offerPending={acceptOffer.isPending} serverTime={classes.data?.serverTime} receivedAt={classes.data?.receivedAt} offersEnabled={classes.data?.offersEnabled} onAcceptOffer={offerId => acceptOffer.mutate(offerId)} onOfferRefresh={refreshExpiredOffer} onReserve={() => reserveClass.mutate(item.id)} onCancel={() => item.myBooking && cancelClass.mutate(item.myBooking.id)} onJoinWaitlist={() => joinWaitlist.mutate(item.id)} onLeaveWaitlist={() => item.myWaitlist && leaveWaitlist.mutate(item.myWaitlist.id)}/>)}</div></> : <div className="empty compact"><Dumbbell/><strong>No hay próximas clases publicadas</strong><span>Cuando el gimnasio programe una actividad aparecerá aquí.</span></div>}</section>}
     {section === 'classes' && <section className="panel portal-classes"><h2>Historial de mis clases</h2><label>Mes <input type="month" value={classHistoryMonth} onChange={e=>{if(e.target.value)setClassHistoryMonth(e.target.value);}}/></label>
     {historyClasses.isLoading ? <p>Cargando historial…</p> : historyClasses.isError ? <p role="alert">No se pudo cargar el historial. <button onClick={()=>historyClasses.refetch()}>Reintentar</button></p> : <div className="portal-class-grid">{(historyClasses.data?.schedules??[]).filter(item=>(item.myBooking||item.myWaitlist)&&(new Date(item.starts_at).getTime()<=Date.now()||item.status!=='scheduled')).map(item=><UnavailableClass key={item.id} schedule={item}/>)}</div>}</section>}
 
@@ -318,25 +343,67 @@ function classReferenceIssue(s: PortalClassSchedule) {
 }
 function UnavailableClass({schedule,children}:{schedule:PortalClassSchedule;children?:import('react').ReactNode}) {
   const labels: Record<string,string> = {scheduled:'Programada',completed:'Finalizada',cancelled:'Cancelada',reserved:'Confirmada',attended:'Asististe',no_show:'No asististe',waiting:'En espera',offered:'Ofrecida',expired:'Vencida',included:'Incluido',pending:'Pendiente',confirmed:'Confirmado',refunded:'Reembolsado',registered:'Registrado',resolution_required:'Condiciones pendientes de resolución en recepción',voided:'Anulado',failed:'Fallido'};
-  return <article className="portal-class-summary"><div className="portal-class-info"><span className="eyebrow">{schedule.location?.name ?? 'Referencia de sucursal ausente'}</span><h3>{schedule.activity?.name ?? 'Referencia de actividad ausente'}</h3><p>{new Date(schedule.starts_at).toLocaleString('es-EC')} – {new Date(schedule.ends_at).toLocaleTimeString('es-EC')} · {schedule.instructor?.name ?? 'Instructor por confirmar'}</p><p>Sesión: {labels[schedule.status] ?? schedule.status}</p>{classReferenceIssue(schedule) && <p role="status">{classReferenceIssue(schedule)}</p>}{schedule.myBooking && <p>Reserva: {labels[schedule.myBooking.status] ?? schedule.myBooking.status}</p>}{schedule.myBooking?.payment_state && <p>Pago: {labels[schedule.myBooking.payment_state] ?? schedule.myBooking.payment_state}</p>}{schedule.myBooking && <><ClassBookingConditions booking={schedule.myBooking}/>{schedule.myBooking.payment_summary && <p>{classPaymentLabel(schedule.myBooking)}</p>}</>}{schedule.myWaitlist && <p>Lista de espera: {labels[schedule.myWaitlist.status] ?? schedule.myWaitlist.status}</p>}{children}</div></article>;
+  return <article className="portal-class-summary"><div className="portal-class-info"><span className="eyebrow">{schedule.location?.name ?? 'Referencia de sucursal ausente'}</span><h3>{schedule.activity?.name ?? 'Referencia de actividad ausente'}</h3><p>{new Date(schedule.starts_at).toLocaleString('es-EC')} – {new Date(schedule.ends_at).toLocaleTimeString('es-EC')} · {schedule.instructor?.name ?? 'Instructor por confirmar'}</p><p>Sesión: {labels[schedule.status] ?? schedule.status}</p>{classReferenceIssue(schedule) && <p role="status">{classReferenceIssue(schedule)}</p>}{schedule.myBooking && <p>Reserva: {labels[schedule.myBooking.status] ?? schedule.myBooking.status}</p>}{schedule.myBooking?.payment_state && <p>Pago: {labels[schedule.myBooking.payment_state] ?? schedule.myBooking.payment_state}</p>}{schedule.myBooking && <><ClassBookingConditions booking={schedule.myBooking}/>{schedule.myBooking.payment_state && <p>{classPaymentLabel(schedule.myBooking)}</p>}</>}{schedule.myWaitlist && <p>Lista de espera: {labels[schedule.myWaitlist.status] ?? schedule.myWaitlist.status}</p>}{children}</div></article>;
 }
 function ClassSummary({ schedule }: { schedule: PortalClassSchedule }) {
   if (!schedule.activity || !schedule.location || classReferenceIssue(schedule) || schedule.status !== 'scheduled') return <UnavailableClass schedule={schedule}><Link to="/portal/classes">Ver clase</Link></UnavailableClass>;
-  return <article className="portal-class-summary"><div className="portal-class-date"><b>{new Date(schedule.starts_at).toLocaleDateString('es-EC', { day: '2-digit' })}</b><span>{new Date(schedule.starts_at).toLocaleDateString('es-EC', { month: 'short' })}</span></div><div className="portal-class-info"><span className="eyebrow">{schedule.location.name}</span><h3>{schedule.activity.name}</h3><p><Clock3 aria-hidden="true"/>{new Intl.DateTimeFormat('es-EC', { weekday: 'long', hour: '2-digit', minute: '2-digit' }).format(new Date(schedule.starts_at))}</p><p><UserRound aria-hidden="true"/>{schedule.instructor?.name ?? 'Instructor por confirmar'}</p><small><UsersRound aria-hidden="true"/>{schedule.available} de {schedule.capacity} cupos disponibles</small></div><Link className="primary" to="/portal/classes">Ver clase<ChevronRight aria-hidden="true"/></Link></article>;
+  return <article className="portal-class-summary"><div className="portal-class-date"><b>{new Date(schedule.starts_at).toLocaleDateString('es-EC', { day: '2-digit' })}</b><span>{new Date(schedule.starts_at).toLocaleDateString('es-EC', { month: 'short' })}</span></div><div className="portal-class-info"><span className="eyebrow">{schedule.location.name}</span><h3>{schedule.activity.name}</h3><p><Clock3 aria-hidden="true"/>{new Intl.DateTimeFormat('es-EC', { weekday: 'long', hour: '2-digit', minute: '2-digit' }).format(new Date(schedule.starts_at))}</p><p><UserRound aria-hidden="true"/>{schedule.instructor?.name ?? 'Instructor por confirmar'}</p><small><UsersRound aria-hidden="true"/>{schedule.available} de {schedule.capacity} cupos disponibles</small>{schedule.myWaitlist && <small>{schedule.myWaitlist.status === 'offered' ? 'Se liberó un cupo para ti · abre Clases para responder' : `Lista de espera · posición #${schedule.myWaitlist.position}`}</small>}</div><Link className="primary" to="/portal/classes">Ver clase<ChevronRight aria-hidden="true"/></Link></article>;
 }
 
-function ClassCard({ schedule, membership, reservePending, cancelPending, waitlistPending, leavePending, onReserve, onCancel, onJoinWaitlist, onLeaveWaitlist }: { schedule: PortalClassSchedule; membership?: Membership; reservePending: boolean; cancelPending: boolean; waitlistPending: boolean; leavePending: boolean; onReserve: () => void; onCancel: () => void; onJoinWaitlist: () => void; onLeaveWaitlist: () => void }) {
+function ClassCard({ schedule, membership, reservePending, cancelPending, waitlistPending, leavePending, offerPending, serverTime, receivedAt, offersEnabled, onReserve, onCancel, onJoinWaitlist, onLeaveWaitlist, onAcceptOffer, onOfferRefresh }: {
+  schedule: PortalClassSchedule; membership?: Membership;
+  reservePending?: boolean; cancelPending?: boolean; waitlistPending?: boolean; leavePending?: boolean; offerPending?: boolean;
+  serverTime?: string; receivedAt?: number; offersEnabled?: boolean;
+  onReserve?: () => void; onCancel?: () => void; onJoinWaitlist?: () => void; onLeaveWaitlist?: () => void;
+  onAcceptOffer?: (offerId: string) => void; onOfferRefresh?: () => void;
+}) {
   const booked = schedule.myBooking?.status === 'reserved';
   const waiting = schedule.myWaitlist?.status === 'waiting' || schedule.myWaitlist?.status === 'offered';
-  if (!schedule.activity || !schedule.location || classReferenceIssue(schedule) || schedule.status !== 'scheduled') return <UnavailableClass schedule={schedule}>
-    {booked && <button className="small-button danger-text" disabled={cancelPending || Boolean(schedule.myBooking?.payment_id)} onClick={onCancel}>{schedule.myBooking?.payment_id ? 'Cancela en recepción' : 'Cancelar reserva'}</button>}
+  const hasPaymentRecord = Boolean(schedule.myBooking?.payment_id || schedule.myBooking?.payment_summary);
+  const started = Date.parse(schedule.starts_at) <= (serverTime ? Date.parse(serverTime) : Date.now());
+  if (!schedule.activity || !schedule.location || classReferenceIssue(schedule) || schedule.status !== 'scheduled' || started) return <UnavailableClass schedule={schedule}>
+    {started && <p role="status">La clase ya inició. No se aceptan nuevas reservas.</p>}
+    {booked && <button className="small-button danger-text" disabled={cancelPending || hasPaymentRecord} onClick={onCancel}>{hasPaymentRecord ? 'Cancela en recepción' : 'Cancelar reserva'}</button>}
     {waiting && <button className="small-button danger-text" disabled={leavePending} onClick={onLeaveWaitlist}>Salir de lista</button>}
   </UnavailableClass>;
   const existingContract = schedule.myBooking && schedule.myBooking.status !== 'cancelled' ? schedule.myBooking : null;
   const additional = existingContract ? existingContract.economic_terms?.billing_mode === 'additional_fee' : schedule.activity.billing_mode === 'additional_fee';
   const paymentConfirmed = schedule.myBooking?.payment_state === 'confirmed';
-const hasPaymentRecord = Boolean(schedule.myBooking?.payment_id || schedule.myBooking?.payment_summary);
-return <article><div className="portal-class-date"><b>{new Date(schedule.starts_at).toLocaleDateString('es-EC', { day: '2-digit' })}</b><span>{new Date(schedule.starts_at).toLocaleDateString('es-EC', { month: 'short' })}</span></div><div className="portal-class-info"><span className="eyebrow">{schedule.location.name}</span><h3>{schedule.activity.name}</h3><p>{new Intl.DateTimeFormat('es-EC', { weekday: 'long', hour: '2-digit', minute: '2-digit' }).format(new Date(schedule.starts_at))} · {schedule.instructor?.name ?? 'Instructor por confirmar'}</p><small>{schedule.available} de {schedule.capacity} cupos disponibles</small>{schedule.myBooking && <ClassBookingConditions booking={schedule.myBooking}/>}{!existingContract && additional && <small className="portal-class-payment-copy">{money(schedule.activity.price, schedule.activity.currency)} · pago presencial para una nueva reserva</small>}</div><div className="portal-class-action">{booked ? <><span className="badge reserved">Reserva confirmada</span><strong className={paymentConfirmed ? 'payment-confirmed' : 'payment-pending'}>{classPaymentLabel(schedule.myBooking!)}</strong><button className="small-button danger-text" disabled={cancelPending || hasPaymentRecord} onClick={onCancel}>{hasPaymentRecord ? 'Cancela en recepción' : 'Cancelar reserva'}</button></> : schedule.myBooking?.status === 'attended' || schedule.myBooking?.status === 'no_show' ? <><span className={`badge ${schedule.myBooking.status}`}>{schedule.myBooking.status === 'attended' ? 'Asististe' : 'No asististe'}</span><small>{classPaymentLabel(schedule.myBooking)}</small></> : waiting ? <><span className="badge waitlisted">Espera #{schedule.myWaitlist?.position}</span><button className="small-button danger-text" disabled={leavePending} onClick={onLeaveWaitlist}>Salir de lista</button></> : schedule.myBooking?.payment_state === 'refunded' ? <><span className="badge cancelled">Pago reembolsado</span><button className="ghost" disabled>Nueva reserva en recepción</button></> : additional ? <><strong>{money(schedule.activity.price, schedule.activity.currency)}</strong><button className={schedule.available < 1 ? 'ghost' : 'primary'} disabled={!membership || schedule.available < 1 || reservePending} onClick={onReserve}>{!membership ? 'Requiere membresía' : schedule.available < 1 ? 'Sin cupos' : 'Reservar · pagar en recepción'}</button><small>No se realizará ningún cobro en FitLab.</small></> : <button className={schedule.available < 1 ? 'ghost' : 'primary'} disabled={!membership || (schedule.available < 1 ? waitlistPending : reservePending)} onClick={schedule.available < 1 ? onJoinWaitlist : onReserve}>{schedule.available < 1 ? 'Unirme a lista de espera' : !membership ? 'Requiere membresía' : 'Reservar'}</button>}</div></article>;
+  const offered = schedule.myWaitlist?.status === 'offered' && Boolean(schedule.myWaitlist.offer_id);
+  const busy = reservePending || cancelPending || waitlistPending || leavePending || offerPending;
+  return <article>
+    <div className="portal-class-date"><b>{new Date(schedule.starts_at).toLocaleDateString('es-EC', { day: '2-digit' })}</b><span>{new Date(schedule.starts_at).toLocaleDateString('es-EC', { month: 'short' })}</span></div>
+    <div className="portal-class-info">
+      <span className="eyebrow">{schedule.location.name}</span><h3>{schedule.activity.name}</h3>
+      <p>{new Intl.DateTimeFormat('es-EC', { weekday: 'long', hour: '2-digit', minute: '2-digit' }).format(new Date(schedule.starts_at))} · {schedule.instructor?.name ?? 'Instructor por confirmar'}</p>
+      <small>{schedule.available} de {schedule.capacity} cupos disponibles</small>
+      {Boolean(schedule.offeredCount) && <small>{schedule.offeredCount} cupo(s) temporalmente ofrecido(s)</small>}
+      {schedule.myBooking && <ClassBookingConditions booking={schedule.myBooking}/>}
+      {!existingContract && additional && <small className="portal-class-payment-copy">{money(schedule.activity.price, schedule.activity.currency)} · precio actual para una nueva reserva; se confirma al aceptar o reservar</small>}
+    </div>
+    <div className="portal-class-action" style={offered ? { gridColumn: '1 / -1', alignItems: 'stretch', minWidth: 0 } : undefined}>{booked ? <>
+      <span className="badge reserved">Reserva confirmada</span><strong className={paymentConfirmed ? 'payment-confirmed' : 'payment-pending'}>{classPaymentLabel(schedule.myBooking!)}</strong>
+      <button className="small-button danger-text" disabled={busy || hasPaymentRecord} onClick={onCancel}>{hasPaymentRecord ? 'Cancela en recepción' : 'Cancelar reserva'}</button>
+    </> : schedule.myBooking?.status === 'attended' || schedule.myBooking?.status === 'no_show' ? <>
+      <span className={`badge ${schedule.myBooking.status}`}>{schedule.myBooking.status === 'attended' ? 'Asististe' : 'No asististe'}</span><small>{classPaymentLabel(schedule.myBooking)}</small>
+    </> : offered ? <ClassWaitlistOffer entry={schedule.myWaitlist!} serverTime={serverTime} receivedAt={receivedAt} busy={busy} disabled={offersEnabled === false} onAccept={() => onAcceptOffer?.(schedule.myWaitlist!.offer_id!)} onReject={onLeaveWaitlist} onRefresh={onOfferRefresh}/>
+    : waiting ? <>
+      <span className="badge waitlisted">Espera #{schedule.myWaitlist?.position}</span>
+      <small>La posición es informada por el servidor.</small>
+      {offersEnabled === false && <small>La asignación automática de cupos aún no está habilitada.</small>}
+      <button className="small-button danger-text" disabled={busy} onClick={onLeaveWaitlist}>Salir de lista</button>
+    </> : schedule.myBooking?.payment_state === 'refunded' ? <>
+      <span className="badge cancelled">Pago reembolsado</span><button className="ghost" disabled>Nueva reserva en recepción</button>
+    </> : schedule.available < 1 ? <>
+      <span className="badge waitlisted">Clase llena</span>
+      <button className="ghost" disabled={!membership || busy} onClick={onJoinWaitlist}>{!membership ? 'Requiere membresía' : 'Unirme a lista de espera'}</button>
+      <small>Entrar en espera no es una reserva ni congela el precio.</small>
+    </> : <>
+      {additional && <strong>{money(schedule.activity.price, schedule.activity.currency)}</strong>}
+      <button className="primary" disabled={!membership || busy} onClick={onReserve}>{!membership ? 'Requiere membresía' : additional ? 'Reservar · pagar en recepción' : 'Reservar'}</button>
+      {additional && <small>No se realizará ningún cobro en FitLab.</small>}
+    </>}</div>
+  </article>;
 }
 
 function ProgressView({ range, days, firstOffset, membership, currentWeek, streak, attendances, validCount, progress, progressLoading, onRecordWeight }: { range: ReturnType<typeof monthRange>; days: Array<{ day: number; date: string; mode: string; attendance?: Attendance }>; firstOffset: number; membership?: Membership; currentWeek?: WeeklyProgress; streak?: Streak; attendances: Attendance[]; validCount: number; progress?: MemberProgress; progressLoading: boolean; onRecordWeight: () => void }) {

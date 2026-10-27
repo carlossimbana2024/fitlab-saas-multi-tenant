@@ -3,6 +3,7 @@ import type { Request, Response } from 'express';
 import { classBookingEconomics, type ClassTermsRow } from '../src/utils/classBookingEconomics.js';
 import { fromSupabaseError } from '../src/utils/supabaseError.js';
 import { React, MemoryRouter, renderToStaticMarkup, pageComponents, ClassBookingConditions } from './helpers/class-economics-render.js';
+import { activityStateFixture } from './helpers/activity-state-fixture.js';
 const db = vi.hoisted(() => ({ from: vi.fn(), rpc: vi.fn() }));
 vi.mock('../src/config/supabase.js', () => ({ supabaseAdmin: db }));
 import { getClassReceipt, listActivities, reserveClassForMember, reserveClassForSelf } from '../src/controllers/activity.controller.js';
@@ -66,7 +67,9 @@ beforeEach(() => {
     class_bookings: [{ id: 'own', gym_id: 'gym', class_schedule_id: scheduleId, member_user_id: memberId, status: 'reserved', economic_versions: [term()] }],
     staff_permissions: [{ gym_id: 'gym', staff_user_id: 'coach', permission_key: 'classes.attendance_manage', access_mode: 'allowed' }],
   };
-  db.rpc.mockReset(); db.rpc.mockResolvedValue({ data: {}, error: null });
+  db.rpc.mockReset(); db.rpc.mockImplementation(async(name:string,args:any)=>({
+    data:name==='get_class_waitlist_state_backend' ? activityStateFixture(tables,args) : {},error:null,
+  }));
   db.from.mockImplementation((table: string) => {
     let rows = [...(tables[table] ?? [])]; let head = false;
     const q: any = {

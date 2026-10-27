@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import {
+  acceptClassWaitlistOffer,
   cancelClassSchedule,
   cancelManagedClassBooking,
   cancelOwnClassBooking,
@@ -32,6 +33,7 @@ activityRouter.patch('/schedules/:id/cancel', checkPermission('classes.manage'),
 activityRouter.post('/schedules/:id/bookings/self', asyncHandler(reserveClassForSelf));
 activityRouter.post('/schedules/:id/waitlist/self', asyncHandler(joinClassWaitlist));
 activityRouter.patch('/waitlist/:id/cancel-self', asyncHandler(leaveClassWaitlist));
+activityRouter.post('/waitlist/offers/:id/accept-self', asyncHandler(acceptClassWaitlistOffer));
 activityRouter.post('/schedules/:id/bookings', checkPermission('classes.bookings_manage'), asyncHandler(reserveClassForMember));
 activityRouter.patch('/bookings/:id/cancel-self', asyncHandler(cancelOwnClassBooking));
 activityRouter.patch('/bookings/:id/cancel', checkPermission('classes.bookings_manage'), asyncHandler(cancelManagedClassBooking));

@@ -4,7 +4,8 @@ import {readFileSync} from 'node:fs';
 import {createRequire} from 'node:module';
 import ts from 'typescript';
 import { ClassBookingConditions, economicsLabels } from './helpers/class-economics-render.js';
-const db=vi.hoisted(()=>({from:vi.fn()}));
+import { activityStateFixture } from './helpers/activity-state-fixture.js';
+const db=vi.hoisted(()=>({from:vi.fn(),rpc:vi.fn()}));
 vi.mock('../src/config/supabase.js',()=>({supabaseAdmin:db}));
 import {listActivities} from '../src/controllers/activity.controller.js';
 
@@ -13,6 +14,11 @@ const base={id:'session',gym_id:'gym',extra_class_id:'activity',location_id:'bra
 let tables:Record<string,any[]>;
 beforeEach(()=>{
  tables={extra_classes:[{id:'activity',gym_id:'gym',name:'Boxeo',is_active:true,capacity:5,billing_mode:'included'}],gym_locations:[{id:'branch',gym_id:'gym',name:'Centro',is_active:true}],class_schedules:[base],class_bookings:[],class_waitlists:[],member_payments:[]};
+ db.rpc.mockReset();
+ db.rpc.mockImplementation(async(name:string,args:any)=>{
+  if(name!=='get_class_waitlist_state_backend')throw new Error('Unexpected RPC '+name);
+  return {data:activityStateFixture(tables,args),error:null};
+ });
  db.from.mockImplementation((table:string)=>{
   let rows=[...(tables[table]??[])];
   let head=false;

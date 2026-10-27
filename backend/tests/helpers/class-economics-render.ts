@@ -19,6 +19,10 @@ function compile(source: string, dependencies: Record<string, unknown> = {}) {
 }
 const read = (path: string) => readFileSync(new URL('../../../frontend/src/' + path, import.meta.url), 'utf8');
 export const economicsLabels = compile(read('utils/classBookingEconomics.ts'));
+export const waitlistHelpers = compile(read('utils/classWaitlist.ts'));
+export const { ClassWaitlistOffer } = compile(read('components/ClassWaitlistOffer.tsx'), {
+  '../utils/classWaitlist': waitlistHelpers,
+});
 export const { ClassBookingConditions } = compile(read('components/ClassBookingConditions.tsx'), {
   '../utils/classBookingEconomics': economicsLabels,
 });
@@ -26,7 +30,7 @@ export function pageComponents(page: string, start: string, end: string | undefi
   const source = read('pages/' + page);
   const body = source.slice(source.indexOf(start), end ? source.indexOf(end) : undefined);
   const scope = {
-    React, Link, ...icons, ClassBookingConditions, ...economicsLabels,
+    React, Link, ...icons, ClassBookingConditions, ClassWaitlistOffer, ...economicsLabels,
     money: (amount: number, currency: string) => new Intl.NumberFormat('es-EC', { style: 'currency', currency }).format(amount),
     dateTime: (date: string) => date,
     bookingNames: { reserved: 'Programada', cancelled: 'Cancelada', attended: 'Asistió', no_show: 'No asistió' },

@@ -15,6 +15,28 @@ import {
 
 const uuid = z.string().uuid();
 
+// PostgreSQL owns positions, offer expiry and exact held/occupied seat counts.
+// A failed/incomplete RPC must never be rendered as an empty queue/free seats.
+const waitlistEntrySchema = z.object({
+  id: z.string().min(1), member_user_id: z.string().min(1),
+  status: z.enum(['waiting', 'offered']), state: z.enum(['waiting', 'offered']),
+  position: z.number().int().positive(), joined_at: z.string().datetime({ offset: true }),
+  offer_id: z.string().nullable(), offered_at: z.string().datetime({ offset: true }).nullable(),
+  expires_at: z.string().datetime({ offset: true }).nullable(),
+}).refine(entry => entry.status === entry.state
+  && (entry.status !== 'offered' || Boolean(entry.offer_id && entry.offered_at && entry.expires_at)), {
+  message: 'La entrada de espera y su oferta no son coherentes.',
+});
+const waitlistStateSchema = z.object({
+  server_time: z.string().datetime({ offset: true }), offers_enabled: z.boolean(),
+  sessions: z.array(z.object({
+    class_schedule_id: z.string().min(1), capacity: z.number().int().nonnegative(),
+    occupied: z.number().int().nonnegative(), offered_count: z.number().int().nonnegative(),
+    available: z.number().int().nonnegative(), waitlist: z.array(waitlistEntrySchema),
+    myWaitlist: waitlistEntrySchema.nullable(),
+  })),
+});
+
 function relatedOne<T>(value: T | T[] | null | undefined): T | undefined {
   return Array.isArray(value) ? value[0] : value ?? undefined;
 }
@@ -81,21 +103,23 @@ export async function listActivities(request: Request, response: Response) {
   const activities = activitiesResult.data ?? [];
   const schedules = schedulesResult.data ?? [];
   const scheduleIds = schedules.map((schedule) => schedule.id);
-  // Exact HEAD counts are independent of row-return limits and reveal no participants.
-  // Bound concurrency for large date ranges instead of issuing 500 requests at once.
-  const occupiedBySchedule = new Map<string, number>();
-  for (let offset = 0; offset < scheduleIds.length; offset += 8) {
-    await Promise.all(scheduleIds.slice(offset, offset + 8).map(async (scheduleId) => {
-      const { count, error } = await supabaseAdmin.from('class_bookings')
-        .select('id', { count: 'exact', head: true })
-        .eq('gym_id', request.tenant!.gymId).eq('class_schedule_id', scheduleId)
-        .in('status', ['reserved', 'attended']);
-      if (error) throw fromSupabaseError(error);
-      if (count === null || count === undefined) {
-        throw new AppError(503, 'CLASS_OCCUPANCY_UNAVAILABLE', 'No se pudo consultar la disponibilidad de las clases.');
-      }
-      occupiedBySchedule.set(scheduleId, count);
-    }));
+  // Reconcile BEFORE fetching bookings: accepting/expiry may have changed state.
+  // SQL COUNT(*) preserves FIT-MEMBER-003 independently of PostgREST row limits.
+  const stateResult = await supabaseAdmin.rpc('get_class_waitlist_state_backend', {
+    target_gym_id: request.tenant!.gymId,
+    target_actor_gym_user_id: request.tenant!.gymUserId,
+    target_schedule_ids: scheduleIds,
+  });
+  if (stateResult.error) throw fromSupabaseError(stateResult.error);
+  const parsedState = waitlistStateSchema.safeParse(stateResult.data);
+  if (!parsedState.success) {
+    throw new AppError(503, 'CLASS_OCCUPANCY_UNAVAILABLE', 'No se pudo consultar la disponibilidad y lista de espera de las clases.');
+  }
+  const waitlistState = parsedState.data;
+  const stateBySchedule = new Map(waitlistState.sessions.map(session => [session.class_schedule_id, session]));
+  if (stateBySchedule.size !== scheduleIds.length || waitlistState.sessions.length !== scheduleIds.length
+    || scheduleIds.some(id => !stateBySchedule.has(id))) {
+    throw new AppError(503, 'CLASS_OCCUPANCY_UNAVAILABLE', 'La disponibilidad recibida está incompleta. Actualiza la consulta.');
   }
 
   let bookingsQuery = scheduleIds.length
@@ -131,16 +155,9 @@ export async function listActivities(request: Request, response: Response) {
       .eq('gym_id', request.tenant!.gymId).in('id', paymentIds)
     : { data: [], error: null };
   if (paymentsResult.error) throw fromSupabaseError(paymentsResult.error);
-  const waitlistsResult = scheduleIds.length && (isMember || classAccess.bookings)
-    ? await supabaseAdmin.from('class_waitlists')
-      .select('id,class_schedule_id,member_user_id,status,joined_at,offered_at,cancelled_at,cancellation_reason')
-      .eq('gym_id', request.tenant!.gymId).in('class_schedule_id', scheduleIds)
-      .order('joined_at')
-    : { data: [], error: null };
-  if (waitlistsResult.error) throw fromSupabaseError(waitlistsResult.error);
-  const waitlists = isMember
-    ? (waitlistsResult.data ?? []).filter((waitlist) => waitlist.member_user_id === request.tenant!.gymUserId && ['waiting', 'offered'].includes(waitlist.status))
-    : (waitlistsResult.data ?? []).filter(item => ['waiting', 'offered'].includes(item.status));
+  const waitlists = waitlistState.sessions.flatMap(session => session.waitlist
+    .filter(entry => isMember ? entry.member_user_id === request.tenant!.gymUserId : classAccess.bookings)
+    .map(entry => ({ ...entry, class_schedule_id: session.class_schedule_id })));
 
   const activityById = new Map(activities.map((activity) => [activity.id, activity]));
   const locationById = new Map((locationsResult.data ?? []).map((location) => [location.id, location]));
@@ -163,6 +180,8 @@ export async function listActivities(request: Request, response: Response) {
   }
 
   response.json({
+    serverTime: waitlistState.server_time,
+    offersEnabled: waitlistState.offers_enabled,
     access: classAccess,
     activities: activities.filter(item => (!isMember && input.data.includeInactive) || item.is_active),
     locations: (locationsResult.data ?? []).filter(item => item.is_active),
@@ -172,29 +191,29 @@ export async function listActivities(request: Request, response: Response) {
       .map((person) => ({ id: person.id, name: gymUserName(person), phone: relatedOne(person.profiles)?.phone ?? person.managed_phone ?? null })) : [],
     schedules: schedules.map((schedule) => {
       const scheduleBookings = bookingsBySchedule.get(schedule.id) ?? [];
-      const occupied = occupiedBySchedule.get(schedule.id)!;
+      const queueState = stateBySchedule.get(schedule.id)!;
       const activity = activityById.get(schedule.extra_class_id);
       const location = locationById.get(schedule.location_id);
       const referenceState = !activity || !location ? 'missing'
         : !activity.is_active && !location.is_active ? 'both_inactive'
         : !activity.is_active ? 'activity_inactive'
         : !location.is_active ? 'location_inactive' : 'active';
-      const capacity = schedule.capacity_override ?? activity?.capacity ?? 0;
       return {
         ...schedule,
         activity: activity ?? null,
         referenceState,
         location: locationById.get(schedule.location_id) ?? null,
         instructor: schedule.instructor_user_id ? { id: schedule.instructor_user_id, name: gymUserName(personById.get(schedule.instructor_user_id)) } : null,
-        occupied,
-        capacity,
-        available: Math.max(0, capacity - occupied),
-        isFull: occupied >= capacity,
+        occupied: queueState.occupied,
+        capacity: queueState.capacity,
+        offeredCount: queueState.offered_count,
+        available: queueState.available,
+        isFull: queueState.available === 0,
         myBooking: isMember && scheduleBookings[0]
           ? bookingEconomics(scheduleBookings[0])
           : null,
         waitlistCount: isMember ? undefined : waitlists.filter((waitlist) => waitlist.class_schedule_id === schedule.id).length,
-        myWaitlist: isMember ? (waitlistsResult.data ?? []).find((waitlist) => waitlist.class_schedule_id === schedule.id && waitlist.member_user_id === request.tenant!.gymUserId) ?? null : null,
+        myWaitlist: isMember && queueState.myWaitlist?.member_user_id === request.tenant!.gymUserId ? queueState.myWaitlist : null,
       };
     }).filter(schedule => !isMember || schedule.myBooking || schedule.myWaitlist
       || (schedule.referenceState === 'active' && schedule.status === 'scheduled')),
@@ -206,7 +225,6 @@ export async function listActivities(request: Request, response: Response) {
     waitlists: isMember || classAccess.bookings ? waitlists.map((waitlist) => ({
       ...waitlist,
       member: isMember ? null : { id: waitlist.member_user_id, name: gymUserName(personById.get(waitlist.member_user_id)) },
-      position: waitlists.filter((item) => item.class_schedule_id === waitlist.class_schedule_id && item.joined_at <= waitlist.joined_at).length,
     })) : [],
   });
 }
@@ -357,10 +375,34 @@ export async function joinClassWaitlist(request: Request, response: Response) {
 export async function leaveClassWaitlist(request: Request, response: Response) {
   const waitlistId = request.params.id;
   if (request.tenant!.role !== 'member' || !waitlistId || !uuid.safeParse(waitlistId).success) throw new AppError(403, 'MEMBER_SELF_CANCELLATION_REQUIRED', 'Esta acción debe realizarla el propio miembro.');
-  const reason = typeof request.body?.reason === 'string' ? request.body.reason : 'Salida voluntaria de la lista';
-  const { data, error } = await supabaseAdmin.rpc('leave_class_waitlist_backend', { target_gym_id: request.tenant!.gymId, target_waitlist_id: waitlistId, target_actor_gym_user_id: request.tenant!.gymUserId, supplied_reason: reason });
+  const input = z.object({ reason: z.string().trim().min(1).max(500).default('Salida voluntaria de la lista') }).safeParse(request.body ?? {});
+  if (!input.success) throw new AppError(400, 'INVALID_CLASS_WAITLIST_ACTION', 'Indica un motivo de hasta 500 caracteres.');
+  // SQL distinguishes leaving a waiting entry from rejecting an active offer.
+  const { data, error } = await supabaseAdmin.rpc('leave_class_waitlist_backend', { target_gym_id: request.tenant!.gymId, target_waitlist_id: waitlistId, target_actor_gym_user_id: request.tenant!.gymUserId, supplied_reason: input.data.reason });
   if (error) throw fromSupabaseError(error);
   response.json({ waitlist: data });
+}
+
+export async function acceptClassWaitlistOffer(request: Request, response: Response) {
+  const offerId = request.params.id;
+  if (request.tenant!.role !== 'member' || !offerId || !uuid.safeParse(offerId).success) {
+    throw new AppError(403, 'MEMBER_SELF_BOOKING_REQUIRED', 'Esta acción debe realizarla el propio miembro.');
+  }
+  const { data, error } = await supabaseAdmin.rpc('accept_class_waitlist_offer_backend', {
+    target_gym_id: request.tenant!.gymId,
+    target_offer_id: offerId,
+    target_actor_gym_user_id: request.tenant!.gymUserId,
+  });
+  if (error) throw fromSupabaseError(error);
+  const result = z.discriminatedUnion('accepted', [
+    z.object({ accepted: z.literal(true), booking_id: z.string().uuid(), already_accepted: z.boolean(), server_time: z.string().datetime({ offset: true }) }),
+    z.object({ accepted: z.literal(false), code: z.string(), server_time: z.string().datetime({ offset: true }) }),
+  ]).safeParse(data);
+  if (!result.success) throw new AppError(503, 'CLASS_WAITLIST_RESPONSE_INVALID', 'No se pudo comprobar el resultado. Actualiza tus clases antes de volver a intentarlo.');
+  // The RPC has committed expiry/advancement even for accepted=false. Do not
+  // start a compensating transaction or recreate that state machine in Express.
+  if (!result.data.accepted) throw fromSupabaseError({ message: result.data.code });
+  response.json(result.data);
 }
 
 export async function reserveClassForMember(request: Request, response: Response) {
