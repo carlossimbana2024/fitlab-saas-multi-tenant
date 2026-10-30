@@ -1,8 +1,8 @@
 import axios, { type InternalAxiosRequestConfig } from 'axios';
+import { installSessionRecovery } from './sessionRecovery';
 
 type ElevationHandler = (permission: string) => Promise<string>;
 type RetriableConfig = InternalAxiosRequestConfig & {
-  _retried?: boolean;
   _elevationRetried?: boolean;
 };
 
@@ -19,13 +19,10 @@ export const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
+export const sessionRecovery = installSessionRecovery(api);
+
 api.interceptors.response.use(undefined, async (error) => {
   const original = error.config as RetriableConfig;
-  if (error.response?.status === 401 && !original?._retried && !original?.url?.includes('/auth/')) {
-    original._retried = true;
-    await api.post('/auth/refresh');
-    return api(original);
-  }
   const permission = error.response?.data?.error?.details?.permission;
   if (
     error.response?.status === 403

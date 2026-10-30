@@ -2,6 +2,7 @@ import type { RequestHandler } from 'express';
 import { supabasePublic, createUserSupabaseClient } from '../config/supabase.js';
 import { AppError } from '../errors/AppError.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
+import { authCall, checkAuthAvailability } from '../utils/authAvailability.js';
 
 export const verifyJWT: RequestHandler = asyncHandler(async (request, _response, next) => {
   const bearer = request.headers.authorization?.startsWith('Bearer ')
@@ -13,7 +14,8 @@ export const verifyJWT: RequestHandler = asyncHandler(async (request, _response,
     throw new AppError(401, 'AUTH_REQUIRED', 'Debes iniciar sesión.');
   }
 
-  const { data, error } = await supabasePublic.auth.getUser(accessToken);
+  const { data, error } = await authCall(() => supabasePublic.auth.getUser(accessToken));
+  checkAuthAvailability(error);
   if (error || !data.user) {
     throw new AppError(401, 'INVALID_SESSION', 'La sesión no es válida o expiró.');
   }

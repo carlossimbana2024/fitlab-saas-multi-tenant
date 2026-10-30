@@ -6,6 +6,7 @@ import { AppError } from '../errors/AppError.js';
 import { stripe } from '../config/stripe.js';
 import { isValidTimeZone } from '../utils/timezone.js';
 import { signAvatarUrl } from '../services/memberProfile.service.js';
+import { authCall, checkAuthAvailability } from '../utils/authAvailability.js';
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -201,10 +202,19 @@ export async function refresh(request: Request, response: Response) {
   if (!parsed.success) throw new AppError(400, 'INVALID_REFRESH_INPUT', 'La solicitud de renovación no es válida.');
   const input = parsed.data;
   const refreshToken = request.signedCookies?.fitlab_refresh_token ?? input.refreshToken;
-  if (!refreshToken) throw new AppError(401, 'REFRESH_TOKEN_REQUIRED', 'No existe una sesión renovable.');
+  if (!refreshToken) {
+    response.clearCookie('fitlab_access_token', cookieBase);
+    response.clearCookie('fitlab_refresh_token', cookieBase);
+    throw new AppError(401, 'REFRESH_TOKEN_REQUIRED', 'No existe una sesión renovable.');
+  }
 
-  const { data, error } = await supabasePublic.auth.refreshSession({ refresh_token: refreshToken });
-  if (error || !data.session) throw new AppError(401, 'INVALID_REFRESH_TOKEN', 'La sesión no puede renovarse.');
+  const { data, error } = await authCall(() => supabasePublic.auth.refreshSession({ refresh_token: refreshToken }));
+  checkAuthAvailability(error);
+  if (error || !data.session) {
+    response.clearCookie('fitlab_access_token', cookieBase);
+    response.clearCookie('fitlab_refresh_token', cookieBase);
+    throw new AppError(401, 'INVALID_REFRESH_TOKEN', 'La sesión no puede renovarse.');
+  }
 
   response.cookie('fitlab_access_token', data.session.access_token, { ...cookieBase, maxAge: data.session.expires_in * 1000 });
   response.cookie('fitlab_refresh_token', data.session.refresh_token, { ...cookieBase, maxAge: 30 * 24 * 60 * 60 * 1000 });
