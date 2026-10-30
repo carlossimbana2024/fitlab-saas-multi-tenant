@@ -131,7 +131,8 @@ export async function listActivities(request: Request, response: Response) {
     : null;
   if (bookingsQuery && isMember) bookingsQuery = bookingsQuery.eq('member_user_id', request.tenant!.gymUserId);
 
-  const [bookingsResult, peopleResult] = await Promise.all([
+  const instructorIds = [...new Set(schedules.map(s => s.instructor_user_id).filter(Boolean))] as string[];
+  const [bookingsResult, peopleResult, instructorResult] = await Promise.all([
     bookingsQuery ?? Promise.resolve({ data: [], error: null }),
     isMember
       ? Promise.resolve({ data: [], error: null })
@@ -139,8 +140,12 @@ export async function listActivities(request: Request, response: Response) {
         .select('id,role,status,default_location_id,managed_full_name,managed_phone,profiles(full_name,phone)')
         .eq('gym_id', request.tenant!.gymId).in('role', ['owner', 'staff', 'member'])
         .in('status', ['active', 'suspended']).order('created_at'),
+    isMember && instructorIds.length
+      ? supabaseAdmin.from('gym_users').select('id,managed_full_name,profiles(full_name)')
+        .eq('gym_id', request.tenant!.gymId).in('id', instructorIds).in('role', ['owner', 'staff'])
+      : Promise.resolve({ data: [], error: null }),
   ]);
-  const relatedError = bookingsResult.error ?? peopleResult.error;
+  const relatedError = bookingsResult.error ?? peopleResult.error ?? instructorResult.error;
   if (relatedError) throw fromSupabaseError(relatedError);
   const bookings = bookingsResult.data ?? [];
   // Members only receive their own bookings and instructors only receive
@@ -203,7 +208,9 @@ export async function listActivities(request: Request, response: Response) {
         activity: activity ?? null,
         referenceState,
         location: locationById.get(schedule.location_id) ?? null,
-        instructor: schedule.instructor_user_id ? { id: schedule.instructor_user_id, name: gymUserName(personById.get(schedule.instructor_user_id)) } : null,
+        instructor: schedule.instructor_user_id ? { id: schedule.instructor_user_id, name: gymUserName(isMember
+          ? instructorResult.data?.find(person => person.id === schedule.instructor_user_id)
+          : personById.get(schedule.instructor_user_id)) } : null,
         occupied: queueState.occupied,
         capacity: queueState.capacity,
         offeredCount: queueState.offered_count,

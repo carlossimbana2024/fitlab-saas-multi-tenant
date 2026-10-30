@@ -152,6 +152,9 @@ try {
     then raise exception 'CRON_REGISTRATION_INVALID';end if;end;$$;`);
   console.log('0052: inactive, idempotent, unrelated job untouched (stub); actual pg_cron requires Supabase.');
   await db.exec(await readFile(resolve(root,'supabase/tests/0051_class_waitlist_offers_verify.sql'),'utf8'));
+  await db.exec(await readFile(resolve(root,'supabase/migrations/0053_class_schedule_opening_hours.sql'),'utf8'));
+  const hoursResults = await db.exec(await readFile(resolve(root,'supabase/tests/0053_class_schedule_opening_hours.sql'),'utf8'));
+  console.log('0053:', hoursResults.flatMap(r => r.rows));
 } catch(error) {
   console.error(error.message,error.where??'',error.detail??'');
   process.exitCode=1;

@@ -91,6 +91,7 @@ const knownErrors: Record<string, { status: number; message: string }> = {
   CLASS_SCHEDULE_NOT_CANCELLABLE: { status: 404, message: 'La clase no existe o ya no puede cancelarse.' },
   CLASS_SCHEDULE_HAS_PAID_BOOKINGS: { status: 409, message: 'Primero reembolsa las reservas pagadas antes de cancelar la clase.' },
   CLASS_CAPACITY_REACHED: { status: 409, message: 'La clase ya no tiene cupos disponibles.' },
+  CLASS_OUTSIDE_OPENING_HOURS: { status: 409, message: 'La clase completa debe estar dentro del horario vigente de la sucursal. Revisa apertura, cierre y excepciones del calendario.' },
   CLASS_REQUIRES_RECEPTION_PAYMENT: { status: 409, message: 'Esta actividad requiere pago y debe reservarse desde recepción.' },
   CLASS_BOOKING_REQUIRES_RECEPTION: { status: 409, message: 'Esta reserva tiene historial de pago y debe gestionarse en recepción.' },
   CLASS_ADDITIONAL_PRICE_REQUIRED: { status: 409, message: 'La actividad adicional no tiene un precio válido configurado.' },

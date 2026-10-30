@@ -1,9 +1,11 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { React, MemoryRouter, renderToStaticMarkup, pageComponents, ClassWaitlistOffer, waitlistHelpers } from './helpers/class-economics-render.js';
 
 const { ClassCard, ClassSummary } = pageComponents('MemberPortalPage.tsx', 'function classReferenceIssue', 'function ProgressView', ['ClassCard', 'ClassSummary']);
 const { Roster } = pageComponents('ActivitiesPage.tsx', 'function Roster', undefined, ['Roster']);
 const clock = '2026-10-26T12:00:00Z';
+beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(new Date(clock)); });
+afterEach(() => { vi.useRealTimers(); });
 const entry = { id: 'queue-id', position: 3, status: 'offered', state: 'offered', offer_id: 'offer-id', expires_at: '2026-10-26T12:30:00Z' };
 const schedule = () => ({ id: 's', status: 'scheduled', starts_at: '2026-10-27T18:00:00Z', ends_at: '2026-10-27T19:00:00Z', available: 1, occupied: 8, offeredCount: 1, capacity: 10,
   activity: { name: 'Boxeo', is_active: true, billing_mode: 'included', price: 0, currency: 'USD' }, location: { name: 'Centro', is_active: true }, myWaitlist: null });

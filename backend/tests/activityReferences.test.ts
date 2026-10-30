@@ -37,6 +37,23 @@ async function list(query:object={}) {
  return response.json.mock.calls[0]![0];
 }
 describe('session reference contract',()=>{
+ it('exposes only the assigned instructor name to members, scoped to the gym',async()=>{
+  tables.class_schedules[0]={...base,instructor_user_id:'coach'};
+  tables.gym_users=[{id:'coach',gym_id:'gym',role:'staff',managed_full_name:'Fallback',managed_phone:'PRIVATE',profiles:{full_name:'Ana Coach',phone:'PRIVATE'}},
+    {id:'other',gym_id:'gym',role:'staff',profiles:{full_name:'Other Coach'}},
+    {id:'coach',gym_id:'foreign',role:'staff',profiles:{full_name:'Foreign Coach'}}];
+  const result=await list();
+  expect(result.schedules[0].instructor).toEqual({id:'coach',name:'Ana Coach'});
+  expect(result.instructors).toEqual([]); expect(result.members).toEqual([]);
+  expect(JSON.stringify(result)).not.toContain('PRIVATE');
+  expect(JSON.stringify(result)).not.toContain('Foreign Coach');
+  expect(JSON.stringify(result)).not.toContain('Other Coach');
+ });
+ it('uses the managed instructor name when there is no linked profile',async()=>{
+  tables.class_schedules[0]={...base,instructor_user_id:'coach'};
+  tables.gym_users=[{id:'coach',gym_id:'gym',role:'staff',managed_full_name:'Managed Coach',profiles:null}];
+  expect((await list()).schedules[0].instructor.name).toBe('Managed Coach');
+ });
  it('keeps active classes and tenant/location filters',async()=>{
   tables.class_schedules.push({...base,id:'foreign',gym_id:'other'});
   expect((await list()).schedules.map((s:any)=>s.id)).toEqual(['session']);
