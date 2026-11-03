@@ -3,6 +3,7 @@ import { supabaseAdmin } from '../config/supabase.js';
 import { AppError } from '../errors/AppError.js';
 import { fromSupabaseError } from '../utils/supabaseError.js';
 
+const weightMaintenance = z.object({ currentWeightKg: z.number().finite().min(20).max(500), targetWeightKg: z.number().finite().min(20).max(500), differenceKg: z.number().finite() });
 const count = z.number().int().nonnegative();
 const bucket = z.object({ period: z.string(), count });
 export const attendanceSummarySchema = z.object({
@@ -15,7 +16,8 @@ export const communityPageSchema = z.object({
   items: z.array(z.object({
     id: z.string().uuid(), name: z.string(), avatarPath: z.string().nullable(), goalType: z.string().nullable(),
     publicMessage: z.string().nullable(), joinedAt: z.string().nullable(), currentStreak: count.nullable(),
-    longestStreak: count.nullable(), monthlyAttendances: count.nullable(), progressPercent: z.number().nullable(),
+    longestStreak: count.nullable(), monthlyAttendances: count.nullable(), progressPercent: z.number().finite().min(0).max(100).nullable(),
+    weightMaintenance: weightMaintenance.nullable().default(null),
     reactions: z.object({ like: count, love: count, mine: z.enum(['like','love']).nullable() }),
   })).max(50),
   nextCursor: z.record(z.unknown()).nullable(), hasMore: z.boolean(),

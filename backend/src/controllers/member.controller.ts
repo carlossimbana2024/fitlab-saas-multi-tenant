@@ -1,4 +1,5 @@
 import { memberAttendanceSummary } from '../services/memberAggregates.service.js';
+import { computeGoalProgress } from '../services/memberWeightGoal.service.js';
 import type { Request, Response } from 'express';
 import { supabaseAdmin } from '../config/supabase.js';
 import { AppError } from '../errors/AppError.js';
@@ -97,28 +98,6 @@ function monthLabel(key: string) {
 function weekLabel(start: string) {
   return new Intl.DateTimeFormat('es-EC', { day: '2-digit', month: 'short', timeZone: 'UTC' })
     .format(utcDate(start));
-}
-
-function clampPercent(value: number) {
-  return Math.max(0, Math.min(100, Math.round(value * 10) / 10));
-}
-
-function computeGoalProgress(goalType: string, initialWeight: number | null, currentWeight: number | null, targetWeight: number | null) {
-  if (initialWeight === null || currentWeight === null) return null;
-  let progressPercent: number | null = null;
-  const targetDirectionIsValid = targetWeight !== null && (
-    (goalType === 'lose_weight' && targetWeight < initialWeight)
-    || ((goalType === 'gain_weight' || goalType === 'build_muscle') && targetWeight > initialWeight)
-  );
-  if (targetDirectionIsValid && targetWeight !== null) {
-    const denominator = targetWeight - initialWeight;
-    if (denominator !== 0) progressPercent = clampPercent(((currentWeight - initialWeight) / denominator) * 100);
-  } else if (goalType === 'maintain_weight' && targetWeight !== null) {
-    const distance = Math.abs(initialWeight - targetWeight);
-    progressPercent = distance === 0 ? 100 : clampPercent((1 - Math.abs(currentWeight - targetWeight) / distance) * 100);
-  }
-  if (progressPercent === null) return null;
-  return { progressPercent, initialWeightKg: initialWeight, currentWeightKg: currentWeight, targetWeightKg: targetWeight, goalType };
 }
 
 function motivationForProgress(currentStreak: number, currentMonthAttendances: number, latestAttendanceDate: string | null, today: string) {
@@ -252,8 +231,8 @@ export async function getMyProgress(request: Request, response: Response) {
     createdAt: entry.created_at,
   }));
   const profile = profileResult.data;
-  const initialWeight = weights[0]?.weightKg ?? (profile ? Number(profile.weight_kg) : null);
-  const currentWeight = weights.at(-1)?.weightKg ?? initialWeight;
+  const initialWeight = weights[0]?.weightKg ?? null;
+  const currentWeight = weights.at(-1)?.weightKg ?? null;
   const targetWeight = profile?.target_weight_kg == null ? null : Number(profile.target_weight_kg);
   const goal = profile ? computeGoalProgress(profile.goal_type, initialWeight, currentWeight, targetWeight) : null;
   const motivation = motivationForProgress(Number(streak?.current_streak ?? 0), currentMonthAttendances, latestAttendanceDate, today);

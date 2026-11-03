@@ -16,42 +16,8 @@ const communityQuerySchema = z.object({
 const reactionSchema = z.object({ targetMemberUserId: z.string().uuid(), reactionType: z.enum(['like', 'love']) });
 
 
-type CommunityProfile = {
-  member_user_id: string;
-  weight_kg: number;
-  target_weight_kg: number | null;
-  goal_type: string;
-  public_message: string | null;
-  show_profile_photo: boolean;
-  show_streak: boolean;
-  show_attendance_count: boolean;
-  show_weight_progress: boolean;
-  show_goal: boolean;
-};
-
 function memberOnly(request: Request) {
   if (request.tenant?.role !== 'member') throw new AppError(403, 'MEMBER_ONLY_ENDPOINT', 'Esta sección está disponible solo para miembros.');
-}
-
-function clampPercent(value: number) {
-  return Math.max(0, Math.min(100, Math.round(value * 10) / 10));
-}
-
-export function goalProgress(profile: Pick<CommunityProfile,'weight_kg'|'target_weight_kg'|'goal_type'>, currentWeight: number | null) {
-  if (currentWeight === null || profile.target_weight_kg === null) return null;
-  const initialWeight = Number(profile.weight_kg);
-  const targetWeight = Number(profile.target_weight_kg);
-  if (profile.goal_type === 'lose_weight' && targetWeight < initialWeight) {
-    return clampPercent(((currentWeight - initialWeight) / (targetWeight - initialWeight)) * 100);
-  }
-  if ((profile.goal_type === 'gain_weight' || profile.goal_type === 'build_muscle') && targetWeight > initialWeight) {
-    return clampPercent(((currentWeight - initialWeight) / (targetWeight - initialWeight)) * 100);
-  }
-  if (profile.goal_type === 'maintain_weight') {
-    const distance = Math.abs(initialWeight - targetWeight);
-    return distance === 0 ? 100 : clampPercent((1 - Math.abs(currentWeight - targetWeight) / distance) * 100);
-  }
-  return null;
 }
 
 export async function listMemberCommunity(request: Request, response: Response) {

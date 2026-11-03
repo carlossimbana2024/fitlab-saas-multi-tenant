@@ -1,3 +1,5 @@
+import { weightGoalMetric } from './memberWeightGoal.service.js';
+
 export type RankingGoal = 'lose_weight' | 'gain_weight' | 'build_muscle' | 'improve_fitness' | 'maintain_weight' | 'general_wellness';
 
 export type WeightPoint = {
@@ -18,10 +20,6 @@ const DAY_MS = 86_400_000;
 function utcDay(value: string) {
   const [year, month, day] = value.split('-').map(Number);
   return Date.UTC(year!, month! - 1, day!);
-}
-
-function roundedPercent(value: number) {
-  return Math.round(Math.max(0, Math.min(100, value)) * 10) / 10;
 }
 
 export function longestConsecutiveAttendance(values: string[]) {
@@ -54,18 +52,10 @@ export function monthlyWeightGoalProgress(
   const current = monthPoints.at(-1);
   if (!baseline || !current || baseline.measuredOn >= current.measuredOn) return null;
 
-  let rawProgress: number | null = null;
-  if (goal === 'lose_weight' && targetWeightKg < baseline.weightKg) {
-    rawProgress = ((baseline.weightKg - current.weightKg) / (baseline.weightKg - targetWeightKg)) * 100;
-  } else if ((goal === 'gain_weight' || goal === 'build_muscle') && targetWeightKg > baseline.weightKg) {
-    rawProgress = ((current.weightKg - baseline.weightKg) / (targetWeightKg - baseline.weightKg)) * 100;
-  } else if (goal === 'maintain_weight' && targetWeightKg !== baseline.weightKg) {
-    const initialDistance = Math.abs(baseline.weightKg - targetWeightKg);
-    rawProgress = ((initialDistance - Math.abs(current.weightKg - targetWeightKg)) / initialDistance) * 100;
-  }
-  if (rawProgress === null || !Number.isFinite(rawProgress) || rawProgress <= 0) return null;
+  const { progressPercent } = weightGoalMetric(goal, targetWeightKg, baseline.weightKg, current.weightKg);
+  if (progressPercent === null || progressPercent <= 0) return null;
   return {
-    progressPercent: roundedPercent(rawProgress),
+    progressPercent,
     baselineWeightKg: baseline.weightKg,
     currentWeightKg: current.weightKg,
     baselineDate: baseline.measuredOn,

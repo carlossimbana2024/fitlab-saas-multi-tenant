@@ -1,3 +1,4 @@
+import { WeightMaintenanceSummary, type WeightMaintenance } from '../components/WeightMaintenanceSummary';
 import { useAuth } from '../context/AuthContext';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Activity, CalendarDays, ChevronRight, Dumbbell, Flame, Heart, LoaderCircle, Medal, Sparkles, Trophy, UsersRound } from 'lucide-react';
@@ -16,6 +17,7 @@ type CommunityMember = {
   monthlyAttendances: number | null;
   goalType: string | null;
   progressPercent: number | null;
+  weightMaintenance?: WeightMaintenance | null;
   publicMessage: string | null;
   reactions: { like: number; love: number; mine: 'like' | 'love' | null };
 };
@@ -106,5 +108,5 @@ function RankingCategoryCard({ category, icon }: { category: RankingCategory; ic
 }
 
 function CommunityCard({ member, pending, onReact }: { member: CommunityMember; pending: boolean; onReact: () => void }) {
-  return <article className="community-card"><div className="community-card-head">{member.avatarUrl ? <img src={member.avatarUrl} alt={`Foto de ${member.name}`} loading="lazy"/> : <span className="avatar avatar-large">{initials(member.name)}</span>}<div><h2><Link to={`/portal/community/${member.id}`}>{member.name}</Link></h2>{member.goalType && <span className="community-goal"><Dumbbell />{goalLabels[member.goalType] ?? member.goalType}</span>}</div></div>{member.publicMessage && <p className="community-message">“{member.publicMessage}”</p>}<div className="community-metrics">{member.currentStreak !== null && <span><Flame />{member.currentStreak} días de racha</span>}{member.monthlyAttendances !== null && <span><Activity />{member.monthlyAttendances} este mes</span>}{member.progressPercent !== null && <span><Dumbbell />{member.progressPercent}% de avance</span>}{member.longestStreak !== null && <small>Mejor racha: {member.longestStreak}</small>}</div><div className="community-card-actions"><div className="community-reactions"><button type="button" aria-pressed={member.reactions.mine==='love'} className={member.reactions.mine === 'love' ? 'selected love' : undefined} disabled={pending} onClick={onReact}><Heart />Me encanta <b>{member.reactions.love}</b></button></div><Link className="small-button" to={`/portal/community/${member.id}`}>Ver perfil<ChevronRight/></Link></div></article>;
+  return <article className="community-card"><div className="community-card-head">{member.avatarUrl ? <img src={member.avatarUrl} alt={`Foto de ${member.name}`} loading="lazy"/> : <span className="avatar avatar-large">{initials(member.name)}</span>}<div><h2><Link to={`/portal/community/${member.id}`}>{member.name}</Link></h2>{member.goalType && <span className="community-goal"><Dumbbell />{goalLabels[member.goalType] ?? member.goalType}</span>}</div></div>{member.publicMessage && <p className="community-message">“{member.publicMessage}”</p>}<div className="community-metrics">{member.currentStreak !== null && <span><Flame />{member.currentStreak} días de racha</span>}{member.monthlyAttendances !== null && <span><Activity />{member.monthlyAttendances} este mes</span>}{member.weightMaintenance ? <span><Dumbbell /><WeightMaintenanceSummary value={member.weightMaintenance}/></span> : member.progressPercent != null && <span><Dumbbell />{member.progressPercent}% de avance</span>}{member.longestStreak !== null && <small>Mejor racha: {member.longestStreak}</small>}</div><div className="community-card-actions"><div className="community-reactions"><button type="button" aria-pressed={member.reactions.mine==='love'} className={member.reactions.mine === 'love' ? 'selected love' : undefined} disabled={pending} onClick={onReact}><Heart />Me encanta <b>{member.reactions.love}</b></button></div><Link className="small-button" to={`/portal/community/${member.id}`}>Ver perfil<ChevronRight/></Link></div></article>;
 }
