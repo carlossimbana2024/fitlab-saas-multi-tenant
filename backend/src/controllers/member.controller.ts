@@ -197,7 +197,7 @@ export async function finalizeMyAvatar(request: Request, response: Response) {
 
 export async function getMyProgress(request: Request, response: Response) {
   memberOnly(request);
-  const [summary, streakResult, weightsResult, profileResult] = await Promise.all([
+  const [summary, streakResult, weightsResult, profileResult, baselineResult, latestResult] = await Promise.all([
     memberAttendanceSummary(request.tenant!.gymId, request.tenant!.gymUserId),
     supabaseAdmin.from('user_streaks')
       .select('current_streak,longest_streak,last_attendance_date')
@@ -208,22 +208,31 @@ export async function getMyProgress(request: Request, response: Response) {
       .select('id,weight_kg,measured_on,source,created_at')
       .eq('gym_id', request.tenant!.gymId)
       .eq('member_user_id', request.tenant!.gymUserId)
-      .order('measured_on', { ascending: true })
+      .order('measured_on', { ascending: false })
       .limit(500),
     supabaseAdmin.from('member_fitness_profiles')
       .select('weight_kg,target_weight_kg,goal_type')
       .eq('gym_id', request.tenant!.gymId)
       .eq('member_user_id', request.tenant!.gymUserId)
       .maybeSingle(),
+    // Historical endpoints are independent of the bounded visual history.
+    // UNIQUE(gym_id, member_user_id, measured_on) guarantees deterministic order.
+    supabaseAdmin.from('member_weight_entries').select('weight_kg')
+      .eq('gym_id', request.tenant!.gymId).eq('member_user_id', request.tenant!.gymUserId)
+      .order('measured_on', { ascending: true }).limit(1).maybeSingle(),
+    supabaseAdmin.from('member_weight_entries').select('weight_kg')
+      .eq('gym_id', request.tenant!.gymId).eq('member_user_id', request.tenant!.gymUserId)
+      .order('measured_on', { ascending: false }).limit(1).maybeSingle(),
   ]);
-  const error = streakResult.error ?? weightsResult.error ?? profileResult.error;
+  const error = streakResult.error ?? weightsResult.error ?? profileResult.error ?? baselineResult.error ?? latestResult.error;
   if (error) throw fromSupabaseError(error);
 
   const { today, currentWeekStart, currentMonthStart, currentMonthAttendances, currentWeekAttendances, latestAttendanceDate } = summary;
   const monthBuckets = summary.attendanceByMonth.map(bucket => ({ ...bucket, label: monthLabel(bucket.period) }));
   const weekBuckets = summary.attendanceByWeek.map(bucket => ({ ...bucket, label: weekLabel(bucket.period) }));
   const streak = streakResult.data;
-  const weights = (weightsResult.data ?? []).map((entry) => ({
+  // Preserve the UI's chronological contract, using the most recent 500 rows.
+  const weights = [...(weightsResult.data ?? [])].reverse().map((entry) => ({
     id: entry.id,
     weightKg: Number(entry.weight_kg),
     measuredOn: entry.measured_on,
@@ -231,8 +240,8 @@ export async function getMyProgress(request: Request, response: Response) {
     createdAt: entry.created_at,
   }));
   const profile = profileResult.data;
-  const initialWeight = weights[0]?.weightKg ?? null;
-  const currentWeight = weights.at(-1)?.weightKg ?? null;
+  const initialWeight = baselineResult.data == null ? null : Number(baselineResult.data.weight_kg);
+  const currentWeight = latestResult.data == null ? null : Number(latestResult.data.weight_kg);
   const targetWeight = profile?.target_weight_kg == null ? null : Number(profile.target_weight_kg);
   const goal = profile ? computeGoalProgress(profile.goal_type, initialWeight, currentWeight, targetWeight) : null;
   const motivation = motivationForProgress(Number(streak?.current_streak ?? 0), currentMonthAttendances, latestAttendanceDate, today);
@@ -250,6 +259,8 @@ export async function getMyProgress(request: Request, response: Response) {
       longestStreak: Number(streak?.longest_streak ?? 0),
       latestAttendanceDate,
       weights,
+      initialWeightKg: initialWeight,
+      currentWeightKg: currentWeight,
       goal,
       motivation,
       currentWeekStart,

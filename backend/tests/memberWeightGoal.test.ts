@@ -26,7 +26,8 @@ beforeEach(()=>{
  db.from.mockImplementation((table:string)=>{
    let ascending=true,limit:number|undefined;
    const result=()=>{
-     const data=table==='member_weight_entries'?(ascending?[...weights]:[...weights].reverse()).slice(0,limit):
+     const sorted=[...weights].sort((a,b)=>a.measured_on.localeCompare(b.measured_on));
+     const data=table==='member_weight_entries'?(ascending?sorted:sorted.reverse()).slice(0,limit):
        table==='member_fitness_profiles'?fitness:table==='gym_users'?{id:target,profiles:{full_name:'Miembro'}}:null;
      return {data,error:table==='member_weight_entries'?weightError:null,count:0};
    };
@@ -36,6 +37,56 @@ beforeEach(()=>{
      maybeSingle:vi.fn(()=>{const r=result();return Promise.resolve({...r,data:Array.isArray(r.data)?r.data[0]??null:r.data});}),
      then:(resolve:any,reject:any)=>Promise.resolve(result()).then(resolve,reject)};
    queries.push(q);return q;
+ });
+});
+
+describe('FIT-MEMBER-011 historical endpoints independent of visual window',()=>{
+ it.each([0,1,3,501,1201])('%i measurements preserve exact endpoints',async count=>{
+  weights=Array.from({length:count},(_,i)=>({id:String(i),weight_kg:i===0?90:i===count-1?84:85,
+   measured_on:new Date(Date.UTC(2022,0,i+1)).toISOString().slice(0,10),source:'member'}));
+  const res=response();await getMyProgress(request(),res);const p=body(res).progress;
+  expect(p.initialWeightKg).toBe(count?90:null);
+  expect(p.currentWeightKg).toBe(count===0?null:count===1?90:84);
+  expect(p.weights).toHaveLength(Math.min(count,500));
+  if(count>1){expect(p.weights.at(-1).weightKg).toBe(84);expect(p.goal.progressPercent).toBe(60);}
+  if(count>500)expect(p.weights[0].weightKg).toBe(85);
+  const qs=queries.filter(q=>q.table==='member_weight_entries');
+  expect(qs).toHaveLength(3);
+  expect(qs.map(q=>q.limit.mock.calls[0][0])).toEqual([500,1,1]);
+  for(const q of qs){expect(q.eq).toHaveBeenCalledWith('gym_id',gym);expect(q.eq).toHaveBeenCalledWith('member_user_id',actor);}
+  expect(qs[1].order).toHaveBeenCalledWith('measured_on',{ascending:true});
+  expect(qs[2].order).toHaveBeenCalledWith('measured_on',{ascending:false});
+ });
+ it('backdated insertion changes baseline, recent insertion and replacement update current',async()=>{
+  weights.push({id:'older',weight_kg:92,measured_on:'2026-01-01',created_at:'2026-11-02'});
+  let res=response();await getMyProgress(request(),res);
+  expect(body(res).progress).toMatchObject({initialWeightKg:92,currentWeightKg:85});
+  weights.push({id:'new',weight_kg:84,measured_on:'2026-11-03'});
+  res=response();await getMyProgress(request(),res);
+  expect(body(res).progress).toMatchObject({initialWeightKg:92,currentWeightKg:84});
+  weights.at(-1).weight_kg=83;
+  res=response();await getMyProgress(request(),res);expect(body(res).progress.currentWeightKg).toBe(83);
+ });
+ it.each(['gain_weight','maintain_weight'])('large history preserves %s',async goal=>{
+  fitness.goal_type=goal;fitness.target_weight_kg=70;
+  weights=Array.from({length:1201},(_,i)=>({id:String(i),weight_kg:i===0?60:i===1200?65:62,
+   measured_on:new Date(Date.UTC(2022,0,i+1)).toISOString().slice(0,10)}));
+  const res=response();await getMyProgress(request(),res);
+  expect(body(res).progress.goal).toMatchObject({initialWeightKg:60,currentWeightKg:65,
+   progressPercent:goal==='gain_weight'?50:null});
+  if(goal==='maintain_weight')expect(body(res).progress.goal.maintenance.differenceKg).toBe(-5);
+ });
+ it.each([true,false])('endpoint read error propagates (ascending=%s)',async ascending=>{
+  const original=db.from.getMockImplementation()!;
+  db.from.mockImplementation((table:string)=>{
+   const q=original(table);
+   if(table==='member_weight_entries')q.maybeSingle.mockImplementation(()=>{
+    if(q.order.mock.calls[0][1].ascending===ascending)return Promise.resolve({data:null,error:{message:'endpoint unavailable'}});
+    return Promise.resolve({data:{weight_kg:90},error:null});
+   });
+   return q;
+  });
+  await expect(getMyProgress(request(),response())).rejects.toThrow();
  });
 });
 

@@ -89,6 +89,8 @@ type MemberProgress = {
   longestStreak: number;
   latestAttendanceDate: string | null;
   weights: ProgressWeight[];
+  initialWeightKg: number | null;
+  currentWeightKg: number | null;
   goal: GoalProgress | null;
   motivation: { tone: 'success' | 'encouragement' | 'neutral'; title: string; message: string };
 };
@@ -313,7 +315,7 @@ export function MemberPortalPage({ section }: { section: PortalSection }) {
     {section === 'classes' && <section className="panel portal-classes"><h2>Historial de mis clases</h2><label>Mes <input type="month" value={classHistoryMonth} onChange={e=>{if(e.target.value)setClassHistoryMonth(e.target.value);}}/></label>
     {historyClasses.isLoading ? <p>Cargando historial…</p> : historyClasses.isError ? <p role="alert">No se pudo cargar el historial. <button onClick={()=>historyClasses.refetch()}>Reintentar</button></p> : <div className="portal-class-grid">{(historyClasses.data?.schedules??[]).filter(item=>(item.myBooking||item.myWaitlist)&&(new Date(item.starts_at).getTime()<=Date.now()||item.status!=='scheduled')).map(item=><UnavailableClass key={item.id} schedule={item}/>)}</div>}</section>}
 
-    {section === 'progress' && (progress.isError ? <div role="alert" className="alert error">{apiErrorMessage(progress.error)} <button onClick={() => void progress.refetch()}>Reintentar resumen</button></div> : <ProgressView range={range} days={days} firstOffset={firstOffset} membership={membership} currentWeek={currentWeek} streak={streak} attendances={attendances.data ?? []} progress={progress.data} progressLoading={progress.isLoading} onRecordWeight={() => { setWeightValue(progress.data?.weights.at(-1)?.weightKg ? String(progress.data.weights.at(-1)!.weightKg) : ''); setWeightDate(range.today); setRecordingWeight(true); }} />)}
+    {section === 'progress' && (progress.isError ? <div role="alert" className="alert error">{apiErrorMessage(progress.error)} <button onClick={() => void progress.refetch()}>Reintentar resumen</button></div> : <ProgressView range={range} days={days} firstOffset={firstOffset} membership={membership} currentWeek={currentWeek} streak={streak} attendances={attendances.data ?? []} progress={progress.data} progressLoading={progress.isLoading} onRecordWeight={() => { setWeightValue(progress.data?.currentWeightKg != null ? String(progress.data.currentWeightKg) : ''); setWeightDate(range.today); setRecordingWeight(true); }} />)}
 
     {section === 'profile' && <MemberSocialProfile owner={{name:displayName,avatarUrl:session?.gymUser?.profiles?.avatar_url??null,onEditAccount:()=>setEditing(true),onAvatarFile:file=>avatarUpload.mutate(file),avatarUploading:avatarUpload.isPending,avatarError:avatarUpload.error,activity:<><ProfileGoalSummary profile={fitnessProfile.data} progress={progress.data}/><MyTrainingSocial/></>}}/>}
     {section === 'settings'&&<ProfileSettingsView session={session} profile={fitnessProfile.data} onEdit={()=>setEditing(true)} onEditFitness={()=>setFitnessEditing(true)} onPrivacySave={(key,value)=>savePrivacy.mutate({key,value})} pending={savePrivacy.isPending} variables={savePrivacy.variables} error={savePrivacy.error} saved={savePrivacy.isSuccess}/>}

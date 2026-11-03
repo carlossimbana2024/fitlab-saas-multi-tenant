@@ -32,6 +32,22 @@ const props=(goal:any)=>({range:{label:'Noviembre',today:'2026-11-03'},days:[],f
 const member=(goal:any)=>({id:'m',name:'Atleta',currentStreak:null,longestStreak:null,monthlyAttendances:null,
  goalType:goal.goalType,progressPercent:goal.progressPercent,weightMaintenance:goal.maintenance,reactions:{love:0,mine:null}});
 describe('FIT-MEMBER-010 real presentation components',()=>{
+ it('FIT-MEMBER-011 summary does not derive endpoints from the visible history',async()=>{
+  const goal={goalType:'lose_weight',initialWeightKg:90,currentWeightKg:84,targetWeightKg:80,progressPercent:60,maintenance:null};
+  const p=props(goal);
+  (p.progress.weights as any[]) .push({id:'bounded',weightKg:85,measuredOn:'2026-11-01',source:'member'});
+  for(const tree of [await render(ProgressView,p),await render(ProfileGoalSummary,{progress:p.progress})]){
+   expect(text(tree)).toContain('90 kg');expect(text(tree)).toContain('84 kg');expect(text(tree)).toContain('60%');
+  }
+ });
+ it('FIT-MEMBER-011 weight upsert retains all dependent cache invalidations and explicit current prefill',()=>{
+  const source=readFileSync(new URL('../../frontend/src/pages/MemberPortalPage.tsx',import.meta.url),'utf8');
+  const mutation=source.slice(source.indexOf('const recordWeight ='),source.indexOf('const recordWeight =')+650);
+  for(const key of ['my-progress','member-social-profile','member-community','member-community-rankings'])expect(mutation).toContain(`'${key}'`);
+  expect(mutation).toContain('queryClient.invalidateQueries');
+  expect(source).toContain('String(progress.data.currentWeightKg)');
+  expect(source).not.toContain('progress.data?.weights.at(-1)');
+ });
  it.each(['lose_weight','gain_weight'])('%s uses server percentage in Progress, Profile and Community',async goalType=>{
   const goal={goalType,initialWeightKg:90,currentWeightKg:85,targetWeightKg:80,progressPercent:50,maintenance:null};
   for(const tree of [await render(ProgressView,props(goal)),await render(ProfileGoalSummary,{progress:progress(goal)}),await render(CommunityCard,{member:member(goal),pending:false,onReact:noop})]){
