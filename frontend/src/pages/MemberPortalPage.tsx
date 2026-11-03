@@ -78,6 +78,7 @@ type GoalProgress = { goalType: FitnessGoal; initialWeightKg: number; currentWei
 type MemberProgress = {
   today: string;
   totalAttendances: number;
+  hasAttendanceToday: boolean;
   currentMonthAttendances: number;
   currentWeekAttendances: number;
   averageWeeklyAttendances: number;
@@ -186,7 +187,7 @@ export function MemberPortalPage({ section }: { section: PortalSection }) {
     refetchIntervalInBackground: false,
   });
   const fitnessProfile = useQuery({ queryKey: ['my-fitness-profile'], queryFn: async () => (await api.get<{ fitnessProfile: FitnessProfile | null }>('/members/me/fitness-profile')).data.fitnessProfile });
-  const progress = useQuery({ queryKey: ['my-progress'], queryFn: async () => (await api.get<{ progress: MemberProgress }>('/members/me/progress')).data.progress });
+  const progress = useQuery({ queryKey: ['my-progress', session?.gymUser?.gym_id, session?.gymUser?.id], queryFn: async () => (await api.get<{ progress: MemberProgress }>('/members/me/progress')).data.progress });
   const [recordingWeight, setRecordingWeight] = useState(false);
   const [weightValue, setWeightValue] = useState('');
   const [weightDate, setWeightDate] = useState(range.today);
@@ -195,8 +196,7 @@ export function MemberPortalPage({ section }: { section: PortalSection }) {
   const streak = streaks.data?.[0];
   const currentWeek = weekly.data?.[0];
   const remaining = daysUntil(period?.ends_on, range.today);
-  const validAttendances = attendances.data?.filter((item) => item.status === 'valid') ?? [];
-  const hasAttendanceToday = validAttendances.some((item) => item.attendance_date === range.today);
+  const hasAttendanceToday = progress.data?.hasAttendanceToday ?? false;
   const todayDate = new Date(`${range.today}T12:00:00`); const todayWeekday = todayDate.getDay() || 7;
   const todayException = calendar.data?.exceptions.find((item) => item.calendar_date === range.today);
   const todaySchedule = todayException ?? calendar.data?.hours.find((item) => item.weekday === todayWeekday);
@@ -297,13 +297,14 @@ export function MemberPortalPage({ section }: { section: PortalSection }) {
   return <>
     {section !== 'profile' && section !== 'settings' && <div className={`portal-view-heading ${section==='progress'?'progress-view-heading':section==='home'?'home-view-heading':''}`}><div><p className="eyebrow">{copy[0]}</p><h1>{section === 'home' ? `Hola, ${displayName}` : section==='progress'?'Tu progreso':copy[0]}</h1><p>{copy[1]}</p></div>{showHeadingCheckIn && <AttendanceQrCard hasAttendanceToday={hasAttendanceToday}/>}</div>}
     {section === 'home' && <div className="portal-home-content">
+      {progress.isError && <div className="alert error" role="alert">{apiErrorMessage(progress.error)} <button onClick={() => void progress.refetch()}>Reintentar resumen</button></div>}
       <div className="home-quick-actions"><Link className="panel loyalty-home-link" to="/portal/payments"><CreditCard aria-hidden="true"/><span><strong>Membresía y pagos</strong><small>Renueva, presenta tu comprobante y consulta el resultado.</small></span><ChevronRight aria-hidden="true"/></Link>
       <Link className="panel loyalty-home-link" to="/portal/rewards"><Gift aria-hidden="true"/><span><strong>Retos y recompensas</strong><small>Descubre los premios de tu gimnasio y sigue tu avance.</small></span><ChevronRight aria-hidden="true"/></Link></div>
       <section className={`today-status ${isOpen ? 'open' : 'closed'}`}><Clock3/><div><strong>{isOpen ? 'Abierto ahora' : 'Cerrado ahora'}</strong><span>{todaySchedule?.day_mode === 'closed' ? todayException?.reason ?? 'No abre hoy' : todaySchedule ? `Horario de hoy: ${shortTime(todaySchedule.opens_at)}–${shortTime(todaySchedule.closes_at)}` : 'Horario no configurado'}</span></div><small>{calendar.data?.location.name}</small></section>
       {Boolean(announcements.data?.length) && <section className="portal-notices gym-announcement-notices"><div className="panel-title"><Bell aria-hidden="true"/><div><h2>Avisos de tu gimnasio</h2><p>Información compartida por el owner</p></div></div><HomeAnnouncement announcement={announcements.data![0]!}/>{announcements.data!.length>1 && <details className="home-more-announcements"><summary>Ver todos los avisos ({announcements.data!.length})<ChevronRight aria-hidden="true"/></summary>{announcements.data!.slice(1).map(announcement=><HomeAnnouncement key={announcement.id} announcement={announcement}/>)}</details>}</section>}
       {announcements.isError && <div className="alert error">No se pudieron cargar los avisos del gimnasio.</div>}
       {notices.length > 0 && <section className="portal-notices"><div className="panel-title"><div><h2>Avisos</h2><p>Información importante para ti</p></div><Bell/></div>{notices.map((notice) => <div className="notice" key={notice}>{notice}</div>)}</section>}
-      <div className="portal-grid home-summary-grid"><article className="portal-card coverage"><CreditCard aria-hidden="true"/><div className="home-membership-copy"><span>Membresía</span><strong>{loading ? 'Cargando…' : membership?.plans?.name ?? 'Sin membresía activa'}</strong><small>{period ? `${period.starts_on} → ${period.ends_on}` : 'Sin cobertura vigente'}</small>{period && <span className="home-coverage-chip">{membershipCoverageLabel(remaining, period)}</span>}{membership && <small>{Number(membership.price_at_purchase).toFixed(2)} {membership.currency} · {membership.attendance_mode_snapshot === 'weekly' ? `${membership.weekly_target_snapshot} veces por semana` : 'Asistencia diaria'}</small>}</div></article><article className="portal-card home-activity-stat"><Activity aria-hidden="true"/><span>Asistencias válidas</span><strong>{validAttendances.length}</strong><small>{validAttendances[0] ? `Última: ${validAttendances[0].attendance_date}` : 'Aún no hay registros'}</small></article><article className="portal-card streak home-activity-stat"><Flame aria-hidden="true"/><span>Racha actual</span><strong>{streak?.current_streak ?? 0}</strong><small>Mejor racha: {streak?.longest_streak ?? 0}</small></article></div>
+      <div className="portal-grid home-summary-grid"><article className="portal-card coverage"><CreditCard aria-hidden="true"/><div className="home-membership-copy"><span>Membresía</span><strong>{loading ? 'Cargando…' : membership?.plans?.name ?? 'Sin membresía activa'}</strong><small>{period ? `${period.starts_on} → ${period.ends_on}` : 'Sin cobertura vigente'}</small>{period && <span className="home-coverage-chip">{membershipCoverageLabel(remaining, period)}</span>}{membership && <small>{Number(membership.price_at_purchase).toFixed(2)} {membership.currency} · {membership.attendance_mode_snapshot === 'weekly' ? `${membership.weekly_target_snapshot} veces por semana` : 'Asistencia diaria'}</small>}</div></article><article className="portal-card home-activity-stat"><Activity aria-hidden="true"/><span>Asistencias válidas</span><strong>{progress.isError ? 'No disponible' : progress.data?.totalAttendances ?? 'Cargando…'}</strong><small>{progress.isError ? 'No se pudo cargar el resumen' : progress.data ? (progress.data.latestAttendanceDate ? `Última: ${progress.data.latestAttendanceDate}` : 'Aún no hay registros') : 'Consultando resumen…'}</small></article><article className="portal-card streak home-activity-stat"><Flame aria-hidden="true"/><span>Racha actual</span><strong>{streak?.current_streak ?? 0}</strong><small>Mejor racha: {streak?.longest_streak ?? 0}</small></article></div>
       <section className="panel portal-classes portal-home-classes"><div className="panel-title"><CalendarCheck aria-hidden="true"/><div><h2>Próximas clases</h2><p>Reserva desde tu sección de Clases.</p></div><Link className="ghost" to="/portal/classes">Ver todas<ChevronRight aria-hidden="true"/></Link></div><div className="home-class-grid">{!classes.isLoading && !classes.isError && upcomingClasses.slice(0, 3).map((item) => <ClassSummary key={item.id} schedule={item}/>)}</div>{classes.isLoading && <p role="status">Consultando cupos…</p>}{classes.isError && <p role="alert">No se pudo consultar la disponibilidad. <button onClick={() => classes.refetch()}>Reintentar</button></p>}{!classes.isLoading && !classes.isError && !upcomingClasses.length && <div className="empty compact"><Dumbbell/><strong>No hay próximas clases publicadas</strong><span>Cuando el gimnasio programe una actividad aparecerá aquí.</span></div>}</section>
     </div>}
 
@@ -311,7 +312,7 @@ export function MemberPortalPage({ section }: { section: PortalSection }) {
     {section === 'classes' && <section className="panel portal-classes"><h2>Historial de mis clases</h2><label>Mes <input type="month" value={classHistoryMonth} onChange={e=>{if(e.target.value)setClassHistoryMonth(e.target.value);}}/></label>
     {historyClasses.isLoading ? <p>Cargando historial…</p> : historyClasses.isError ? <p role="alert">No se pudo cargar el historial. <button onClick={()=>historyClasses.refetch()}>Reintentar</button></p> : <div className="portal-class-grid">{(historyClasses.data?.schedules??[]).filter(item=>(item.myBooking||item.myWaitlist)&&(new Date(item.starts_at).getTime()<=Date.now()||item.status!=='scheduled')).map(item=><UnavailableClass key={item.id} schedule={item}/>)}</div>}</section>}
 
-    {section === 'progress' && <ProgressView range={range} days={days} firstOffset={firstOffset} membership={membership} currentWeek={currentWeek} streak={streak} attendances={attendances.data ?? []} validCount={validAttendances.length} progress={progress.data} progressLoading={progress.isLoading} onRecordWeight={() => { setWeightValue(progress.data?.weights.at(-1)?.weightKg ? String(progress.data.weights.at(-1)!.weightKg) : ''); setWeightDate(range.today); setRecordingWeight(true); }} />}
+    {section === 'progress' && (progress.isError ? <div role="alert" className="alert error">{apiErrorMessage(progress.error)} <button onClick={() => void progress.refetch()}>Reintentar resumen</button></div> : <ProgressView range={range} days={days} firstOffset={firstOffset} membership={membership} currentWeek={currentWeek} streak={streak} attendances={attendances.data ?? []} progress={progress.data} progressLoading={progress.isLoading} onRecordWeight={() => { setWeightValue(progress.data?.weights.at(-1)?.weightKg ? String(progress.data.weights.at(-1)!.weightKg) : ''); setWeightDate(range.today); setRecordingWeight(true); }} />)}
 
     {section === 'profile' && <MemberSocialProfile owner={{name:displayName,avatarUrl:session?.gymUser?.profiles?.avatar_url??null,onEditAccount:()=>setEditing(true),onAvatarFile:file=>avatarUpload.mutate(file),avatarUploading:avatarUpload.isPending,avatarError:avatarUpload.error,activity:<><ProfileGoalSummary profile={fitnessProfile.data} progress={progress.data}/><MyTrainingSocial/></>}}/>}
     {section === 'settings'&&<ProfileSettingsView session={session} profile={fitnessProfile.data} onEdit={()=>setEditing(true)} onEditFitness={()=>setFitnessEditing(true)} onPrivacySave={(key,value)=>savePrivacy.mutate({key,value})} pending={savePrivacy.isPending} variables={savePrivacy.variables} error={savePrivacy.error} saved={savePrivacy.isSuccess}/>}
@@ -408,10 +409,10 @@ function ClassCard({ schedule, membership, reservePending, cancelPending, waitli
   </article>;
 }
 
-function ProgressView({ range, days, firstOffset, membership, currentWeek, streak, attendances, validCount, progress, progressLoading, onRecordWeight }: { range: ReturnType<typeof monthRange>; days: Array<{ day: number; date: string; mode: string; attendance?: Attendance }>; firstOffset: number; membership?: Membership; currentWeek?: WeeklyProgress; streak?: Streak; attendances: Attendance[]; validCount: number; progress?: MemberProgress; progressLoading: boolean; onRecordWeight: () => void }) {
-  const totalAttendances = progress?.totalAttendances ?? validCount;
-  const monthAttendances = progress?.currentMonthAttendances ?? attendances.filter((item) => item.status === 'valid' && item.attendance_date.startsWith(`${range.year}-${String(range.month).padStart(2, '0')}`)).length;
-  const weekAttendances = progress?.currentWeekAttendances ?? 0;
+function ProgressView({ range, days, firstOffset, membership, currentWeek, streak, attendances, progress, progressLoading, onRecordWeight }: { range: ReturnType<typeof monthRange>; days: Array<{ day: number; date: string; mode: string; attendance?: Attendance }>; firstOffset: number; membership?: Membership; currentWeek?: WeeklyProgress; streak?: Streak; attendances: Attendance[]; progress?: MemberProgress; progressLoading: boolean; onRecordWeight: () => void }) {
+  const totalAttendances = progress?.totalAttendances ?? 'Cargando…';
+  const monthAttendances = progress?.currentMonthAttendances ?? 'Cargando…';
+  const weekAttendances = progress?.currentWeekAttendances ?? 'Cargando…';
   const currentStreak = progress?.currentStreak ?? streak?.current_streak ?? 0;
   const longestStreak = progress?.longestStreak ?? streak?.longest_streak ?? 0;
   const monthBuckets = progress?.attendanceByMonth ?? [];

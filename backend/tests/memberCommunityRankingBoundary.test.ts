@@ -16,11 +16,13 @@ describe('límites de rankings mensuales de Comunidad', () => {
   it('aplica gimnasio, privacidad y categorías independientes en backend', () => {
     const controller = source('backend/src/controllers/memberCommunityRanking.controller.ts');
     const routes = source('backend/src/routes/member.routes.ts');
-    expect(controller).toContain(".eq('gym_id', request.tenant!.gymId)");
-    expect(controller).toContain(".eq('show_in_community', true)");
-    expect(controller).toContain('show_attendance_count');
-    expect(controller).toContain('show_streak');
-    expect(controller).toContain('show_weight_progress');
+    expect(controller).toContain('target_gym_id: request.tenant!.gymId');
+    expect(controller).toContain("rpc('get_member_community_rankings_backend'");
+    const sql = source('supabase/migrations/0054_member_aggregates_pagination.sql');
+    expect(sql).toContain('f.show_in_community');
+    expect(sql).toContain('e.show_attendance_count');
+    expect(sql).toContain('e.show_streak');
+    expect(sql).toContain('e.show_weight_progress');
     expect(controller).toContain("historyMode: 'reconstructed'");
     expect(controller).toContain('nunca compara kilos absolutos');
     expect(routes).toContain("memberRouter.get('/me/community/rankings'");

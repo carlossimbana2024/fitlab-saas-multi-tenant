@@ -1,3 +1,4 @@
+import { memberAttendanceSummary } from '../services/memberAggregates.service.js';
 import type { Request, Response } from 'express';
 import { supabaseAdmin } from '../config/supabase.js';
 import { AppError } from '../errors/AppError.js';
@@ -82,29 +83,10 @@ function isoDate(value: Date) {
   return value.toISOString().slice(0, 10);
 }
 
-function addDays(value: string, amount: number) {
-  return isoDate(new Date(utcDate(value).getTime() + amount * DAY_MS));
-}
-
 function addYears(value: string, amount: number) {
   const date = utcDate(value);
   date.setUTCFullYear(date.getUTCFullYear() + amount);
   return isoDate(date);
-}
-
-function mondayOf(value: string) {
-  const date = utcDate(value);
-  const offset = (date.getUTCDay() + 6) % 7;
-  return addDays(value, -offset);
-}
-
-function monthStart(value: string) {
-  const date = utcDate(value);
-  return isoDate(new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1)));
-}
-
-function monthKey(value: string) {
-  return value.slice(0, 7);
 }
 
 function monthLabel(key: string) {
@@ -236,14 +218,8 @@ export async function finalizeMyAvatar(request: Request, response: Response) {
 
 export async function getMyProgress(request: Request, response: Response) {
   memberOnly(request);
-  const today = dateInTimezone(request.tenant!.timezone);
-  const [attendanceResult, streakResult, weightsResult, profileResult] = await Promise.all([
-    supabaseAdmin.from('attendances')
-      .select('id,attendance_date,checked_in_at,source,status,counts_toward_streak')
-      .eq('gym_id', request.tenant!.gymId)
-      .eq('member_user_id', request.tenant!.gymUserId)
-      .order('attendance_date', { ascending: false })
-      .limit(2000),
+  const [summary, streakResult, weightsResult, profileResult] = await Promise.all([
+    memberAttendanceSummary(request.tenant!.gymId, request.tenant!.gymUserId),
     supabaseAdmin.from('user_streaks')
       .select('current_streak,longest_streak,last_attendance_date')
       .eq('gym_id', request.tenant!.gymId)
@@ -261,28 +237,13 @@ export async function getMyProgress(request: Request, response: Response) {
       .eq('member_user_id', request.tenant!.gymUserId)
       .maybeSingle(),
   ]);
-  const error = attendanceResult.error ?? streakResult.error ?? weightsResult.error ?? profileResult.error;
+  const error = streakResult.error ?? weightsResult.error ?? profileResult.error;
   if (error) throw fromSupabaseError(error);
 
-  const validAttendances = (attendanceResult.data ?? []).filter((attendance) => attendance.status === 'valid');
-  const currentWeekStart = mondayOf(today);
-  const currentMonthStart = monthStart(today);
-  const currentWeekAttendances = validAttendances.filter((attendance) => attendance.attendance_date >= currentWeekStart && attendance.attendance_date <= today).length;
-  const currentMonthAttendances = validAttendances.filter((attendance) => monthKey(attendance.attendance_date) === monthKey(today)).length;
-  const monthBuckets = Array.from({ length: 6 }, (_, index) => {
-    const date = utcDate(monthStart(today));
-    date.setUTCMonth(date.getUTCMonth() - (5 - index));
-    const start = isoDate(new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1)));
-    const key = monthKey(start);
-    return { period: key, label: monthLabel(key), count: validAttendances.filter((attendance) => monthKey(attendance.attendance_date) === key).length };
-  });
-  const weekBuckets = Array.from({ length: 8 }, (_, index) => {
-    const start = addDays(currentWeekStart, -((7 - index) * 7));
-    const end = addDays(start, 6);
-    return { period: start, label: weekLabel(start), count: validAttendances.filter((attendance) => attendance.attendance_date >= start && attendance.attendance_date <= end).length };
-  });
+  const { today, currentWeekStart, currentMonthStart, currentMonthAttendances, currentWeekAttendances, latestAttendanceDate } = summary;
+  const monthBuckets = summary.attendanceByMonth.map(bucket => ({ ...bucket, label: monthLabel(bucket.period) }));
+  const weekBuckets = summary.attendanceByWeek.map(bucket => ({ ...bucket, label: weekLabel(bucket.period) }));
   const streak = streakResult.data;
-  const latestAttendanceDate = validAttendances[0]?.attendance_date ?? null;
   const weights = (weightsResult.data ?? []).map((entry) => ({
     id: entry.id,
     weightKg: Number(entry.weight_kg),
@@ -299,10 +260,11 @@ export async function getMyProgress(request: Request, response: Response) {
   response.json({
     progress: {
       today,
-      totalAttendances: validAttendances.length,
+      totalAttendances: summary.totalAttendances,
+      hasAttendanceToday: summary.hasAttendanceToday,
       currentMonthAttendances,
       currentWeekAttendances,
-      averageWeeklyAttendances: Math.round((weekBuckets.reduce((total, bucket) => total + bucket.count, 0) / weekBuckets.length) * 10) / 10,
+      averageWeeklyAttendances: summary.averageWeeklyAttendances,
       attendanceByMonth: monthBuckets,
       attendanceByWeek: weekBuckets,
       currentStreak: Number(streak?.current_streak ?? 0),

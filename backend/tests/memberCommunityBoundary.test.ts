@@ -22,13 +22,15 @@ describe('Comunidad privada del miembro', () => {
     const routes = source('backend/src/routes/member.routes.ts');
     expect(controller).toContain('export async function listMemberCommunity');
     expect(controller).toContain('export async function toggleMemberCommunityReaction');
-    expect(controller).toContain(".eq('gym_id', request.tenant!.gymId)");
+    expect(controller).toContain('target_gym_id: request.tenant!.gymId');
     expect(controller).toContain("p_actor_member_user_id: request.tenant!.gymUserId");
     expect(controller).toContain('p_target_gym_id: request.tenant!.gymId');
     expect(controller).toContain('p_target_member_user_id: input.data.targetMemberUserId');
     expect(controller).toContain('p_supplied_reaction_type: input.data.reactionType');
-    expect(controller).toContain('member.id !== request.tenant!.gymUserId');
-    expect(controller).toContain('show_in_community');
+    const sql = source('supabase/migrations/0054_member_aggregates_pagination.sql');
+    expect(controller).toContain("rpc('list_member_community_page_backend'");
+    expect(sql).toContain('gu.id<>actor_member_user_id');
+    expect(sql).toContain('f.show_in_community');
     expect(routes).toContain("memberRouter.get('/me/community'");
     expect(routes).toContain("memberRouter.post('/me/community/reactions'");
   });

@@ -1,4 +1,5 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useAuth } from '../context/AuthContext';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Activity, CalendarDays, ChevronRight, Dumbbell, Flame, Heart, LoaderCircle, Medal, Sparkles, Trophy, UsersRound } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
@@ -18,7 +19,7 @@ type CommunityMember = {
   publicMessage: string | null;
   reactions: { like: number; love: number; mine: 'like' | 'love' | null };
 };
-type CommunityResponse = { members: CommunityMember[]; viewer: { goalType: string | null }; filter: CommunityFilter; period: { from: string; to: string } };
+type CommunityResponse = { items: CommunityMember[]; nextCursor: Record<string, unknown> | null; hasMore: boolean };
 type RankingEntry = { position: number; memberUserId: string; name: string; avatarUrl: string | null; value: number; displayValue: string; goalType: string | null };
 type RankingCategory = { title: string; explanation: string; entries: RankingEntry[] };
 type RankingResponse = {
@@ -55,22 +56,35 @@ function initials(name: string) {
 
 export function MemberCommunityPage() {
   const queryClient = useQueryClient();
+  const { session } = useAuth();
+  const context = [session?.gymUser?.gym_id, session?.gymUser?.id];
   const [filter, setFilter] = useState<CommunityFilter>('all');
   const [rankingMonth, setRankingMonth] = useState('');
   const [rankingTab, setRankingTab] = useState<'attendance' | 'streak' | 'progress'>('attendance');
-  const community = useQuery({
-    queryKey: ['member-community', filter],
-    queryFn: async () => (await api.get<CommunityResponse>('/members/me/community', { params: { filter } })).data,
+  const changeFilter = (value: CommunityFilter) => {
+    if (value === filter) return;
+    queryClient.removeQueries({ queryKey: ['member-community', ...context, value], exact: true });
+    setFilter(value);
+  };
+  const community = useInfiniteQuery({
+    queryKey: ['member-community', ...context, filter],
+    enabled: Boolean(session?.gymUser),
+    initialPageParam: null as Record<string, unknown> | null,
+    queryFn: async ({ pageParam }) => (await api.get<CommunityResponse>('/members/me/community', {
+      params: { filter, pageSize: 20, ...(pageParam ? { cursor: JSON.stringify(pageParam) } : {}) },
+    })).data,
+    getNextPageParam: page => page.hasMore ? page.nextCursor : undefined,
   });
   const rankings = useQuery({
-    queryKey: ['member-community-rankings', rankingMonth || 'current'],
+    queryKey: ['member-community-rankings', ...context, rankingMonth || 'current'],
+    enabled: Boolean(session?.gymUser),
     queryFn: async () => (await api.get<RankingResponse>('/members/me/community/rankings', { params: rankingMonth ? { month: rankingMonth } : undefined })).data,
   });
   const react = useMutation({
     mutationFn: async (targetMemberUserId: string) => api.post('/members/me/community/reactions', { targetMemberUserId, reactionType: 'love' }),
     onSuccess: async () => { await Promise.all(['member-community', 'member-social-profile'].map(key => queryClient.invalidateQueries({ queryKey: [key] }))); },
   });
-  const members = community.data?.members ?? [];
+  const members = [...new Map((community.data?.pages.flatMap(page => page.items) ?? []).map(member => [member.id, member])).values()];
   const ranking = rankings.data?.ranking;
 
   return <div className="community-page">
@@ -78,11 +92,12 @@ export function MemberCommunityPage() {
     <section className="community-intro"><UsersRound /><div><strong>Una comunidad positiva</strong><span>Solo se muestran perfiles que decidieron participar y las métricas que eligieron compartir.</span></div></section>
     <section className="panel community-ranking-panel">
       <div className="community-ranking-heading"><div><p className="eyebrow">RECONOCIMIENTO MENSUAL</p><h2><Trophy /> Top 3 del mes</h2><span>Cada logro se evalúa por separado y comienza desde cero en cada período.</span></div>{ranking && <label><CalendarDays /><select value={rankingMonth || ranking.period.key} onChange={(event) => setRankingMonth(event.target.value)} aria-label="Mes del ranking">{ranking.availablePeriods.map((period) => <option key={period.key} value={period.key}>{period.label}</option>)}</select></label>}</div>
-      {rankings.isError && <div className="alert error">{apiErrorMessage(rankings.error)}</div>}
+      {rankings.isError && <div className="alert error" role="alert">{apiErrorMessage(rankings.error)} <button onClick={() => void rankings.refetch()}>Reintentar ranking</button></div>}
       {rankings.isLoading ? <div className="empty compact" role="status"><LoaderCircle className="spin"/><strong>Calculando rankings…</strong></div> : ranking && <><div className="community-ranking-tabs" role="tablist" aria-label="Categorías del ranking">{([{id:'attendance',label:'Más asistencias',icon:<Activity/>},{id:'streak',label:'Mayor racha',icon:<Flame/>},{id:'progress',label:'Mayor progreso',icon:<Dumbbell/>}] as const).map((tab,index,tabs)=><button type="button" role="tab" id={`ranking-tab-${tab.id}`} aria-controls={`ranking-panel-${tab.id}`} aria-selected={rankingTab===tab.id} tabIndex={rankingTab===tab.id?0:-1} key={tab.id} onClick={()=>setRankingTab(tab.id)} onKeyDown={event=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;event.preventDefault();const next=event.key==='Home'?0:event.key==='End'?2:(index+(event.key==='ArrowRight'?1:-1)+3)%3;setRankingTab(tabs[next].id);(event.currentTarget.parentElement?.children[next] as HTMLElement)?.focus();}}>{tab.icon}<span>{tab.label}</span></button>)}</div><div className="community-ranking-grid"><div id="ranking-panel-attendance" role="tabpanel" aria-labelledby="ranking-tab-attendance" hidden={rankingTab!=='attendance'}><RankingCategoryCard category={ranking.categories.attendance} icon={<Activity />}/></div><div id="ranking-panel-streak" role="tabpanel" aria-labelledby="ranking-tab-streak" hidden={rankingTab!=='streak'}><RankingCategoryCard category={ranking.categories.streak} icon={<Flame />}/></div><div id="ranking-panel-progress" role="tabpanel" aria-labelledby="ranking-tab-progress" hidden={rankingTab!=='progress'}><RankingCategoryCard category={ranking.categories.progress} icon={<Dumbbell />}/></div></div><p className="ranking-formula"><Sparkles />{ranking.categories.progress.explanation}</p></>}
     </section>
-    <section className="panel community-panel"><div className="community-members-heading"><h2>Miembros de la comunidad</h2><p>Conecta, inspira y celebra juntos.</p></div><div className="community-filter-row" role="group" aria-label="Filtrar Comunidad">{filters.slice(0,3).map((item) => <button type="button" key={item.value} aria-pressed={filter===item.value} className={filter === item.value ? 'active' : undefined} onClick={() => setFilter(item.value)}>{item.label}</button>)}<details className="community-extra-filters"><summary>Más filtros{filters.slice(3).some(item=>item.value===filter)?` · ${filters.find(item=>item.value===filter)?.label}`:''}</summary><div>{filters.slice(3).map(item=><button type="button" key={item.value} aria-pressed={filter===item.value} className={filter===item.value?'active':undefined} onClick={()=>setFilter(item.value)}>{item.label}</button>)}</div></details></div>{community.isError && <div className="alert error">{apiErrorMessage(community.error)}</div>}{community.isLoading ? <div className="empty compact" role="status"><LoaderCircle className="spin"/><strong>Cargando Comunidad…</strong></div> : members.length ? <div className="community-grid">{members.map((member) => <CommunityCard key={member.id} member={member} pending={react.isPending} onReact={() => react.mutate(member.id)}/>)}</div> : <div className="empty compact"><UsersRound/><strong>Aún no hay perfiles para mostrar</strong><span>Cuando otros miembros habiliten su perfil, aparecerán aquí.</span></div>}</section>
+    <section className="panel community-panel"><div className="community-members-heading"><h2>Miembros de la comunidad</h2><p>Conecta, inspira y celebra juntos.</p></div><div className="community-filter-row" role="group" aria-label="Filtrar Comunidad">{filters.slice(0,3).map((item) => <button type="button" key={item.value} aria-pressed={filter===item.value} className={filter === item.value ? 'active' : undefined} onClick={() => changeFilter(item.value)}>{item.label}</button>)}<details className="community-extra-filters"><summary>Más filtros{filters.slice(3).some(item=>item.value===filter)?` · ${filters.find(item=>item.value===filter)?.label}`:''}</summary><div>{filters.slice(3).map(item=><button type="button" key={item.value} aria-pressed={filter===item.value} className={filter===item.value?'active':undefined} onClick={()=>changeFilter(item.value)}>{item.label}</button>)}</div></details></div>{community.isError && <div className="alert error">{apiErrorMessage(community.error)}</div>}{community.isLoading ? <div className="empty compact" role="status"><LoaderCircle className="spin"/><strong>Cargando Comunidad…</strong></div> : members.length ? <div className="community-grid">{members.map((member) => <CommunityCard key={member.id} member={member} pending={react.isPending} onReact={() => react.mutate(member.id)}/>)}</div> : !community.isError && <div className="empty compact"><UsersRound/><strong>Aún no hay perfiles para mostrar</strong><span>Cuando otros miembros habiliten su perfil, aparecerán aquí.</span></div>}{community.hasNextPage && <button className="ghost" disabled={community.isFetchingNextPage} onClick={() => void community.fetchNextPage()}>{community.isFetchingNextPage ? 'Cargando más…' : community.isFetchNextPageError ? 'Reintentar siguiente página' : 'Cargar más'}</button>}{community.isError && !community.data && <button onClick={() => void community.refetch()}>Reintentar Comunidad</button>}{members.length > 0 && !community.hasNextPage && !community.isError && <p role="status">Has llegado al final de la lista.</p>}</section>
     {react.isError && <div className="alert error community-action-error">{apiErrorMessage(react.error)}</div>}
+    {community.isError && community.data && <button onClick={() => void queryClient.resetQueries({ queryKey: ['member-community', ...context, filter], exact: true })}>Volver a cargar la lista</button>}
   </div>;
 }
 
