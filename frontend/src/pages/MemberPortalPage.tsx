@@ -18,6 +18,7 @@ import { classPaymentLabel, type ClassBookingEconomics } from '../utils/classBoo
 import '../profile-header.css';
 import '../progress.css';
 import { selectMembershipCoverage } from '../utils/membershipCoverage';
+import { selectCurrentWeeklyProgress, type WeeklyProgress } from '../utils/currentWeeklyProgress';
 
 type PortalSection = 'home' | 'classes' | 'progress' | 'profile' | 'settings';
 type Period = { starts_on: string; ends_on: string; status: string };
@@ -25,7 +26,6 @@ type Membership = { id: string; status: string; price_at_purchase: number; curre
 type Attendance = { id: string; attendance_date: string; checked_in_at: string; status: 'valid' | 'voided'; source: string; counts_toward_streak: boolean };
 type Streak = { status: string; current_streak: number; longest_streak: number; last_attendance_date?: string | null };
 type GymAnnouncement = { id: string; location_id: string | null; body: string; created_at: string };
-type WeeklyProgress = { id: string; week_starts_on: string; week_ends_on: string; target_attendances: number; completed_attendances: number; goal_met: boolean; is_grace_week: boolean };
 type Hour = { weekday: number; opens_at: string | null; closes_at: string | null; day_mode: 'required' | 'bonus' | 'closed' };
 type Exception = { calendar_date: string; opens_at: string | null; closes_at: string | null; day_mode: 'required' | 'bonus' | 'closed'; reason?: string | null };
 type Calendar = { gym: { name: string; email?: string | null; phone?: string | null; whatsapp_phone?: string | null; timezone: string }; location: { name: string; address?: string | null; city: string; timezone: string; email?: string | null; phone?: string | null; whatsapp_phone?: string | null }; hours: Hour[]; exceptions: Exception[] };
@@ -192,9 +192,9 @@ export function MemberPortalPage({ section }: { section: PortalSection }) {
   const [weightValue, setWeightValue] = useState('');
   const [weightDate, setWeightDate] = useState(range.today);
 
-  const { membership, period } = selectMembershipCoverage(memberships.data ?? [], range.today);
+  const { membership, period } = selectMembershipCoverage(memberships.data ?? [], progress.data?.today ?? range.today);
   const streak = streaks.data?.[0];
-  const currentWeek = weekly.data?.[0];
+  const currentWeek = selectCurrentWeeklyProgress(weekly.data ?? [], membership, progress.data?.today ?? range.today);
   const remaining = daysUntil(period?.ends_on, range.today);
   const hasAttendanceToday = progress.data?.hasAttendanceToday ?? false;
   const todayDate = new Date(`${range.today}T12:00:00`); const todayWeekday = todayDate.getDay() || 7;
