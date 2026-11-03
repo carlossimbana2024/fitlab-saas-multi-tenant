@@ -10,18 +10,19 @@ let session:any;
 const noop=()=>null;
 const emptyModules=new Proxy({}, {get:()=>noop});
 function load(file:string){
- const exports:any={};const source=readFileSync(new URL(`../../frontend/src/pages/${file}.tsx`,import.meta.url),'utf8');
+ const exports:any={};const source=readFileSync(new URL(`../../frontend/src/${file}`,import.meta.url),'utf8');
  new Function('exports','require','React',ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.React,esModuleInterop:true}}).outputText)(exports,(id:string)=>{
    if(id.endsWith('.css'))return {};
    if(id.includes('/services/api'))return {api,apiErrorMessage:()=> 'API_FAILED'};
    if(id.includes('/context/AuthContext'))return {useAuth:()=>({session,refresh:vi.fn()})};
-   if(id.includes('/utils/membershipCoverage'))return {selectMembershipCoverage:()=>({})};
+   if(['membershipCoverage','currentPortalDate','currentWeeklyProgress'].some(name=>id===`../utils/${name}`))return load(`utils/${id.split('/').at(-1)}.ts`);
+   if(id.includes('/components/AttendanceQrCard'))return {AttendanceQrCard:({hasAttendanceToday}:any)=>React.createElement('div',{'data-attended-today':hasAttendanceToday})};
    if(id==='react-router-dom')return {Link:({children}:any)=>React.createElement('a',null,children)};
    if(id==='lucide-react'||id.startsWith('../components/')||id.startsWith('../utils/'))return emptyModules;
    return req(id);
  },React);return exports;
 }
-const {MemberPortalPage}=load('MemberPortalPage');const {MemberCommunityPage}=load('MemberCommunityPage');
+const {MemberPortalPage}=load('pages/MemberPortalPage.tsx');const {MemberCommunityPage}=load('pages/MemberCommunityPage.tsx');
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT=true;
 const trees:any[]=[];const clients:any[]=[];
 const flush=async()=>{await act(async()=>{await new Promise(r=>setTimeout(r,30));});};
@@ -35,7 +36,52 @@ const button=(tree:any,label:string)=>tree.root.findAllByType('button').find((b:
 async function click(tree:any,label:string){await act(async()=>button(tree,label).props.onClick());await flush();}
 const ranking=(month='2026-11')=>({ranking:{period:{key:month,label:month,from:month+'-01',to:month+'-28',isCurrent:false},availablePeriods:[{key:'2026-11',label:'Nov'},{key:'2026-10',label:'Oct'}],historyMode:'reconstructed',categories:Object.fromEntries(['attendance','streak','progress'].map(key=>[key,{title:key,explanation:key,entries:[{position:1,memberUserId:'winner',name:`SQL winner ${month}`,avatarUrl:null,value:123,displayValue:'123 SQL',goalType:null}]}]))}});
 beforeEach(()=>{session={gymUser:{id:'viewer',gym_id:'gym-a',profiles:{full_name:'Reader'}}};api.get.mockReset();});
-afterEach(async()=>{await act(async()=>trees.splice(0).forEach(t=>t.unmount()));clients.splice(0).forEach(c=>c.clear());});
+afterEach(async()=>{await act(async()=>trees.splice(0).forEach(t=>t.unmount()));clients.splice(0).forEach(c=>c.clear());vi.useRealTimers();vi.unstubAllGlobals();});
+
+it('FIT-MEMBER-012 refreshes the daily summary, week, month and upcoming classes without losing a weight draft',async()=>{
+  vi.useFakeTimers({toFake:['Date']});
+  vi.setSystemTime(new Date('2026-06-01T04:59:00Z'));
+  const tab=Object.assign(new EventTarget(),{visibilityState:'visible'});
+  const reload=vi.fn();
+  vi.stubGlobal('document',tab);
+  vi.stubGlobal('window',Object.assign(new EventTarget(),{location:{reload}}));
+  const membership={id:'m',status:'active',attendance_mode_snapshot:'weekly',weekly_target_snapshot:3,
+    membership_periods:[{status:'active',starts_on:'2026-05-01',ends_on:'2026-06-30'}]};
+  const oldWeek={id:'old',membership_id:'m',week_starts_on:'2026-05-25',week_ends_on:'2026-05-31',target_attendances:3,completed_attendances:3,goal_met:true};
+  api.get.mockImplementation(async(url:string)=>{
+    if(url==='/members/me/progress'){
+      const sunday=new Date().getUTCHours()<5;
+      return {data:{progress:{today:sunday?'2026-05-31':'2026-06-01',hasAttendanceToday:sunday,totalAttendances:20,
+        currentMonthAttendances:sunday?9:0,currentWeekAttendances:sunday?3:0,attendanceByMonth:[],attendanceByWeek:[],weights:[],currentWeightKg:84,goal:null,
+        motivation:{tone:'neutral',title:'Summary',message:''}}}};
+    }
+    return {data:url==='/memberships'?{memberships:[membership]}
+      :url==='/attendances/weekly-progress'?{progress:[oldWeek]}
+      :url==='/calendar'?{hours:[],exceptions:[],location:{timezone:'America/Guayaquil'}}
+      :{attendances:[],streaks:[],schedules:[],announcements:[],fitnessProfile:{id:'profile'}}};
+  });
+  const {tree,client}=await mount(MemberPortalPage,{section:'progress'});
+  const attendance=()=>tree.root.findByProps({'data-attended-today':true});
+  const completed=()=>tree.root.findByProps({'aria-label':'Tu objetivo semanal'}).props.value;
+  expect(attendance()).toBeDefined();
+  expect(completed()).toBe(3);
+  await click(tree,'Registrar peso');
+  const weightInput=()=>tree.root.findAllByType('input').find((input:any)=>input.props.type==='number');
+  await act(async()=>weightInput().props.onChange({target:{value:'83.5'}}));
+  vi.setSystemTime(new Date('2026-06-01T05:01:00Z'));
+  await act(async()=>{tab.dispatchEvent(new Event('visibilitychange'));});
+  await flush();await flush();
+  expect(tree.root.findByProps({'data-attended-today':false})).toBeDefined();
+  expect(completed()).toBe(0);
+  expect(client.getQueryData(['my-progress','gym-a','viewer','2026-06-01'])).toMatchObject({today:'2026-06-01',currentMonthAttendances:0});
+  for(const url of ['/members/me/progress','/attendances/weekly-progress','/calendar','/activities']){
+    expect(api.get.mock.calls.filter(([path])=>path===url)).toHaveLength(2);
+  }
+  expect(api.get).toHaveBeenCalledWith('/calendar',{params:{from:'2026-06-01',to:'2026-06-30'}});
+  expect(api.get.mock.calls.filter(([path])=>path==='/memberships')).toHaveLength(1);
+  expect(weightInput().props.value).toBe('83.5');
+  expect(reload).not.toHaveBeenCalled();
+});
 describe('FIT-MEMBER-008 real React consumers',()=>{
  it.each([201,2001])('Home and Progress display %i while only five historical rows are loaded',async total=>{
    api.get.mockImplementation(async(url:string)=>({data:url==='/members/me/progress'?{progress:{totalAttendances:total,hasAttendanceToday:true,currentMonthAttendances:3,currentWeekAttendances:1,

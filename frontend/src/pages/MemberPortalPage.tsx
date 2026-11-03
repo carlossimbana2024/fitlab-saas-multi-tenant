@@ -20,6 +20,7 @@ import '../profile-header.css';
 import '../progress.css';
 import { selectMembershipCoverage } from '../utils/membershipCoverage';
 import { selectCurrentWeeklyProgress, type WeeklyProgress } from '../utils/currentWeeklyProgress';
+import { useCurrentPortalDate } from '../utils/currentPortalDate';
 
 type PortalSection = 'home' | 'classes' | 'progress' | 'profile' | 'settings';
 type Period = { starts_on: string; ends_on: string; status: string };
@@ -127,13 +128,12 @@ function fitnessFormFromProfile(profile?: FitnessProfile | null): FitnessForm {
   };
 }
 
-const localDate = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Guayaquil' }).format(new Date());
 function fitnessPayload(form:FitnessForm){return {weightKg:Number(form.weightKg),heightCm:Number(form.heightCm),goalType:form.goalType,experienceLevel:form.experienceLevel,trainingFrequencyPerWeek:Number(form.trainingFrequencyPerWeek),availableDays:form.availableDays,targetWeightKg:form.targetWeightKg?Number(form.targetWeightKg):null,preferredTrainingType:form.preferredTrainingType.trim()||null,goalHorizonMonths:form.goalHorizonMonths?Number(form.goalHorizonMonths):null,publicMessage:form.publicMessage.trim()||null,showInCommunity:form.showInCommunity,showProfilePhoto:form.showProfilePhoto,showStreak:form.showStreak,showAttendanceCount:form.showAttendanceCount,showWeightProgress:form.showWeightProgress,showGoal:form.showGoal};}
 const money = (amount: number, currency: string) => new Intl.NumberFormat('es-EC', { style: 'currency', currency }).format(Number(amount));
 const shortTime = (value: string | null) => value?.slice(0, 5) ?? '—';
 
-function monthRange() {
-  const today = localDate(); const [year, month] = today.split('-').map(Number);
+function monthRange(today: string) {
+  const [year, month] = today.split('-').map(Number);
   const last = new Date(Date.UTC(year!, month!, 0)).getUTCDate();
   return { today, year: year!, month: month!, from: `${year}-${String(month).padStart(2, '0')}-01`, to: `${year}-${String(month).padStart(2, '0')}-${last}`, last };
 }
@@ -145,8 +145,8 @@ function daysUntil(end: string | undefined, today: string) {
   return Math.floor((Date.UTC(endYear!, endMonth! - 1, endDay!) - Date.UTC(todayYear!, todayMonth! - 1, todayDay!)) / 86_400_000);
 }
 
-function membershipCoverageLabel(remaining: number | null, period?: Period) {
-  if (period && period.starts_on > localDate()) return `Comienza el ${period.starts_on}`;
+function membershipCoverageLabel(remaining: number | null, today: string, period?: Period) {
+  if (period && period.starts_on > today) return `Comienza el ${period.starts_on}`;
   if (remaining === null) return 'Sin fecha de cobertura';
   if (remaining > 0) return `${remaining} días restantes`;
   if (remaining === 0) return 'Vigente hasta hoy';
@@ -166,7 +166,8 @@ function sectionCopy(section: PortalSection) {
 export function MemberPortalPage({ section }: { section: PortalSection }) {
   const { session, refresh } = useAuth();
   const queryClient = useQueryClient();
-  const range = useMemo(monthRange, []);
+  const today = useCurrentPortalDate();
+  const range = useMemo(() => monthRange(today), [today]);
   const [editing, setEditing] = useState(false);
   const [fitnessEditing, setFitnessEditing] = useState(false);
   const [profile, setProfile] = useState({ fullName: session?.gymUser?.profiles?.full_name ?? '', phone: session?.gymUser?.profiles?.phone ?? '' });
@@ -175,22 +176,24 @@ export function MemberPortalPage({ section }: { section: PortalSection }) {
   const announcements = useQuery({ queryKey: ['gym-announcements', session?.gymUser?.gym_id, session?.gymUser?.default_location_id], queryFn: async () => (await api.get<{ announcements: GymAnnouncement[] }>('/announcements')).data.announcements, enabled: section === 'home' && Boolean(session?.gymUser), refetchInterval: 60_000 });
   const attendances = useQuery({ queryKey: ['my-attendances'], queryFn: async () => (await api.get<{ attendances: Attendance[] }>('/attendances')).data.attendances });
   const streaks = useQuery({ queryKey: ['my-streak'], queryFn: async () => (await api.get<{ streaks: Streak[] }>('/attendances/streaks')).data.streaks });
-  const weekly = useQuery({ queryKey: ['my-weekly-progress'], queryFn: async () => (await api.get<{ progress: WeeklyProgress[] }>('/attendances/weekly-progress')).data.progress });
+  const weekly = useQuery({ queryKey: ['my-weekly-progress', today], queryFn: async () => (await api.get<{ progress: WeeklyProgress[] }>('/attendances/weekly-progress')).data.progress });
   const calendar = useQuery({ queryKey: ['my-calendar', range.from], queryFn: async () => (await api.get<Calendar>('/calendar', { params: { from: range.from, to: range.to } })).data });
-  const [classHistoryMonth,setClassHistoryMonth] = useState(range.from.slice(0,7));
+  const [selectedHistoryMonth,setClassHistoryMonth] = useState<string | null>(null);
+  const classHistoryMonth = selectedHistoryMonth ?? range.from.slice(0,7);
   const historyClasses = useQuery({queryKey:['my-activities','history',classHistoryMonth],enabled:section==='classes',queryFn:async()=>{
     const start=new Date(classHistoryMonth+'-01T00:00:00Z'); const end=new Date(start);end.setUTCMonth(end.getUTCMonth()+1);end.setTime(end.getTime()-1);
     return (await api.get<PortalActivities>('/activities',{params:{from:start.toISOString(),to:end.toISOString()}})).data;
   }});
+  const classesQueryKey = ['my-activities', 'upcoming', today] as const;
   const classes = useQuery({
-    queryKey: ['my-activities'],
+    queryKey: classesQueryKey,
     queryFn: async () => ({ ...(await api.get<PortalActivities>('/activities')).data, receivedAt: performance.now() }),
     refetchInterval: query => (section === 'home' || section === 'classes') && query.state.data?.offersEnabled !== false
       ? classWaitlistPollInterval(query.state.data?.schedules) : false,
     refetchIntervalInBackground: false,
   });
   const fitnessProfile = useQuery({ queryKey: ['my-fitness-profile'], queryFn: async () => (await api.get<{ fitnessProfile: FitnessProfile | null }>('/members/me/fitness-profile')).data.fitnessProfile });
-  const progress = useQuery({ queryKey: ['my-progress', session?.gymUser?.gym_id, session?.gymUser?.id], queryFn: async () => (await api.get<{ progress: MemberProgress }>('/members/me/progress')).data.progress });
+  const progress = useQuery({ queryKey: ['my-progress', session?.gymUser?.gym_id, session?.gymUser?.id, today], queryFn: async () => (await api.get<{ progress: MemberProgress }>('/members/me/progress')).data.progress });
   const [recordingWeight, setRecordingWeight] = useState(false);
   const [weightValue, setWeightValue] = useState('');
   const [weightDate, setWeightDate] = useState(range.today);
@@ -227,7 +230,7 @@ export function MemberPortalPage({ section }: { section: PortalSection }) {
   const refreshExpiredOffer = () => {
     setClassNotice('El plazo visual de una oferta terminó. Consultando su estado real…');
     void refreshClasses().then(() => {
-      setClassNotice(queryClient.getQueryState(['my-activities'])?.status === 'error' ? null
+      setClassNotice(queryClient.getQueryState(classesQueryKey)?.status === 'error' ? null
         : 'Estado actualizado. Si la oferta ya no aparece, dejó de estar disponible; puedes consultar las opciones actuales de la clase.');
     }).catch(error => { setClassNotice(null); setClassActionError(error); });
   };
@@ -307,7 +310,7 @@ export function MemberPortalPage({ section }: { section: PortalSection }) {
       {Boolean(announcements.data?.length) && <section className="portal-notices gym-announcement-notices"><div className="panel-title"><Bell aria-hidden="true"/><div><h2>Avisos de tu gimnasio</h2><p>Información compartida por el owner</p></div></div><HomeAnnouncement announcement={announcements.data![0]!}/>{announcements.data!.length>1 && <details className="home-more-announcements"><summary>Ver todos los avisos ({announcements.data!.length})<ChevronRight aria-hidden="true"/></summary>{announcements.data!.slice(1).map(announcement=><HomeAnnouncement key={announcement.id} announcement={announcement}/>)}</details>}</section>}
       {announcements.isError && <div className="alert error">No se pudieron cargar los avisos del gimnasio.</div>}
       {notices.length > 0 && <section className="portal-notices"><div className="panel-title"><div><h2>Avisos</h2><p>Información importante para ti</p></div><Bell/></div>{notices.map((notice) => <div className="notice" key={notice}>{notice}</div>)}</section>}
-      <div className="portal-grid home-summary-grid"><article className="portal-card coverage"><CreditCard aria-hidden="true"/><div className="home-membership-copy"><span>Membresía</span><strong>{loading ? 'Cargando…' : membership?.plans?.name ?? 'Sin membresía activa'}</strong><small>{period ? `${period.starts_on} → ${period.ends_on}` : 'Sin cobertura vigente'}</small>{period && <span className="home-coverage-chip">{membershipCoverageLabel(remaining, period)}</span>}{membership && <small>{Number(membership.price_at_purchase).toFixed(2)} {membership.currency} · {membership.attendance_mode_snapshot === 'weekly' ? `${membership.weekly_target_snapshot} veces por semana` : 'Asistencia diaria'}</small>}</div></article><article className="portal-card home-activity-stat"><Activity aria-hidden="true"/><span>Asistencias válidas</span><strong>{progress.isError ? 'No disponible' : progress.data?.totalAttendances ?? 'Cargando…'}</strong><small>{progress.isError ? 'No se pudo cargar el resumen' : progress.data ? (progress.data.latestAttendanceDate ? `Última: ${progress.data.latestAttendanceDate}` : 'Aún no hay registros') : 'Consultando resumen…'}</small></article><article className="portal-card streak home-activity-stat"><Flame aria-hidden="true"/><span>Racha actual</span><strong>{streak?.current_streak ?? 0}</strong><small>Mejor racha: {streak?.longest_streak ?? 0}</small></article></div>
+      <div className="portal-grid home-summary-grid"><article className="portal-card coverage"><CreditCard aria-hidden="true"/><div className="home-membership-copy"><span>Membresía</span><strong>{loading ? 'Cargando…' : membership?.plans?.name ?? 'Sin membresía activa'}</strong><small>{period ? `${period.starts_on} → ${period.ends_on}` : 'Sin cobertura vigente'}</small>{period && <span className="home-coverage-chip">{membershipCoverageLabel(remaining, today, period)}</span>}{membership && <small>{Number(membership.price_at_purchase).toFixed(2)} {membership.currency} · {membership.attendance_mode_snapshot === 'weekly' ? `${membership.weekly_target_snapshot} veces por semana` : 'Asistencia diaria'}</small>}</div></article><article className="portal-card home-activity-stat"><Activity aria-hidden="true"/><span>Asistencias válidas</span><strong>{progress.isError ? 'No disponible' : progress.data?.totalAttendances ?? 'Cargando…'}</strong><small>{progress.isError ? 'No se pudo cargar el resumen' : progress.data ? (progress.data.latestAttendanceDate ? `Última: ${progress.data.latestAttendanceDate}` : 'Aún no hay registros') : 'Consultando resumen…'}</small></article><article className="portal-card streak home-activity-stat"><Flame aria-hidden="true"/><span>Racha actual</span><strong>{streak?.current_streak ?? 0}</strong><small>Mejor racha: {streak?.longest_streak ?? 0}</small></article></div>
       <section className="panel portal-classes portal-home-classes"><div className="panel-title"><CalendarCheck aria-hidden="true"/><div><h2>Próximas clases</h2><p>Reserva desde tu sección de Clases.</p></div><Link className="ghost" to="/portal/classes">Ver todas<ChevronRight aria-hidden="true"/></Link></div><div className="home-class-grid">{!classes.isLoading && !classes.isError && upcomingClasses.slice(0, 3).map((item) => <ClassSummary key={item.id} schedule={item}/>)}</div>{classes.isLoading && <p role="status">Consultando cupos…</p>}{classes.isError && <p role="alert">No se pudo consultar la disponibilidad. <button onClick={() => classes.refetch()}>Reintentar</button></p>}{!classes.isLoading && !classes.isError && !upcomingClasses.length && <div className="empty compact"><Dumbbell/><strong>No hay próximas clases publicadas</strong><span>Cuando el gimnasio programe una actividad aparecerá aquí.</span></div>}</section>
     </div>}
 
