@@ -18,9 +18,29 @@ describe('auth middleware and cookie contracts', () => {
     const q:any={select:vi.fn(()=>q),eq:vi.fn(()=>q),single:vi.fn(async()=>({data:{id:'member',gym_id:'gym',gym,profiles:null},error:null}))};
     const req:any={authUser:{id:'profile'},supabase:{from:vi.fn(()=>q)}},res=response();
     await me(req,res);
-    expect(q.select.mock.calls[0][0]).toContain('gym:gyms(timezone)');
+    expect(q.select.mock.calls[0][0]).toContain('gym:gyms!gym_users_gym_id_fkey(timezone)');
     expect(q.eq).toHaveBeenCalledWith('profile_id','profile');
     expect(res.json.mock.calls[0][0].gymUser.gym).toEqual(Array.isArray(gym)?gym[0]:gym);
+  });
+  it.each(['owner', 'staff', 'member'])('me resolves the tenant FK when PostgREST exposes multiple gym relationships (%s)', async role => {
+    let selected = '';
+    const gymUser = { id: 'gym-user', gym_id: 'own-gym', role, gym: { timezone: 'America/Guayaquil' }, profiles: null };
+    const q: any = {
+      select: vi.fn((columns: string) => { selected = columns; return q; }),
+      eq: vi.fn(() => q),
+      single: vi.fn(async () => selected.includes('gym:gyms!gym_users_gym_id_fkey(timezone)')
+        ? { data: gymUser, error: null }
+        : { data: null, error: { code: 'PGRST201', message: "Could not embed because more than one relationship was found for 'gym_users' and 'gyms'" } }),
+    };
+    const req: any = { authUser: { id: 'authenticated-profile' }, query: { gym_id: 'other-gym' }, supabase: { from: vi.fn(() => q) } };
+    const res = response();
+    await me(req, res);
+    expect(req.supabase.from).toHaveBeenCalledWith('gym_users');
+    expect(q.eq).toHaveBeenCalledWith('profile_id', 'authenticated-profile');
+    expect(selected).toContain('staff_permissions!staff_permissions_staff_user_id_fkey');
+    expect(res.json).toHaveBeenCalledWith({ user: req.authUser, gymUser, onboardingRequired: false });
+    expect(res.cookie).not.toHaveBeenCalled();
+    expect(res.clearCookie).not.toHaveBeenCalled();
   });
   it('refresh rotates signed HTTP-only cookies without exposing tokens in JSON', async () => {
     mocks.refreshSession.mockResolvedValue(valid); const res = response(); await refresh(request(), res);

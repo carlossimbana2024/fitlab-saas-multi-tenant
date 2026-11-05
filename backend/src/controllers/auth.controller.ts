@@ -175,9 +175,10 @@ export async function completeOwnerOnboarding(request: Request, response: Respon
 }
 
 export async function me(request: Request, response: Response) {
+  // Select the tenant FK explicitly: PostgREST can expose other relationships to gyms.
   const { data, error } = await request.supabase!
     .from('gym_users')
-    .select('id,gym_id,role,status,default_location_id,gym:gyms(timezone),profiles(full_name,phone,avatar_url),staff_permissions!staff_permissions_staff_user_id_fkey(permission_key,access_mode)')
+    .select('id,gym_id,role,status,default_location_id,gym:gyms!gym_users_gym_id_fkey(timezone),profiles(full_name,phone,avatar_url),staff_permissions!staff_permissions_staff_user_id_fkey(permission_key,access_mode)')
     .eq('profile_id', request.authUser!.id)
     .single();
 
