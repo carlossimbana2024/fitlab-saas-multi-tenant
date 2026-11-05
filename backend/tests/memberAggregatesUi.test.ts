@@ -15,7 +15,8 @@ function load(file:string){
    if(id.endsWith('.css'))return {};
    if(id.includes('/services/api'))return {api,apiErrorMessage:()=> 'API_FAILED'};
    if(id.includes('/context/AuthContext'))return {useAuth:()=>({session,refresh:vi.fn()})};
-   if(['membershipCoverage','currentPortalDate','currentWeeklyProgress','portalTime','classScheduleHours'].some(name=>id===`../utils/${name}`||id===`./${name}`))return load(`utils/${id.split('/').at(-1)}.ts`);
+   if(['membershipCoverage','currentPortalDate','currentWeeklyProgress','portalTime','classScheduleHours','branchOpenStatus'].some(name=>id===`../utils/${name}`||id===`./${name}`))return load(`utils/${id.split('/').at(-1)}.ts`);
+   if(id==='../components/BranchOpenStatus')return load('components/BranchOpenStatus.tsx');
    if(id.includes('/components/AttendanceQrCard'))return {AttendanceQrCard:({hasAttendanceToday}:any)=>React.createElement('div',{'data-attended-today':hasAttendanceToday})};
    if(id==='react-router-dom')return {Link:({children}:any)=>React.createElement('a',null,children)};
    if(id==='lucide-react'||id.startsWith('../components/')||id.startsWith('../utils/'))return emptyModules;
@@ -23,6 +24,7 @@ function load(file:string){
  },React);return exports;
 }
 const {MemberPortalPage}=load('pages/MemberPortalPage.tsx');const {MemberCommunityPage}=load('pages/MemberCommunityPage.tsx');
+const {BranchOpenStatus}=load('components/BranchOpenStatus.tsx');
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT=true;
 const trees:any[]=[];const clients:any[]=[];
 const flush=async()=>{await act(async()=>{await new Promise(r=>setTimeout(r,30));});};
@@ -37,6 +39,33 @@ async function click(tree:any,label:string){await act(async()=>button(tree,label
 const ranking=(month='2026-11')=>({ranking:{period:{key:month,label:month,from:month+'-01',to:month+'-28',isCurrent:false},availablePeriods:[{key:'2026-11',label:'Nov'},{key:'2026-10',label:'Oct'}],historyMode:'reconstructed',categories:Object.fromEntries(['attendance','streak','progress'].map(key=>[key,{title:key,explanation:key,entries:[{position:1,memberUserId:'winner',name:`SQL winner ${month}`,avatarUrl:null,value:123,displayValue:'123 SQL',goalType:null}]}]))}});
 beforeEach(()=>{session={gymUser:{id:'viewer',gym_id:'gym-a',profiles:{full_name:'Reader'}}};api.get.mockReset();});
 afterEach(async()=>{await act(async()=>trees.splice(0).forEach(t=>t.unmount()));clients.splice(0).forEach(c=>c.clear());vi.useRealTimers();vi.unstubAllGlobals();});
+
+it.each([true,false])('FIT-MEMBER-014 UI renders authoritative SQL state %s',async isOpenNow=>{
+ api.get.mockResolvedValue({data:{isOpenNow,timezone:'America/Guayaquil',nextTransitionAt:null,revalidateAt:new Date(Date.now()+86400000).toISOString(),validUntil:new Date(Date.now()+86400000).toISOString()}});
+ const {tree}=await mount(BranchOpenStatus,{gymId:'g',memberId:'m',locationId:'l'});
+ expect(text(tree)).toContain(isOpenNow?'Abierto ahora':'Cerrado ahora');
+});
+it('FIT-MEMBER-014 API failure is not closed',async()=>{
+ api.get.mockRejectedValue(new Error('RPC failed'));
+ const {tree}=await mount(BranchOpenStatus,{gymId:'g',memberId:'m',locationId:'l'});
+ expect(text(tree)).toContain('Estado de sucursal no disponible');expect(text(tree)).not.toContain('Cerrado ahora');
+});
+it.each([true,false])('FIT-MEMBER-014 transition refetch changes state to %s',async target=>{
+ vi.stubGlobal('window',new EventTarget());vi.stubGlobal('document',Object.assign(new EventTarget(),{visibilityState:'visible'}));
+ let calls=0;
+ api.get.mockImplementation(async()=>{calls++;return {data:{isOpenNow:calls>1?target:!target,timezone:'America/New_York',nextTransitionAt:new Date(Date.now()+(calls>1?86400000:1000)).toISOString(),revalidateAt:new Date(Date.now()+86400000).toISOString(),validUntil:new Date(Date.now()+86400000).toISOString()}};});
+ const {tree}=await mount(BranchOpenStatus,{gymId:'g',memberId:'m',locationId:'a'});
+ expect(text(tree)).toContain(target?'Cerrado ahora':'Abierto ahora');
+ await act(async()=>{await new Promise(r=>setTimeout(r,1100));});await flush();
+ expect(text(tree)).toContain(target?'Abierto ahora':'Cerrado ahora');expect(calls).toBe(2);
+});
+it('FIT-MEMBER-014 branch change never shows previous state',async()=>{
+ api.get.mockResolvedValue({data:{isOpenNow:true,timezone:'America/Guayaquil',nextTransitionAt:null,revalidateAt:new Date(Date.now()+86400000).toISOString(),validUntil:new Date(Date.now()+86400000).toISOString()}});
+ const {tree,client}=await mount(BranchOpenStatus,{gymId:'g',memberId:'m',locationId:'a'});
+ api.get.mockImplementation(()=>new Promise(()=>{}));
+ await act(async()=>tree.update(React.createElement(QueryClientProvider,{client},React.createElement(BranchOpenStatus,{gymId:'g',memberId:'m',locationId:'b'}))));
+ expect(text(tree)).toContain('Consultando horario');expect(text(tree)).not.toContain('Abierto ahora');
+});
 
 it('FIT-MEMBER-013 tenant and branch changes restart a single timer without leaking the previous date',async()=>{
   vi.useFakeTimers();

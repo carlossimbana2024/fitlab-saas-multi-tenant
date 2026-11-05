@@ -23,6 +23,7 @@ import { selectCurrentWeeklyProgress, type WeeklyProgress } from '../utils/curre
 import { useCurrentPortalDate } from '../utils/currentPortalDate';
 import { civilDate, formatBranchInstant, gymTimezone, monthInstants } from '../utils/portalTime';
 import { shiftDate } from '../utils/classScheduleHours';
+import { BranchOpenStatus } from '../components/BranchOpenStatus';
 
 type PortalSection = 'home' | 'classes' | 'progress' | 'profile' | 'settings';
 type Period = { starts_on: string; ends_on: string; status: string };
@@ -132,7 +133,6 @@ function fitnessFormFromProfile(profile?: FitnessProfile | null): FitnessForm {
 
 function fitnessPayload(form:FitnessForm){return {weightKg:Number(form.weightKg),heightCm:Number(form.heightCm),goalType:form.goalType,experienceLevel:form.experienceLevel,trainingFrequencyPerWeek:Number(form.trainingFrequencyPerWeek),availableDays:form.availableDays,targetWeightKg:form.targetWeightKg?Number(form.targetWeightKg):null,preferredTrainingType:form.preferredTrainingType.trim()||null,goalHorizonMonths:form.goalHorizonMonths?Number(form.goalHorizonMonths):null,publicMessage:form.publicMessage.trim()||null,showInCommunity:form.showInCommunity,showProfilePhoto:form.showProfilePhoto,showStreak:form.showStreak,showAttendanceCount:form.showAttendanceCount,showWeightProgress:form.showWeightProgress,showGoal:form.showGoal};}
 const money = (amount: number, currency: string) => new Intl.NumberFormat('es-EC', { style: 'currency', currency }).format(Number(amount));
-const shortTime = (value: string | null) => value?.slice(0, 5) ?? '—';
 
 function monthRange(today: string) {
   const [year, month] = today.split('-').map(Number);
@@ -206,13 +206,6 @@ export function MemberPortalPage({ section }: { section: PortalSection }) {
   const currentWeek = selectCurrentWeeklyProgress(weekly.data ?? [], membership, progress.data?.today ?? range.today);
   const remaining = daysUntil(period?.ends_on, range.today);
   const hasAttendanceToday = progress.data?.hasAttendanceToday ?? false;
-  const branchTimezone = calendar.data?.location.timezone;
-  const branchToday = branchTimezone ? civilDate(Date.now(), branchTimezone) : null;
-  const todayWeekday = branchToday ? new Date(`${branchToday}T12:00:00Z`).getUTCDay() || 7 : null;
-  const todayException = calendar.data?.exceptions.find((item) => item.calendar_date === branchToday);
-  const todaySchedule = todayException ?? calendar.data?.hours.find((item) => item.weekday === todayWeekday);
-  const nowTime = branchTimezone ? new Intl.DateTimeFormat('en-GB', { timeZone: branchTimezone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date()) : '';
-  const isOpen = Boolean(todaySchedule && todaySchedule.day_mode !== 'closed' && todaySchedule.opens_at && todaySchedule.closes_at && (todaySchedule.closes_at <= todaySchedule.opens_at ? nowTime >= todaySchedule.opens_at || nowTime < todaySchedule.closes_at : nowTime >= todaySchedule.opens_at && nowTime < todaySchedule.closes_at));
   const upcomingClasses = (classes.data?.schedules ?? []).filter((item) => new Date(item.starts_at).getTime() > Date.now());
   const upcomingReservations = upcomingClasses.filter((item) => item.myBooking?.status === 'reserved' || ((classReferenceIssue(item) || item.status !== 'scheduled') && (item.myBooking || item.myWaitlist)));
   const availableClasses = upcomingClasses.filter((item) => !upcomingReservations.includes(item));
@@ -285,7 +278,6 @@ export function MemberPortalPage({ section }: { section: PortalSection }) {
   const fitnessSetupRequired = !fitnessProfile.isLoading && !fitnessProfile.isError && !fitnessProfile.data;
   const notices = [
     membership && period && period.starts_on <= range.today && remaining !== null && remaining > 0 && remaining <= 5 ? `Tu membresía vence en ${remaining} día${remaining === 1 ? '' : 's'}.` : '',
-    todaySchedule?.day_mode === 'closed' ? `El gimnasio está cerrado hoy${todayException?.reason ? `: ${todayException.reason}` : '.'}` : '',
     membership?.attendance_mode_snapshot === 'weekly' && currentWeek && !currentWeek.goal_met ? `Te faltan ${Math.max(0, currentWeek.target_attendances - currentWeek.completed_attendances)} asistencias para completar tu meta semanal.` : '',
     streak?.current_streak ? `Mantienes una racha de ${streak.current_streak}. ¡Sigue así!` : '',
   ].filter(Boolean);
@@ -311,7 +303,7 @@ export function MemberPortalPage({ section }: { section: PortalSection }) {
       {progress.isError && <div className="alert error" role="alert">{apiErrorMessage(progress.error)} <button onClick={() => void progress.refetch()}>Reintentar resumen</button></div>}
       <div className="home-quick-actions"><Link className="panel loyalty-home-link" to="/portal/payments"><CreditCard aria-hidden="true"/><span><strong>Membresía y pagos</strong><small>Renueva, presenta tu comprobante y consulta el resultado.</small></span><ChevronRight aria-hidden="true"/></Link>
       <Link className="panel loyalty-home-link" to="/portal/rewards"><Gift aria-hidden="true"/><span><strong>Retos y recompensas</strong><small>Descubre los premios de tu gimnasio y sigue tu avance.</small></span><ChevronRight aria-hidden="true"/></Link></div>
-      <section className={`today-status ${isOpen ? 'open' : 'closed'}`}><Clock3/><div><strong>{isOpen ? 'Abierto ahora' : 'Cerrado ahora'}</strong><span>{todaySchedule?.day_mode === 'closed' ? todayException?.reason ?? 'No abre hoy' : todaySchedule ? `Horario de hoy: ${shortTime(todaySchedule.opens_at)}–${shortTime(todaySchedule.closes_at)}` : 'Horario no configurado'}</span></div><small>{calendar.data?.location.name}</small></section>
+      <BranchOpenStatus gymId={session?.gymUser?.gym_id} memberId={session?.gymUser?.id} locationId={session?.gymUser?.default_location_id} name={calendar.data?.location.name}/>
       {Boolean(announcements.data?.length) && <section className="portal-notices gym-announcement-notices"><div className="panel-title"><Bell aria-hidden="true"/><div><h2>Avisos de tu gimnasio</h2><p>Información compartida por el owner</p></div></div><HomeAnnouncement announcement={announcements.data![0]!}/>{announcements.data!.length>1 && <details className="home-more-announcements"><summary>Ver todos los avisos ({announcements.data!.length})<ChevronRight aria-hidden="true"/></summary>{announcements.data!.slice(1).map(announcement=><HomeAnnouncement key={announcement.id} announcement={announcement}/>)}</details>}</section>}
       {announcements.isError && <div className="alert error">No se pudieron cargar los avisos del gimnasio.</div>}
       {notices.length > 0 && <section className="portal-notices"><div className="panel-title"><div><h2>Avisos</h2><p>Información importante para ti</p></div><Bell/></div>{notices.map((notice) => <div className="notice" key={notice}>{notice}</div>)}</section>}

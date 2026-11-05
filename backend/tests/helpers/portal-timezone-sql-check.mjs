@@ -19,14 +19,20 @@ try {
     create table storage.buckets(id text primary key,name text,public boolean default false,file_size_limit bigint,allowed_mime_types text[]);
     grant usage on schema public,auth to anon,authenticated,service_role;`);
   // 0052 is intentionally omitted: pg_cron is not available in this embedded DB.
-  for (const file of (await readdir(resolve(root, 'supabase/migrations'))).filter(f => f.endsWith('.sql') && f < '0056' && !f.startsWith('0052')).sort()) {
+  for (const file of (await readdir(resolve(root, 'supabase/migrations'))).filter(f => f.endsWith('.sql') && f < '0057' && !f.startsWith('0052')).sort()) {
     await db.exec(await readFile(resolve(root, 'supabase/migrations', file), 'utf8'));
   }
   for (const result of await db.exec(await readFile(resolve(root, 'supabase/tests/0053_class_schedule_opening_hours.sql'), 'utf8'))) {
     if (result.rows?.length) console.log(result.rows);
   }
   const policy = await db.query('select offers_enabled from private.class_waitlist_policy where singleton');
+  for (const result of await db.exec(await readFile(resolve(root, 'supabase/tests/0056_branch_open_status.sql'), 'utf8'))) {
+    if (result.rows?.length) console.log(result.rows);
+  }
   if (policy.rows[0]?.offers_enabled !== false) throw new Error('Offers must remain disabled.');
+  for (const result of await db.exec(await readFile(resolve(root, 'supabase/tests/0056_branch_open_status_ecuador_local.sql'), 'utf8'))) {
+    if (result.rows?.length) console.log(result.rows);
+  }
   console.log('FIT-MEMBER-013: 0053 regression OK; local offers disabled. No remote access.');
 } catch (error) { console.error(error.message); process.exitCode = 1; }
 finally { await db.close(); }

@@ -5,6 +5,23 @@ import { fromSupabaseError } from '../utils/supabaseError.js';
 import { exceptionSchema, scheduleSchema } from '../validators/calendar.validator.js';
 import { writeAuditLog } from '../services/audit.service.js';
 import { dateInTimezone } from '../utils/gymDate.js';
+import { z } from 'zod';
+
+export async function getBranchOpenStatus(request: Request, response: Response) {
+  const tenant = request.tenant!;
+  if (tenant.role !== 'member') throw new AppError(403, 'MEMBER_REQUIRED', 'Esta consulta requiere una cuenta de miembro.');
+  const location = z.string().uuid().safeParse(request.query.locationId ?? tenant.defaultLocationId);
+  if (!location.success) throw new AppError(400, 'LOCATION_REQUIRED', 'Selecciona una sucursal válida.');
+  const { data, error } = await supabaseAdmin.rpc('get_member_branch_open_status_backend', {
+    target_gym_id: tenant.gymId,
+    actor_member_user_id: tenant.gymUserId,
+    target_location_id: location.data,
+  });
+  if (error) throw fromSupabaseError(error);
+  if (!data) throw new AppError(502, 'BRANCH_STATUS_UNAVAILABLE', 'No se pudo consultar el estado de la sucursal.');
+  response.setHeader('Cache-Control', 'private, no-store');
+  response.json(data);
+}
 
 async function ensureLocation(request: Request, locationId: string) {
   const { data, error } = await request.supabase!.from('gym_locations').select('id,name,address,city,timezone,email,phone,whatsapp_phone,is_main,is_active').eq('id', locationId).maybeSingle();
