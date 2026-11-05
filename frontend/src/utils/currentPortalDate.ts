@@ -1,37 +1,23 @@
 import { useEffect, useState } from 'react';
 
-// Preserve the portal calendar's existing convention. The attendance summary
-// still supplies its own gym-local date; reconciling those clocks is FIT-MEMBER-013.
-const portalDateFormatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Guayaquil' });
-const hourMs = 3_600_000;
+import { civilDate, DEFAULT_TIMEZONE, nextMidnight } from './portalTime';
 
-export const portalDate = (timestamp = Date.now()) => portalDateFormatter.format(timestamp);
+export const portalDate = (timestamp = Date.now(), timezone = DEFAULT_TIMEZONE) => civilDate(timestamp, timezone);
 
-function nextDayBoundary(now: number, today: string) {
-  // Find the first instant with a different calendar date, independent of the
-  // browser's local timezone. In the portal's zone the next midnight is within 26h.
-  let lo = now;
-  let hi = now + 26 * hourMs;
-  while (hi - lo > 1) {
-    const mid = lo + Math.floor((hi - lo) / 2);
-    if (portalDate(mid) === today) lo = mid;
-    else hi = mid;
-  }
-  return hi;
-}
-
-export function watchPortalDate(onDate: (date: string) => void) {
+export function watchPortalDate(onDate: (date: string) => void, timezone = DEFAULT_TIMEZONE, branchTimezone?: string) {
   let timer: ReturnType<typeof setTimeout>;
   let previous: string | undefined;
   const resync = () => {
     clearTimeout(timer);
     const now = Date.now();
-    const today = portalDate(now);
-    if (today !== previous) {
-      previous = today;
+    const today = portalDate(now, timezone);
+    const fingerprint = today + (branchTimezone ? portalDate(now, branchTimezone) : '');
+    if (fingerprint !== previous) {
+      previous = fingerprint;
       onDate(today);
     }
-    timer = setTimeout(resync, Math.max(1, nextDayBoundary(now, today) - Date.now()));
+    const boundary = Math.min(nextMidnight(now, timezone), branchTimezone ? nextMidnight(now, branchTimezone) : Infinity);
+    timer = setTimeout(resync, Math.max(1, boundary - Date.now()));
   };
   const onVisibility = () => {
     if (document.visibilityState === 'visible') resync();
@@ -46,11 +32,12 @@ export function watchPortalDate(onDate: (date: string) => void) {
   };
 }
 
-export function useCurrentPortalDate() {
-  const [today, setToday] = useState(() => portalDate());
+export function useCurrentPortalDate(timezone = DEFAULT_TIMEZONE, tenantId?: string, branchTimezone?: string) {
+  const [state, setState] = useState(() => ({ timezone, tenantId, today: portalDate(Date.now(), timezone) }));
   useEffect(() => {
     if (typeof window === 'undefined' || typeof document === 'undefined') return;
-    return watchPortalDate(setToday);
-  }, []);
-  return today;
+    return watchPortalDate(today => setState({ timezone, tenantId, today }), timezone, branchTimezone);
+  }, [timezone, tenantId, branchTimezone]);
+  // Never render the previous tenant's civil date while the effect is restarting.
+  return state.timezone === timezone && state.tenantId === tenantId ? state.today : portalDate(Date.now(), timezone);
 }

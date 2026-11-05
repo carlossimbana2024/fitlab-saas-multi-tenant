@@ -4,6 +4,7 @@ import { AppError } from '../errors/AppError.js';
 import { fromSupabaseError } from '../utils/supabaseError.js';
 import { exceptionSchema, scheduleSchema } from '../validators/calendar.validator.js';
 import { writeAuditLog } from '../services/audit.service.js';
+import { dateInTimezone } from '../utils/gymDate.js';
 
 async function ensureLocation(request: Request, locationId: string) {
   const { data, error } = await request.supabase!.from('gym_locations').select('id,name,address,city,timezone,email,phone,whatsapp_phone,is_main,is_active').eq('id', locationId).maybeSingle();
@@ -16,7 +17,7 @@ export async function getCalendar(request: Request, response: Response) {
   const locationId = typeof request.query.locationId === 'string' ? request.query.locationId : request.tenant!.defaultLocationId;
   if (!locationId) throw new AppError(400, 'LOCATION_REQUIRED', 'Selecciona una sucursal.');
   const location = await ensureLocation(request, locationId);
-  const from = typeof request.query.from === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(request.query.from) ? request.query.from : new Date().toISOString().slice(0, 10);
+  const from = typeof request.query.from === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(request.query.from) ? request.query.from : dateInTimezone(request.tenant!.timezone);
   const to = typeof request.query.to === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(request.query.to) ? request.query.to : undefined;
   let exceptionsQuery = request.supabase!.from('location_calendar_exceptions').select('id,calendar_date,day_mode,opens_at,closes_at,reason').eq('location_id', locationId).gte('calendar_date', from).order('calendar_date').limit(100);
   if (to) exceptionsQuery = exceptionsQuery.lte('calendar_date', to);

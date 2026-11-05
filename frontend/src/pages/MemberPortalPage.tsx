@@ -21,6 +21,8 @@ import '../progress.css';
 import { selectMembershipCoverage } from '../utils/membershipCoverage';
 import { selectCurrentWeeklyProgress, type WeeklyProgress } from '../utils/currentWeeklyProgress';
 import { useCurrentPortalDate } from '../utils/currentPortalDate';
+import { civilDate, formatBranchInstant, gymTimezone, monthInstants } from '../utils/portalTime';
+import { shiftDate } from '../utils/classScheduleHours';
 
 type PortalSection = 'home' | 'classes' | 'progress' | 'profile' | 'settings';
 type Period = { starts_on: string; ends_on: string; status: string };
@@ -32,7 +34,7 @@ type Hour = { weekday: number; opens_at: string | null; closes_at: string | null
 type Exception = { calendar_date: string; opens_at: string | null; closes_at: string | null; day_mode: 'required' | 'bonus' | 'closed'; reason?: string | null };
 type Calendar = { gym: { name: string; email?: string | null; phone?: string | null; whatsapp_phone?: string | null; timezone: string }; location: { name: string; address?: string | null; city: string; timezone: string; email?: string | null; phone?: string | null; whatsapp_phone?: string | null }; hours: Hour[]; exceptions: Exception[] };
 type PortalClassBooking = ClassBookingEconomics & { id: string; status: 'reserved' | 'attended' | 'cancelled' | 'no_show'; payment_id?: string | null };
-type PortalClassSchedule = { id: string; starts_at: string; ends_at: string; status: string; occupied: number; capacity: number; available: number; isFull: boolean; offeredCount?: number; activity: { name: string; description?: string | null; billing_mode: 'included' | 'additional_fee'; price: number; currency: string; duration_minutes: number; is_active?: boolean } | null; location: { name: string; is_active?: boolean } | null; referenceState?: string; instructor?: { name: string } | null; myBooking?: PortalClassBooking | null; myWaitlist?: ClassWaitlistEntry | null };
+type PortalClassSchedule = { id: string; starts_at: string; ends_at: string; status: string; occupied: number; capacity: number; available: number; isFull: boolean; offeredCount?: number; activity: { name: string; description?: string | null; billing_mode: 'included' | 'additional_fee'; price: number; currency: string; duration_minutes: number; is_active?: boolean } | null; location: { name: string; timezone?: string; is_active?: boolean } | null; referenceState?: string; instructor?: { name: string } | null; myBooking?: PortalClassBooking | null; myWaitlist?: ClassWaitlistEntry | null };
 type PortalActivities = { schedules: PortalClassSchedule[]; serverTime?: string; offersEnabled?: boolean; receivedAt?: number };
 type FitnessGoal = 'lose_weight' | 'gain_weight' | 'build_muscle' | 'improve_fitness' | 'maintain_weight' | 'general_wellness';
 type FitnessProfile = {
@@ -166,7 +168,10 @@ function sectionCopy(section: PortalSection) {
 export function MemberPortalPage({ section }: { section: PortalSection }) {
   const { session, refresh } = useAuth();
   const queryClient = useQueryClient();
-  const today = useCurrentPortalDate();
+  const timezone = gymTimezone(session?.gymUser?.gym?.timezone);
+  const calendarRange = monthRange(civilDate(Date.now(), timezone));
+  const calendar = useQuery({ queryKey: ['my-calendar', session?.gymUser?.gym_id, session?.gymUser?.default_location_id, timezone, calendarRange.from], queryFn: async () => (await api.get<Calendar>('/calendar', { params: { from: shiftDate(calendarRange.from, -1), to: shiftDate(calendarRange.to, 1) } })).data });
+  const today = useCurrentPortalDate(timezone, session?.gymUser?.gym_id, calendar.data?.location.timezone);
   const range = useMemo(() => monthRange(today), [today]);
   const [editing, setEditing] = useState(false);
   const [fitnessEditing, setFitnessEditing] = useState(false);
@@ -176,15 +181,13 @@ export function MemberPortalPage({ section }: { section: PortalSection }) {
   const announcements = useQuery({ queryKey: ['gym-announcements', session?.gymUser?.gym_id, session?.gymUser?.default_location_id], queryFn: async () => (await api.get<{ announcements: GymAnnouncement[] }>('/announcements')).data.announcements, enabled: section === 'home' && Boolean(session?.gymUser), refetchInterval: 60_000 });
   const attendances = useQuery({ queryKey: ['my-attendances'], queryFn: async () => (await api.get<{ attendances: Attendance[] }>('/attendances')).data.attendances });
   const streaks = useQuery({ queryKey: ['my-streak'], queryFn: async () => (await api.get<{ streaks: Streak[] }>('/attendances/streaks')).data.streaks });
-  const weekly = useQuery({ queryKey: ['my-weekly-progress', today], queryFn: async () => (await api.get<{ progress: WeeklyProgress[] }>('/attendances/weekly-progress')).data.progress });
-  const calendar = useQuery({ queryKey: ['my-calendar', range.from], queryFn: async () => (await api.get<Calendar>('/calendar', { params: { from: range.from, to: range.to } })).data });
+  const weekly = useQuery({ queryKey: ['my-weekly-progress', today, timezone, session?.gymUser?.gym_id], queryFn: async () => (await api.get<{ progress: WeeklyProgress[] }>('/attendances/weekly-progress')).data.progress });
   const [selectedHistoryMonth,setClassHistoryMonth] = useState<string | null>(null);
   const classHistoryMonth = selectedHistoryMonth ?? range.from.slice(0,7);
-  const historyClasses = useQuery({queryKey:['my-activities','history',classHistoryMonth],enabled:section==='classes',queryFn:async()=>{
-    const start=new Date(classHistoryMonth+'-01T00:00:00Z'); const end=new Date(start);end.setUTCMonth(end.getUTCMonth()+1);end.setTime(end.getTime()-1);
-    return (await api.get<PortalActivities>('/activities',{params:{from:start.toISOString(),to:end.toISOString()}})).data;
+  const historyClasses = useQuery({queryKey:['my-activities','history',classHistoryMonth,timezone,session?.gymUser?.gym_id],enabled:section==='classes',queryFn:async()=>{
+    return (await api.get<PortalActivities>('/activities',{params:monthInstants(classHistoryMonth,timezone)})).data;
   }});
-  const classesQueryKey = ['my-activities', 'upcoming', today] as const;
+  const classesQueryKey = ['my-activities', 'upcoming', today, timezone, session?.gymUser?.gym_id] as const;
   const classes = useQuery({
     queryKey: classesQueryKey,
     queryFn: async () => ({ ...(await api.get<PortalActivities>('/activities')).data, receivedAt: performance.now() }),
@@ -193,7 +196,7 @@ export function MemberPortalPage({ section }: { section: PortalSection }) {
     refetchIntervalInBackground: false,
   });
   const fitnessProfile = useQuery({ queryKey: ['my-fitness-profile'], queryFn: async () => (await api.get<{ fitnessProfile: FitnessProfile | null }>('/members/me/fitness-profile')).data.fitnessProfile });
-  const progress = useQuery({ queryKey: ['my-progress', session?.gymUser?.gym_id, session?.gymUser?.id, today], queryFn: async () => (await api.get<{ progress: MemberProgress }>('/members/me/progress')).data.progress });
+  const progress = useQuery({ queryKey: ['my-progress', session?.gymUser?.gym_id, session?.gymUser?.id, today, timezone], queryFn: async () => (await api.get<{ progress: MemberProgress }>('/members/me/progress')).data.progress });
   const [recordingWeight, setRecordingWeight] = useState(false);
   const [weightValue, setWeightValue] = useState('');
   const [weightDate, setWeightDate] = useState(range.today);
@@ -203,10 +206,12 @@ export function MemberPortalPage({ section }: { section: PortalSection }) {
   const currentWeek = selectCurrentWeeklyProgress(weekly.data ?? [], membership, progress.data?.today ?? range.today);
   const remaining = daysUntil(period?.ends_on, range.today);
   const hasAttendanceToday = progress.data?.hasAttendanceToday ?? false;
-  const todayDate = new Date(`${range.today}T12:00:00`); const todayWeekday = todayDate.getDay() || 7;
-  const todayException = calendar.data?.exceptions.find((item) => item.calendar_date === range.today);
+  const branchTimezone = calendar.data?.location.timezone;
+  const branchToday = branchTimezone ? civilDate(Date.now(), branchTimezone) : null;
+  const todayWeekday = branchToday ? new Date(`${branchToday}T12:00:00Z`).getUTCDay() || 7 : null;
+  const todayException = calendar.data?.exceptions.find((item) => item.calendar_date === branchToday);
   const todaySchedule = todayException ?? calendar.data?.hours.find((item) => item.weekday === todayWeekday);
-  const nowTime = new Intl.DateTimeFormat('en-GB', { timeZone: calendar.data?.location.timezone ?? 'America/Guayaquil', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date());
+  const nowTime = branchTimezone ? new Intl.DateTimeFormat('en-GB', { timeZone: branchTimezone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date()) : '';
   const isOpen = Boolean(todaySchedule && todaySchedule.day_mode !== 'closed' && todaySchedule.opens_at && todaySchedule.closes_at && (todaySchedule.closes_at <= todaySchedule.opens_at ? nowTime >= todaySchedule.opens_at || nowTime < todaySchedule.closes_at : nowTime >= todaySchedule.opens_at && nowTime < todaySchedule.closes_at));
   const upcomingClasses = (classes.data?.schedules ?? []).filter((item) => new Date(item.starts_at).getTime() > Date.now());
   const upcomingReservations = upcomingClasses.filter((item) => item.myBooking?.status === 'reserved' || ((classReferenceIssue(item) || item.status !== 'scheduled') && (item.myBooking || item.myWaitlist)));
@@ -287,13 +292,13 @@ export function MemberPortalPage({ section }: { section: PortalSection }) {
 
   const days = Array.from({ length: range.last }, (_, index) => {
     const day = index + 1; const date = `${range.year}-${String(range.month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-    const weekday = new Date(`${date}T12:00:00`).getDay() || 7;
+    const weekday = new Date(`${date}T12:00:00Z`).getUTCDay() || 7;
     const exception = calendar.data?.exceptions.find((item) => item.calendar_date === date);
     const schedule = exception ?? calendar.data?.hours.find((item) => item.weekday === weekday);
     const attendance = attendances.data?.find((item) => item.attendance_date === date);
     return { day, date, mode: schedule?.day_mode ?? 'closed', attendance };
   });
-  const firstOffset = (new Date(`${range.from}T12:00:00`).getDay() + 6) % 7;
+  const firstOffset = (new Date(`${range.from}T12:00:00Z`).getUTCDay() + 6) % 7;
   const copy = sectionCopy(section);
   const showHeadingCheckIn = section !== 'profile' && section !== 'classes' && section !== 'settings';
 
@@ -340,7 +345,8 @@ export function MemberPortalPage({ section }: { section: PortalSection }) {
 }
 
 function HomeAnnouncement({ announcement }: { announcement: GymAnnouncement }) {
-  return <article className="gym-announcement"><small>{announcement.location_id ? 'Tu sucursal' : 'Todas las sucursales'} · {new Date(announcement.created_at).toLocaleDateString('es-EC')}</small><p>{announcement.body}</p></article>;
+  const { session } = useAuth();
+  return <article className="gym-announcement"><small>{announcement.location_id ? 'Tu sucursal' : 'Todas las sucursales'} · {new Date(announcement.created_at).toLocaleDateString('es-EC', { timeZone: gymTimezone(session?.gymUser?.gym?.timezone) })}</small><p>{announcement.body}</p></article>;
 }
 
 function classReferenceIssue(s: PortalClassSchedule) {
@@ -352,11 +358,11 @@ function classReferenceIssue(s: PortalClassSchedule) {
 }
 function UnavailableClass({schedule,children}:{schedule:PortalClassSchedule;children?:import('react').ReactNode}) {
   const labels: Record<string,string> = {scheduled:'Programada',completed:'Finalizada',cancelled:'Cancelada',reserved:'Confirmada',attended:'Asististe',no_show:'No asististe',waiting:'En espera',offered:'Ofrecida',expired:'Vencida',included:'Incluido',pending:'Pendiente',confirmed:'Confirmado',refunded:'Reembolsado',registered:'Registrado',resolution_required:'Condiciones pendientes de resolución en recepción',voided:'Anulado',failed:'Fallido'};
-  return <article className="portal-class-summary"><div className="portal-class-info"><span className="eyebrow">{schedule.location?.name ?? 'Referencia de sucursal ausente'}</span><h3>{schedule.activity?.name ?? 'Referencia de actividad ausente'}</h3><p>{new Date(schedule.starts_at).toLocaleString('es-EC')} – {new Date(schedule.ends_at).toLocaleTimeString('es-EC')} · {schedule.instructor?.name ?? 'Instructor por confirmar'}</p><p>Sesión: {labels[schedule.status] ?? schedule.status}</p>{classReferenceIssue(schedule) && <p role="status">{classReferenceIssue(schedule)}</p>}{schedule.myBooking && <p>Reserva: {labels[schedule.myBooking.status] ?? schedule.myBooking.status}</p>}{schedule.myBooking?.payment_state && <p>Pago: {labels[schedule.myBooking.payment_state] ?? schedule.myBooking.payment_state}</p>}{schedule.myBooking && <><ClassBookingConditions booking={schedule.myBooking}/>{schedule.myBooking.payment_state && <p>{classPaymentLabel(schedule.myBooking)}</p>}</>}{schedule.myWaitlist && <p>Lista de espera: {labels[schedule.myWaitlist.status] ?? schedule.myWaitlist.status}</p>}{children}</div></article>;
+  return <article className="portal-class-summary"><div className="portal-class-info"><span className="eyebrow">{schedule.location?.name ?? 'Referencia de sucursal ausente'}</span><h3>{schedule.activity?.name ?? 'Referencia de actividad ausente'}</h3><p>{formatBranchInstant(schedule.starts_at, schedule.location?.timezone, { dateStyle: 'short', timeStyle: 'short' })} – {formatBranchInstant(schedule.ends_at, schedule.location?.timezone, { timeStyle: 'short' })} · {schedule.instructor?.name ?? 'Instructor por confirmar'} · {schedule.location?.timezone ?? 'Zona no disponible'}</p><p>Sesión: {labels[schedule.status] ?? schedule.status}</p>{classReferenceIssue(schedule) && <p role="status">{classReferenceIssue(schedule)}</p>}{schedule.myBooking && <p>Reserva: {labels[schedule.myBooking.status] ?? schedule.myBooking.status}</p>}{schedule.myBooking?.payment_state && <p>Pago: {labels[schedule.myBooking.payment_state] ?? schedule.myBooking.payment_state}</p>}{schedule.myBooking && <><ClassBookingConditions booking={schedule.myBooking}/>{schedule.myBooking.payment_state && <p>{classPaymentLabel(schedule.myBooking)}</p>}</>}{schedule.myWaitlist && <p>Lista de espera: {labels[schedule.myWaitlist.status] ?? schedule.myWaitlist.status}</p>}{children}</div></article>;
 }
 function ClassSummary({ schedule }: { schedule: PortalClassSchedule }) {
   if (!schedule.activity || !schedule.location || classReferenceIssue(schedule) || schedule.status !== 'scheduled') return <UnavailableClass schedule={schedule}><Link to="/portal/classes">Ver clase</Link></UnavailableClass>;
-  return <article className="portal-class-summary"><div className="portal-class-date"><b>{new Date(schedule.starts_at).toLocaleDateString('es-EC', { day: '2-digit' })}</b><span>{new Date(schedule.starts_at).toLocaleDateString('es-EC', { month: 'short' })}</span></div><div className="portal-class-info"><span className="eyebrow">{schedule.location.name}</span><h3>{schedule.activity.name}</h3><p><Clock3 aria-hidden="true"/>{new Intl.DateTimeFormat('es-EC', { weekday: 'long', hour: '2-digit', minute: '2-digit' }).format(new Date(schedule.starts_at))}</p><p><UserRound aria-hidden="true"/>{schedule.instructor?.name ?? 'Instructor por confirmar'}</p><small><UsersRound aria-hidden="true"/>{schedule.available} de {schedule.capacity} cupos disponibles</small>{schedule.myWaitlist && <small>{schedule.myWaitlist.status === 'offered' ? 'Se liberó un cupo para ti · abre Clases para responder' : `Lista de espera · posición #${schedule.myWaitlist.position}`}</small>}</div><Link className="primary" to="/portal/classes">Ver clase<ChevronRight aria-hidden="true"/></Link></article>;
+  return <article className="portal-class-summary"><div className="portal-class-date"><b>{formatBranchInstant(schedule.starts_at, schedule.location?.timezone, { day: '2-digit' })}</b><span>{formatBranchInstant(schedule.starts_at, schedule.location?.timezone, { month: 'short' })}</span></div><div className="portal-class-info"><span className="eyebrow">{schedule.location.name}</span><h3>{schedule.activity.name}</h3><p><Clock3 aria-hidden="true"/>{formatBranchInstant(schedule.starts_at, schedule.location?.timezone, { weekday: 'long', hour: '2-digit', minute: '2-digit' })}</p><p><UserRound aria-hidden="true"/>{schedule.instructor?.name ?? 'Instructor por confirmar'} · {schedule.location?.timezone ?? 'Zona no disponible'}</p><small><UsersRound aria-hidden="true"/>{schedule.available} de {schedule.capacity} cupos disponibles</small>{schedule.myWaitlist && <small>{schedule.myWaitlist.status === 'offered' ? 'Se liberó un cupo para ti · abre Clases para responder' : `Lista de espera · posición #${schedule.myWaitlist.position}`}</small>}</div><Link className="primary" to="/portal/classes">Ver clase<ChevronRight aria-hidden="true"/></Link></article>;
 }
 
 function ClassCard({ schedule, membership, reservePending, cancelPending, waitlistPending, leavePending, offerPending, serverTime, receivedAt, offersEnabled, onReserve, onCancel, onJoinWaitlist, onLeaveWaitlist, onAcceptOffer, onOfferRefresh }: {
@@ -381,10 +387,10 @@ function ClassCard({ schedule, membership, reservePending, cancelPending, waitli
   const offered = schedule.myWaitlist?.status === 'offered' && Boolean(schedule.myWaitlist.offer_id);
   const busy = reservePending || cancelPending || waitlistPending || leavePending || offerPending;
   return <article>
-    <div className="portal-class-date"><b>{new Date(schedule.starts_at).toLocaleDateString('es-EC', { day: '2-digit' })}</b><span>{new Date(schedule.starts_at).toLocaleDateString('es-EC', { month: 'short' })}</span></div>
+    <div className="portal-class-date"><b>{formatBranchInstant(schedule.starts_at, schedule.location?.timezone, { day: '2-digit' })}</b><span>{formatBranchInstant(schedule.starts_at, schedule.location?.timezone, { month: 'short' })}</span></div>
     <div className="portal-class-info">
       <span className="eyebrow">{schedule.location.name}</span><h3>{schedule.activity.name}</h3>
-      <p>{new Intl.DateTimeFormat('es-EC', { weekday: 'long', hour: '2-digit', minute: '2-digit' }).format(new Date(schedule.starts_at))} · {schedule.instructor?.name ?? 'Instructor por confirmar'}</p>
+      <p>{formatBranchInstant(schedule.starts_at, schedule.location?.timezone, { weekday: 'long', hour: '2-digit', minute: '2-digit' })} · {schedule.instructor?.name ?? 'Instructor por confirmar'} · {schedule.location?.timezone ?? 'Zona no disponible'}</p>
       <small>{schedule.available} de {schedule.capacity} cupos disponibles</small>
       {Boolean(schedule.offeredCount) && <small>{schedule.offeredCount} cupo(s) temporalmente ofrecido(s)</small>}
       {schedule.myBooking && <ClassBookingConditions booking={schedule.myBooking}/>}
@@ -436,7 +442,7 @@ function ProgressView({ range, days, firstOffset, membership, currentWeek, strea
     <div className="portal-progress-stats"><article className="portal-card"><Activity/><span>Asistencias totales</span><strong>{totalAttendances}</strong><small>Registros válidos</small></article><article className="portal-card"><CalendarCheck/><span>Este mes</span><strong>{monthAttendances}</strong><small>Entradas registradas</small></article><article className="portal-card"><Activity/><span>Esta semana</span><strong>{weekAttendances}</strong><small>Desde el lunes</small></article><article className="portal-card streak"><Flame/><span>Racha actual</span><strong>{currentStreak}</strong><small>Mejor racha: {longestStreak}</small></article></div>
     <section className="panel progress-charts-panel"><div className="panel-title"><div><h2><Activity/> Asistencia en gráficas</h2><p>Últimos seis meses y frecuencia semanal</p></div></div><div className="progress-charts-grid"><div className="progress-month-chart"><h3><CalendarCheck/> Asistencia mensual</h3>{monthBuckets.length ? <div className="attendance-chart" aria-label="Asistencias por mes">{monthBuckets.map((bucket) => <div className="attendance-chart-column" key={bucket.period}><strong>{bucket.count}</strong><div className="attendance-bar-track"><span style={{ height: `${Math.max(8, (bucket.count / maxMonthCount) * 100)}%` }}/></div><small>{bucket.label}</small></div>)}</div> : <div className="empty compact"><Activity/><strong>Reuniendo tu historial</strong></div>}</div>{weekBuckets.length > 0 && <div className="progress-week-chart"><h3><Activity/> Frecuencia semanal</h3><div className="attendance-chart weekly" aria-label="Asistencias por semana">{weekBuckets.map((bucket) => <div className="attendance-chart-column" key={bucket.period}><strong>{bucket.count}</strong><div className="attendance-bar-track"><span style={{ height: `${Math.max(8, (bucket.count / maxWeekCount) * 100)}%` }}/></div><small>{bucket.label}</small></div>)}</div></div>}</div></section>
     <section className="panel weight-progress-panel"><div className="panel-title"><div><h2><Dumbbell/> Progreso de peso</h2><p>{goalLabel ? `Objetivo: ${goalLabel}` : 'Configura un objetivo para medir tu avance'}</p></div><a className="ghost progress-history-link" href="#progress-weight-history">Ver historial →</a></div>{progress?.goal ? <><div className="progress-weight-summary"><div className="weight-progress-values"><div><span>Inicial</span><strong>{progress.goal.initialWeightKg == null ? '—' : `${progress.goal.initialWeightKg} kg`}</strong></div><div><span>Actual</span><strong>{progress.goal.currentWeightKg} kg</strong></div><div><span>Objetivo</span><strong>{progress.goal.targetWeightKg == null ? '—' : `${progress.goal.targetWeightKg} kg`}</strong></div></div><div className="progress-weight-action">{progress.goal.maintenance ? <WeightMaintenanceSummary value={progress.goal.maintenance}/> : progress.goal.progressPercent != null ? <><div className="weight-progress-caption"><strong>{progress.goal.progressPercent}% de avance</strong></div><div className="weight-progress-track" role="progressbar" aria-label="Progreso hacia el peso objetivo" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress.goal.progressPercent}><span style={{ width: `${progress.goal.progressPercent}%` }}/></div></> : <span>Sin porcentaje calculable</span>}<button className="primary" onClick={onRecordWeight}>Registrar peso</button></div></div>{weightEntries.length > 1 && <div className="weight-chart" aria-label="Evolución del peso">{weightEntries.map((entry) => <div className="weight-chart-column" key={entry.id}><strong>{entry.weightKg}</strong><div className="weight-chart-track"><span style={{ height: `${25 + ((entry.weightKg - minWeight) / weightSpan) * 75}%` }}/></div><small>{entry.measuredOn.slice(5)}</small></div>)}</div>}</> : <div className="empty compact"><Dumbbell/><strong>Sin progreso calculable todavía</strong><span>Registra una medición y revisa el objetivo de tu encuesta para consultar tu progreso.</span><button className="ghost" onClick={onRecordWeight}>Registrar peso</button></div>}</section>
-    <div className="progress-detail-grid"><section className="panel progress-calendar"><div className="panel-title"><div><h2><CalendarCheck/> Calendario de {new Date(`${range.from}T12:00:00`).toLocaleDateString('es-EC', { month: 'long' })}</h2><p className="progress-calendar-legend"><span>Verde: asistencia</span><span>Amarillo: día adicional</span><span>Rojo: anulada</span></p></div></div><div className="month-weekdays">{['L','M','X','J','V','S','D'].map((day) => <span key={day}>{day}</span>)}</div><div className="month-grid">{Array.from({ length: firstOffset }, (_, index) => <span key={`empty-${index}`}/>)}{days.map((item) => <div key={item.date} title={`${item.date} · ${item.mode}`} className={`month-day ${item.date === range.today ? 'today' : ''} ${item.attendance?.status ?? item.mode}`}><span>{item.day}</span>{item.attendance && <Activity/>}</div>)}</div></section>
+    <div className="progress-detail-grid"><section className="panel progress-calendar"><div className="panel-title"><div><h2><CalendarCheck/> Calendario de {new Date(`${range.from}T12:00:00Z`).toLocaleDateString('es-EC', { month: 'long', timeZone: 'UTC' })}</h2><p className="progress-calendar-legend"><span>Verde: asistencia</span><span>Amarillo: día adicional</span><span>Rojo: anulada</span></p></div></div><div className="month-weekdays">{['L','M','X','J','V','S','D'].map((day) => <span key={day}>{day}</span>)}</div><div className="month-grid">{Array.from({ length: firstOffset }, (_, index) => <span key={`empty-${index}`}/>)}{days.map((item) => <div key={item.date} title={`${item.date} · ${item.mode}`} className={`month-day ${item.date === range.today ? 'today' : ''} ${item.attendance?.status ?? item.mode}`}><span>{item.day}</span>{item.attendance && <Activity/>}</div>)}</div></section>
     <section className="panel progress-week-goal"><div className="panel-title"><div><h2><Flame/> Tu objetivo semanal</h2><p>{membership?.attendance_mode_snapshot === 'weekly' ? 'Meta incluida en tu plan' : 'Asistencia en días abiertos'}</p></div></div>{membership?.attendance_mode_snapshot === 'weekly' ? <div className="progress-block"><div><strong>{currentWeek?.completed_attendances ?? 0} de {currentWeek?.target_attendances ?? membership.weekly_target_snapshot ?? 0}</strong><span>{currentWeek?.is_grace_week ? 'Semana de gracia' : currentWeek?.goal_met ? 'Meta completada' : 'Sigue avanzando'}</span></div><progress aria-label="Tu objetivo semanal" value={currentWeek?.completed_attendances ?? 0} max={currentWeek?.target_attendances ?? membership.weekly_target_snapshot ?? 1}/></div> : <div className="daily-goal"><CalendarCheck/><div><strong>Plan de asistencia diaria</strong><span>Asiste los días obligatorios. Los días adicionales solamente suman.</span></div></div>}</section>
     <section className="panel progress-weight-history" id="progress-weight-history" tabIndex={-1}><div className="panel-title"><div><h2><Dumbbell/> Historial de peso</h2><p>Mediciones privadas, ordenadas por fecha</p></div><button className="ghost" onClick={onRecordWeight}>Registrar peso</button></div>{progress?.weights.length ? <div className="portal-history">{progress.weights.slice(-6).reverse().map((entry) => <article key={entry.id}><div><strong>{entry.weightKg} kg</strong><small>{entry.measuredOn}</small></div><span className="badge attended">{entry.source === 'onboarding' ? 'Inicial' : 'Registrado'}</span></article>)}</div> : <div className="empty compact"><Dumbbell/><strong>Aún no hay mediciones</strong></div>}</section></div>
     <section className="panel progress-recent-attendance"><div className="panel-title"><div><h2><Activity/> Asistencias recientes</h2><p>Tu historial permanece disponible</p></div></div>{attendances.length ? <div className="portal-history">{attendances.slice(0, 12).map((item) => <article key={item.id}><div><strong>{item.attendance_date}</strong><small>{item.source === 'qr' ? 'Entrada del miembro' : 'Registrada por recepción'}</small></div><span className={`badge ${item.status}`}>{item.status === 'valid' ? 'Válida' : 'Anulada'}</span></article>)}</div> : <div className="empty compact"><Activity/><strong>Sin asistencias todavía</strong></div>}</section>

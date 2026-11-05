@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import ts from 'typescript';
+import { formatBranchInstant } from '../../../frontend/src/utils/portalTime';
 
 const requireFrontend = createRequire(new URL('../../../frontend/package.json', import.meta.url));
 export const React = requireFrontend('react');
@@ -30,7 +31,7 @@ export function pageComponents(page: string, start: string, end: string | undefi
   const source = read('pages/' + page);
   const body = source.slice(source.indexOf(start), end ? source.indexOf(end) : undefined);
   const scope = {
-    React, Link, ...icons, ClassBookingConditions, ClassWaitlistOffer, ...economicsLabels,
+    React, Link, ...icons, ClassBookingConditions, ClassWaitlistOffer, ...economicsLabels, formatBranchInstant,
     money: (amount: number, currency: string) => new Intl.NumberFormat('es-EC', { style: 'currency', currency }).format(amount),
     dateTime: (date: string) => date,
     bookingNames: { reserved: 'Programada', cancelled: 'Cancelada', attended: 'Asistió', no_show: 'No asistió' },

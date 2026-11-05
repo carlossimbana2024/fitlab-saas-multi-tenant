@@ -15,7 +15,7 @@ function load(file:string){
    if(id.endsWith('.css'))return {};
    if(id.includes('/services/api'))return {api,apiErrorMessage:()=> 'API_FAILED'};
    if(id.includes('/context/AuthContext'))return {useAuth:()=>({session,refresh:vi.fn()})};
-   if(['membershipCoverage','currentPortalDate','currentWeeklyProgress'].some(name=>id===`../utils/${name}`))return load(`utils/${id.split('/').at(-1)}.ts`);
+   if(['membershipCoverage','currentPortalDate','currentWeeklyProgress','portalTime','classScheduleHours'].some(name=>id===`../utils/${name}`||id===`./${name}`))return load(`utils/${id.split('/').at(-1)}.ts`);
    if(id.includes('/components/AttendanceQrCard'))return {AttendanceQrCard:({hasAttendanceToday}:any)=>React.createElement('div',{'data-attended-today':hasAttendanceToday})};
    if(id==='react-router-dom')return {Link:({children}:any)=>React.createElement('a',null,children)};
    if(id==='lucide-react'||id.startsWith('../components/')||id.startsWith('../utils/'))return emptyModules;
@@ -37,6 +37,46 @@ async function click(tree:any,label:string){await act(async()=>button(tree,label
 const ranking=(month='2026-11')=>({ranking:{period:{key:month,label:month,from:month+'-01',to:month+'-28',isCurrent:false},availablePeriods:[{key:'2026-11',label:'Nov'},{key:'2026-10',label:'Oct'}],historyMode:'reconstructed',categories:Object.fromEntries(['attendance','streak','progress'].map(key=>[key,{title:key,explanation:key,entries:[{position:1,memberUserId:'winner',name:`SQL winner ${month}`,avatarUrl:null,value:123,displayValue:'123 SQL',goalType:null}]}]))}});
 beforeEach(()=>{session={gymUser:{id:'viewer',gym_id:'gym-a',profiles:{full_name:'Reader'}}};api.get.mockReset();});
 afterEach(async()=>{await act(async()=>trees.splice(0).forEach(t=>t.unmount()));clients.splice(0).forEach(c=>c.clear());vi.useRealTimers();vi.unstubAllGlobals();});
+
+it('FIT-MEMBER-013 tenant and branch changes restart a single timer without leaking the previous date',async()=>{
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-06-01T00:30:00Z'));
+  vi.stubGlobal('document',Object.assign(new EventTarget(),{visibilityState:'visible'}));
+  vi.stubGlobal('window',new EventTarget());
+  const {useCurrentPortalDate}=load('utils/currentPortalDate.ts');
+  function Probe({tz,tenant,branch}:any){return React.createElement('div',null,useCurrentPortalDate(tz,tenant,branch));}
+  let tree:any;
+  await act(async()=>{tree=create(React.createElement(Probe,{tz:'America/Guayaquil',tenant:'a',branch:'America/New_York'}));});
+  trees.push(tree);
+  expect(text(tree)).toContain('2026-05-31');
+  expect(vi.getTimerCount()).toBe(1);
+  await act(async()=>tree.update(React.createElement(Probe,{tz:'Europe/Madrid',tenant:'b',branch:'America/New_York'})));
+  expect(text(tree)).toContain('2026-06-01');
+  expect(vi.getTimerCount()).toBe(1);
+  await act(async()=>tree.update(React.createElement(Probe,{tz:'Europe/Madrid',tenant:'b',branch:'Pacific/Galapagos'})));
+  expect(text(tree)).toContain('2026-06-01');
+  expect(vi.getTimerCount()).toBe(1);
+  await act(async()=>tree.unmount());trees.pop();
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+it.each(['America/Guayaquil','Europe/Madrid'])('FIT-MEMBER-013 membership, calendar and weight use %s independently of branch',async tz=>{
+  vi.useFakeTimers({toFake:['Date']});vi.setSystemTime(new Date('2026-06-01T00:30:00Z'));
+  session.gymUser.gym={timezone:tz};
+  const today=tz==='Europe/Madrid'?'2026-06-01':'2026-05-31';
+  api.get.mockImplementation(async(url:string)=>({data:url==='/memberships'?{memberships:[{id:'m',status:'active',price_at_purchase:30,currency:'USD',attendance_mode_snapshot:'daily',
+    membership_periods:[{status:'active',starts_on:'2026-01-01',ends_on:'2026-06-02'}]}]}
+    :url==='/members/me/progress'?{progress:{today,weights:[],goal:null,currentWeightKg:84,motivation:{tone:'neutral',title:'Summary',message:''},attendanceByMonth:[],attendanceByWeek:[]}}
+    :url==='/calendar'?{gym:{timezone:tz},location:{timezone:'America/New_York'},hours:[],exceptions:[]}
+    :{fitnessProfile:{id:'profile'},attendances:[],streaks:[],schedules:[],progress:[],announcements:[]}}));
+  const {tree}=await mount(MemberPortalPage,{section:'home'});
+  expect(text(tree)).toContain(tz==='Europe/Madrid'?'1 días restantes':'2 días restantes');
+  await act(async()=>tree.update(React.createElement(QueryClientProvider,{client:clients.at(-1)},React.createElement(MemberPortalPage,{section:'progress'}))));
+  await click(tree,'Registrar peso');
+  const date=tree.root.findAllByType('input').find((n:any)=>n.props.type==='date');
+  expect(date.props.value).toBe(today);expect(date.props.max).toBe(today);
+  expect(api.get.mock.calls.find(([u])=>u==='/calendar')[1].params.from).toBe(tz==='Europe/Madrid'?'2026-05-31':'2026-04-30');
+});
 
 it('FIT-MEMBER-012 refreshes the daily summary, week, month and upcoming classes without losing a weight draft',async()=>{
   vi.useFakeTimers({toFake:['Date']});
@@ -73,11 +113,11 @@ it('FIT-MEMBER-012 refreshes the daily summary, week, month and upcoming classes
   await flush();await flush();
   expect(tree.root.findByProps({'data-attended-today':false})).toBeDefined();
   expect(completed()).toBe(0);
-  expect(client.getQueryData(['my-progress','gym-a','viewer','2026-06-01'])).toMatchObject({today:'2026-06-01',currentMonthAttendances:0});
+  expect(client.getQueryData(['my-progress','gym-a','viewer','2026-06-01','America/Guayaquil'])).toMatchObject({today:'2026-06-01',currentMonthAttendances:0});
   for(const url of ['/members/me/progress','/attendances/weekly-progress','/calendar','/activities']){
     expect(api.get.mock.calls.filter(([path])=>path===url)).toHaveLength(2);
   }
-  expect(api.get).toHaveBeenCalledWith('/calendar',{params:{from:'2026-06-01',to:'2026-06-30'}});
+  expect(api.get).toHaveBeenCalledWith('/calendar',{params:{from:'2026-05-31',to:'2026-07-01'}});
   expect(api.get.mock.calls.filter(([path])=>path==='/memberships')).toHaveLength(1);
   expect(weightInput().props.value).toBe('83.5');
   expect(reload).not.toHaveBeenCalled();

@@ -4,7 +4,7 @@ vi.mock('../src/config/env.js', () => ({ env: { NODE_ENV: 'production', frontend
 vi.mock('../src/config/stripe.js', () => ({ stripe: {} }));
 vi.mock('../src/services/memberProfile.service.js', () => ({ signAvatarUrl: vi.fn() }));
 vi.mock('../src/config/supabase.js', () => ({ supabasePublic: { auth: mocks }, supabaseAdmin: { auth: { admin: mocks } }, createUserSupabaseClient: () => ({ scoped: true }) }));
-import { login, logout, refresh, requestPasswordReset } from '../src/controllers/auth.controller.js';
+import { login, logout, refresh, requestPasswordReset, me } from '../src/controllers/auth.controller.js';
 import { verifyJWT } from '../src/middlewares/verifyJWT.js';
 
 const valid = { data: { session: { access_token: 'new-access', refresh_token: 'new-refresh', expires_in: 3600 }, user: { id: 'member', email: 'member@example.test' } }, error: null };
@@ -14,6 +14,14 @@ const verify = (req: any) => new Promise<any>(resolve => { verifyJWT(req, respon
 beforeEach(() => { vi.resetAllMocks(); });
 
 describe('auth middleware and cookie contracts', () => {
+  it.each([{timezone:'Europe/Madrid'},[{timezone:'America/Guayaquil'}]])('FIT-MEMBER-013 exposes the authenticated gym timezone',async gym=>{
+    const q:any={select:vi.fn(()=>q),eq:vi.fn(()=>q),single:vi.fn(async()=>({data:{id:'member',gym_id:'gym',gym,profiles:null},error:null}))};
+    const req:any={authUser:{id:'profile'},supabase:{from:vi.fn(()=>q)}},res=response();
+    await me(req,res);
+    expect(q.select.mock.calls[0][0]).toContain('gym:gyms(timezone)');
+    expect(q.eq).toHaveBeenCalledWith('profile_id','profile');
+    expect(res.json.mock.calls[0][0].gymUser.gym).toEqual(Array.isArray(gym)?gym[0]:gym);
+  });
   it('refresh rotates signed HTTP-only cookies without exposing tokens in JSON', async () => {
     mocks.refreshSession.mockResolvedValue(valid); const res = response(); await refresh(request(), res);
     expect(mocks.refreshSession).toHaveBeenCalledWith({ refresh_token: 'refresh-cookie' });

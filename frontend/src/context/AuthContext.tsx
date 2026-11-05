@@ -4,7 +4,7 @@ import { api, sessionRecovery } from '../services/api';
 import { isSessionExpired } from '../services/sessionRecovery';
 import { useQueryClient } from '@tanstack/react-query';
 
-type GymUser = { id: string; gym_id: string; role: 'owner' | 'staff' | 'member'; status: string; default_location_id?: string | null; profiles?: { full_name?: string; phone?: string | null; avatar_url?: string | null }; staff_permissions?: Array<{ permission_key: string; access_mode: 'allowed' | 'requires_pin' | 'denied' }> };
+type GymUser = { id: string; gym_id: string; gym?: { timezone?: string | null }; role: 'owner' | 'staff' | 'member'; status: string; default_location_id?: string | null; profiles?: { full_name?: string; phone?: string | null; avatar_url?: string | null }; staff_permissions?: Array<{ permission_key: string; access_mode: 'allowed' | 'requires_pin' | 'denied' }> };
 type Session = { user: { id: string; email?: string }; gymUser: GymUser | null; onboardingRequired?: boolean };
 type AuthValue = { session: Session | null; loading: boolean; login: (email: string, password: string) => Promise<void>; logout: () => Promise<void>; refresh: () => Promise<void> };
 const AuthContext = createContext<AuthValue | null>(null);
