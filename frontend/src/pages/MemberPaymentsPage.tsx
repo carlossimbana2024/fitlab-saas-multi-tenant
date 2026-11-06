@@ -1,3 +1,4 @@
+import { QueryFeedback } from '../components/QueryFeedback';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CreditCard, FileText, LoaderCircle, MessageCircle, Upload } from 'lucide-react';
 import { useEffect, useState, type FormEvent } from 'react';
@@ -61,8 +62,7 @@ export function MemberPaymentsPage() {
   });
   const cancel = useMutation({ mutationFn: async (id: string) => api.post(`/membership-payment-requests/me/${id}/cancel`), onSuccess: refresh });
   const proof = useMutation({ mutationFn: async (id: string) => (await api.get<{ url: string }>(`/membership-payment-requests/me/${id}/proof`)).data.url, onSuccess: setProofUrl });
-  if (query.isPending) return <p role="status"><LoaderCircle className="spin"/> Cargando membresía y pagos…</p>;
-  if (query.isError) return <div className="alert error">{apiErrorMessage(query.error)} <button className="small-button" onClick={() => void query.refetch()}>Reintentar</button></div>;
+  if (data === undefined) return <QueryFeedback query={query} label="tu membresía y pagos"/>;
   const { membership, period } = selectMembershipCoverage(data!.memberships, today);
   const fallback = data!.memberships.find((m) => m.status === 'active') ?? data!.memberships[0];
   const shownMembership = membership ?? fallback;
@@ -72,7 +72,7 @@ export function MemberPaymentsPage() {
   const revision = data!.requests.find((r) => r.status === 'revision_requested');
   const phone = gymWhatsAppNumber(data!.whatsappPhone);
   const onSubmit = (event: FormEvent) => { event.preventDefault(); setSuccess(false); setProofUrl(''); submit.mutate(); };
-  return <div className="member-payment-page">
+  return <div className="member-payment-page"><QueryFeedback query={query} label="tu membresía y pagos"/>
     <div className="page-heading"><div><p className="eyebrow">TU MEMBRESÍA</p><h1>Membresía y pagos</h1><p>{data!.gym.name}{data!.location ? ` · ${data!.location}` : ''}</p></div></div>
     <section className="panel membership-payment-summary"><CreditCard/><div><h2>{shownMembership?.plans?.name ?? 'Elige tu primera membresía'}</h2><p>{period ? `${period.starts_on} → ${period.ends_on}` : 'Aún no tienes un período vigente'}</p><span className="badge">{coverageState}</span>{period && <small>{remaining} días de cobertura restantes</small>}</div><strong>{plan ? membershipMoney(plan.price, plan.currency) : 'Consulta en recepción'}</strong></section>
     {success && <p className="alert success" role="status">Solicitud registrada. Tu membresía se activará o renovará cuando el gimnasio confirme el ingreso.{channel === 'whatsapp' && ' Ahora abre WhatsApp y adjunta tu comprobante.'}</p>}
@@ -97,8 +97,8 @@ export function MemberPaymentsPage() {
     {(cancel.isError || proof.isError) && <p className="alert error">{apiErrorMessage(cancel.error ?? proof.error)}</p>}
     {proofUrl && <a className="small-button" href={proofUrl} target="_blank" rel="noreferrer">Descargar comprobante · enlace válido por 1 minuto</a>}
     <section className="panel"><h2>Mis solicitudes</h2><div className="portal-history">{data!.requests.filter((r) => r.status !== 'draft').map((r) => <article key={r.id}><div><strong>{r.plan_snapshot.name} · {membershipMoney(r.amount, r.currency)}</strong><small>{r.paid_on ?? r.created_at.slice(0, 10)} · {r.method ? methods[r.method] : ''}</small>{r.review_reason && <p>{r.review_reason}</p>}</div><div><span className={`badge ${r.status}`}>{statuses[r.status]}</span>{r.channel === 'fitlab' && <button className="small-button" disabled={proof.isPending} onClick={() => proof.mutate(r.id)}><FileText/>Comprobante</button>}</div></article>)}</div>{!data!.requests.some((r) => r.status !== 'draft') && <p>Todavía no has presentado solicitudes.</p>}</section>
-    <section className="panel"><h2>Historial de pagos</h2><div className="portal-history">{data!.payments.map((p) => <article key={p.id}><div><strong>{membershipMoney(p.amount, p.currency)}</strong><small>{new Date(p.paid_at).toLocaleDateString('es-EC', { timeZone: data!.gym.timezone })} · {methods[p.payment_method] ?? p.payment_method}</small></div><div><span className={`badge ${p.status}`}>{statuses[p.status] ?? p.status}</span><Link className="small-button" to={`/receipt/verify/${p.receipt_verification_token}`}>Ver recibo {p.receipt_number}</Link></div></article>)}</div>{!data!.payments.length && <p>Todavía no tienes pagos registrados.</p>}</section>
-    {otherPayments.isError&&<p className="alert error">No se pudieron cargar otros pagos registrados. <button className="small-button" onClick={()=>void otherPayments.refetch()}>Reintentar historial</button></p>}
+    <section className="panel"><h2>Historial de pagos</h2><div className="portal-history">{data!.payments.map((p) => <article key={p.id}><div><strong>{membershipMoney(p.amount, p.currency)}</strong><small>{new Date(p.paid_at).toLocaleDateString('es-EC', { timeZone: data!.gym.timezone })} · {methods[p.payment_method] ?? p.payment_method}</small></div><div><span className={`badge ${p.status}`}>{statuses[p.status] ?? p.status}</span><Link className="small-button" to={`/receipt/verify/${p.receipt_verification_token}`}>Ver recibo {p.receipt_number}</Link></div></article>)}</div>{!data!.payments.length && <p>Todavía no hay pagos de membresía en este historial.</p>}</section>
+    <QueryFeedback query={otherPayments} label="otros pagos registrados"/>
     {otherPayments.data?.some(payment=>!data!.payments.some(item=>item.id===payment.id))&&<section className="panel"><h2>Otros pagos registrados</h2><div className="portal-history">{otherPayments.data.filter(payment=>!data!.payments.some(item=>item.id===payment.id)).map(payment=><article key={payment.id}><div><strong>{membershipMoney(payment.amount,payment.currency)}</strong><small>{methods[payment.payment_method]??payment.payment_method} · {new Date(payment.paid_at).toLocaleDateString('es-EC',{timeZone:data!.gym.timezone})}</small></div><span className={`badge ${payment.status}`}>{statuses[payment.status]??payment.status}</span></article>)}</div></section>}
     <GymContactCard/>
   </div>;

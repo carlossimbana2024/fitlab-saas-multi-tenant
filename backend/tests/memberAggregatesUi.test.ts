@@ -19,6 +19,7 @@ function load(file:string){
    if(id==='@tanstack/react-query')return {...req(id),useMutation:(options:any)=>{const mutation=req(id).useMutation(options);mutations.set(options.mutationFn.toString(),mutation);return mutation;}};
    if(['membershipCoverage','currentPortalDate','currentWeeklyProgress','portalTime','classScheduleHours','branchOpenStatus','memberQueryInvalidation'].some(name=>id===`../utils/${name}`||id===`./${name}`))return load(`utils/${id.split('/').at(-1)}.ts`);
    if(id==='../components/BranchOpenStatus')return load('components/BranchOpenStatus.tsx');
+   if(id==='../components/QueryFeedback')return load('components/QueryFeedback.tsx');
    if(id.includes('/components/AttendanceQrCard'))return {AttendanceQrCard:({hasAttendanceToday}:any)=>React.createElement('div',{'data-attended-today':hasAttendanceToday})};
    if(id==='react-router-dom')return {Link:({children}:any)=>React.createElement('a',null,children)};
    if(id==='lucide-react'||id.startsWith('../components/')||id.startsWith('../utils/'))return emptyModules;
@@ -285,7 +286,7 @@ describe('FIT-MEMBER-008 real React consumers',()=>{
  });
  it('API errors are not rendered as empty community or ranking',async()=>{
    api.get.mockRejectedValue(new Error('network'));const {tree}=await mount(MemberCommunityPage);
-   expect(text(tree)).toContain('API_FAILED');expect(text(tree)).not.toContain('Aún no hay perfiles');
+   expect(text(tree)).toContain('No pudimos cargar');expect(text(tree)).not.toContain('Aún no hay perfiles');
    expect(text(tree)).not.toContain('Aún no hay datos suficientes');
  });
  it.each(['home','progress'])('%s does not replace a failed summary with the limited history count',async section=>{
@@ -296,8 +297,8 @@ describe('FIT-MEMBER-008 real React consumers',()=>{
        :url==='/members/me/fitness-profile'?{fitnessProfile:{id:'profile'}}
        :{memberships:[],streaks:[],progress:[],schedules:[],announcements:[]}};
    });
-   const {tree}=await mount(MemberPortalPage,{section});expect(text(tree)).toContain('API_FAILED');
-   expect(button(tree,'Reintentar resumen')).toBeDefined();
+   const {tree}=await mount(MemberPortalPage,{section});expect(text(tree)).toContain('No pudimos cargar');
+   expect(button(tree,'Reintentar tu resumen')).toBeDefined();
    if(section==='home')expect(text(tree)).toContain('No disponible');
    else expect(text(tree)).not.toContain('Asistencias totales');
  });
@@ -309,8 +310,8 @@ describe('FIT-MEMBER-008 real React consumers',()=>{
        monthlyAttendances:null,progressPercent:null,goalType:null,publicMessage:null,reactions:{love:0,mine:null}}],nextCursor:{start:1},hasMore:true}};
    });
    const {tree}=await mount(MemberCommunityPage);await click(tree,'Cargar más');
-   expect(text(tree)).toContain('Visible member');expect(text(tree)).toContain('API_FAILED');
+   expect(text(tree)).toContain('Visible member');expect(text(tree)).toContain('No pudimos actualizar');
    expect(text(tree)).not.toContain('Has llegado al final');expect(text(tree)).not.toContain('Aún no hay perfiles');
-   await click(tree,'Volver a cargar la lista');expect(text(tree)).not.toContain('API_FAILED');
+   await click(tree,'Volver a cargar la lista');expect(text(tree)).not.toContain('No pudimos actualizar');
  });
 });

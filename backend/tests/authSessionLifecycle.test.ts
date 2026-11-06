@@ -22,7 +22,7 @@ const recoveryModule = compile('services/sessionRecovery.ts', { axios });
 const trees: any[] = [];
 afterEach(async () => { await act(async () => { trees.splice(0).forEach(tree => tree.unmount()); }); vi.unstubAllGlobals(); });
 
-async function mount(options: { expired?: boolean; invalidRefresh?: boolean; transient?: boolean; route?: string; delayed?: boolean } = {}) {
+async function mount(options: { expired?: boolean; invalidRefresh?: boolean; transient?: boolean; route?: string; delayed?: boolean; checkinFailure?: boolean } = {}) {
   let fresh = !options.expired;
   let temporary = !!options.transient;
   let release!: () => void;
@@ -41,6 +41,7 @@ async function mount(options: { expired?: boolean; invalidRefresh?: boolean; tra
       if (!fresh) fail(401, 'INVALID_SESSION');
     }
     if (config.url === '/auth/logout') fresh = false;
+    if (config.url === '/attendances/qr/check-in' && options.checkinFailure) fail(503, 'CHECKIN_UNAVAILABLE');
     if (config.url === '/auth/login') fresh = true;
     const data = config.url === '/attendances/qr/preview'
       ? { gym_name: 'Gym', location_name: 'Branch', timezone: 'America/Guayaquil', server_time: '2026-10-30T12:00:00Z', attendance: null, membership: null }
@@ -117,6 +118,18 @@ describe('Real React AuthProvider + router lifecycle', () => {
     expect(s.location.pathname + s.location.hash).toBe('/check-in' + hash); expect(s.loginRenders).toBe(0);
     expect(JSON.stringify(s.tree.toJSON())).toContain('Confirma tu llegada');
     expect(s.calls).not.toContain('/attendances/qr/check-in');
+  });
+  it('FIT-MEMBER-016 failed check-in preserves the preview, offers retry and does not invent attendance', async () => {
+    const s = await mount({ route: '/check-in#token=' + 'a'.repeat(43), checkinFailure: true });
+    const button = () => s.tree.root.findAllByType('button').find((b: any) => b.props.children?.includes?.('Confirmar asistencia'));
+    const before = s.queryClient.getQueryData(['private-member']);
+    await act(async () => { button().props.onClick(); await new Promise(r => setTimeout(r, 20)); });
+    const rendered = JSON.stringify(s.tree.toJSON());
+    expect(rendered).toContain('Confirma tu llegada');
+    expect(rendered).toContain('Puedes reintentar');
+    expect(rendered).not.toContain('¡Tu asistencia fue registrada!');
+    expect(button()).toBeDefined();
+    expect(s.queryClient.getQueryData(['private-member'])).toEqual(before);
   });
   it('logout clears state/cache and normal login restores session', async () => {
     const s = await mount(); await act(async () => { await s.value.logout(); });

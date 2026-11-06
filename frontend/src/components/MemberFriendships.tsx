@@ -1,3 +1,4 @@
+import { QueryFeedback } from './QueryFeedback';
 import { useMutation,useQuery,useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -18,10 +19,9 @@ export function FriendRequestsPreference(){
  const {session}=useAuth();
  const query=useFriendSummary();const client=useQueryClient();
  const preference=useMutation({mutationFn:(allowRequests:boolean)=>api.put('/members/me/friend-preferences',{allowRequests}),onSuccess:()=>refreshMemberQueries(client,{gymId:session?.gymUser?.gym_id,memberId:session?.gymUser?.id},'friendPreference')});
- if(query.isPending)return <p role="status">Cargando privacidad de amistades…</p>;
- if(query.isError)return <p className="alert error">{apiErrorMessage(query.error)}</p>;
- if(!query.data.available)return null;
- return <><PrivacySwitch label="Permitir solicitudes de amistad" disabled={preference.isPending} checked={preference.isPending?Boolean(preference.variables):query.data.allowRequests} onChange={value=>preference.mutate(value)}/><p className="form-note">Ambos deben aparecer en Comunidad. Desactivarlo no elimina tus amigos.</p>{preference.isSuccess&&<small role="status">✓ Guardado</small>}{preference.isError&&<p className="alert error" role="alert">{apiErrorMessage(preference.error)}</p>}</>;
+ if(query.data===undefined)return <QueryFeedback query={query} label="tu privacidad de amistades"/>;
+ if(!query.data.available)return <QueryFeedback query={query} label="tu privacidad de amistades"/>;
+ return <><QueryFeedback query={query} label="tu privacidad de amistades"/><PrivacySwitch label="Permitir solicitudes de amistad" disabled={preference.isPending} checked={preference.isPending?Boolean(preference.variables):query.data.allowRequests} onChange={value=>preference.mutate(value)}/><p className="form-note">Ambos deben aparecer en Comunidad. Desactivarlo no elimina tus amigos.</p>{preference.isSuccess&&<small role="status">✓ Guardado</small>}{preference.isError&&<p className="alert error" role="alert">{apiErrorMessage(preference.error)}</p>}</>;
 }
 function useFriendActions(){
  const {session}=useAuth();const client=useQueryClient();return useMutation({mutationFn:({targetMemberId,action}:{targetMemberId:string;action:Action})=>api.post('/members/me/friends',{targetMemberId,action}),onSuccess:()=>refreshMemberQueries(client,{gymId:session?.gymUser?.gym_id,memberId:session?.gymUser?.id},'friendAction')});
@@ -29,11 +29,10 @@ function useFriendActions(){
 export function MemberFriendshipActions({memberId}:{memberId:string}){
  const query=useQuery({queryKey:['member-friendship',memberId],queryFn:async()=>(await api.get<{available:boolean;canRequest:boolean;status:string;direction:string}>(`/members/me/friends/${memberId}`)).data,refetchInterval:30000});
  const action=useFriendActions();const r=query.data;
- if(query.isPending)return <p role="status">Consultando amistad…</p>;
- if(query.isError)return <p className="alert error">{apiErrorMessage(query.error)}</p>;
- if(!r?.available)return null;
+ if(query.data===undefined)return <QueryFeedback query={query} label="esta amistad"/>;
+ if(!r?.available)return <QueryFeedback query={query} label="esta amistad"/>;
  const act=(kind:Action)=>action.mutate({targetMemberId:memberId,action:kind});
- return <div className="friend-actions">
+ return <div className="friend-actions"><QueryFeedback query={query} label="esta amistad"/>
   {r.status==='accepted'?<><span><Users/>Amigos</span><button className="ghost" disabled={action.isPending} onClick={()=>{if(confirm('¿Eliminar esta amistad?'))act('remove');}}>Eliminar amistad</button></>:
    r.status==='pending'&&r.direction==='outgoing'?<><span>Solicitud enviada</span><button className="ghost" disabled={action.isPending} onClick={()=>act('cancel')}>Cancelar solicitud</button></>:
    r.status==='pending'?<><span>Solicitud recibida</span><button className="primary" disabled={action.isPending||!r.canRequest} onClick={()=>act('accept')}><Check/>Aceptar</button><button className="ghost" disabled={action.isPending} onClick={()=>act('reject')}><X/>Rechazar</button></>:
@@ -45,11 +44,10 @@ export function MemberFriendshipActions({memberId}:{memberId:string}){
 export function MyFriendships(){
  const [page,setPage]=useState(0);const [filter,setFilter]=useState('friends');const action=useFriendActions();
  const query=useQuery({queryKey:['member-friends',page,filter],queryFn:async()=>(await api.get<FriendsData>('/members/me/friends',{params:{page,filter}})).data,refetchInterval:30000});
- if(query.isPending)return <section className="panel" role="status">Cargando amigos…</section>;
- if(query.isError)return <section className="panel"><p className="alert error">{apiErrorMessage(query.error)}</p><button className="ghost" onClick={()=>void query.refetch()}>Reintentar</button></section>;
- if(!query.data.available)return null;
+ if(query.data===undefined)return <section className="panel"><QueryFeedback query={query} label="tus amigos"/></section>;
+ if(!query.data.available)return <QueryFeedback query={query} label="tus amigos"/>;
  const act=(targetMemberId:string,kind:Action)=>action.mutate({targetMemberId,action:kind});
- return <section className="panel social-profile"><div className="panel-title"><div><h1>Amigos</h1><p>Conecta con miembros de tu gimnasio.</p></div><Users/></div>
+ return <section className="panel social-profile"><QueryFeedback query={query} label="tus amigos"/><div className="panel-title"><div><h1>Amigos</h1><p>Conecta con miembros de tu gimnasio.</p></div><Users/></div>
   <ProfileTabs label="Amistades" selected={filter} onSelect={value=>{setFilter(value);setPage(0);}} tabs={[{id:'friends',label:`Amigos (${query.data.counts?.friends??0})`},{id:'incoming',label:`Solicitudes (${query.data.counts?.incoming??0})`},{id:'outgoing',label:`Enviadas (${query.data.counts?.outgoing??0})`}]}/>
   <Link className="small-button" to="/portal/settings">Configurar privacidad</Link>
   {query.data.relationships.length===0&&<p>{filter==='friends'?'Conecta con miembros de tu gimnasio.':filter==='incoming'?'No tienes solicitudes pendientes.':'No tienes solicitudes enviadas.'} <Link to="/portal/community">Explorar Comunidad</Link></p>}

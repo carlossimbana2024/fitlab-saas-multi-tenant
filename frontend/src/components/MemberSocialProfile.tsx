@@ -1,3 +1,4 @@
+import { QueryFeedback } from './QueryFeedback';
 import { WeightMaintenanceSummary, type WeightMaintenance } from './WeightMaintenanceSummary';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useId, useState, type ReactNode } from 'react';
@@ -22,9 +23,8 @@ export function SocialPrivacySettings(){
  const {session}=useAuth();
  const query=useSocialProfile();const client=useQueryClient();
  const save=useMutation({mutationFn:(change:{showGallery?:boolean;showBadges?:boolean})=>api.put('/members/me/social-profile',change),onSuccess:()=>refreshMemberQueries(client,{gymId:session?.gymUser?.gym_id,memberId:session?.gymUser?.id},'social')});
- if(query.isPending)return <p role="status">Cargando privacidad social…</p>;
- if(query.isError)return <p className="alert error">{apiErrorMessage(query.error)}</p>;
- return <>{(['showGallery','showBadges'] as const).map(key=><PrivacySwitch key={key} label={key==='showGallery'?'Compartir momentos':'Mostrar mis medallas'} disabled={save.isPending} checked={save.isPending&&key in save.variables?Boolean(save.variables[key]):query.data[key]} onChange={value=>save.mutate({[key]:value})}/>)}{save.isSuccess&&<small role="status">✓ Guardado</small>}{save.isError&&<p className="alert error" role="alert">{apiErrorMessage(save.error)}</p>}</>;
+ if(query.data===undefined)return <QueryFeedback query={query} label="tu privacidad social"/>;
+ return <><QueryFeedback query={query} label="tu privacidad social"/>{(['showGallery','showBadges'] as const).map(key=><PrivacySwitch key={key} label={key==='showGallery'?'Compartir momentos':'Mostrar mis medallas'} disabled={save.isPending} checked={save.isPending&&key in save.variables?Boolean(save.variables[key]):query.data[key]} onChange={value=>save.mutate({[key]:value})}/>)}{save.isSuccess&&<small role="status">✓ Guardado</small>}{save.isError&&<p className="alert error" role="alert">{apiErrorMessage(save.error)}</p>}</>;
 }
 export function ProfileBadges({badges}:{badges:Badge[]}) {
  return <div className="social-badges">{badges.map(b=><span key={b.badge_code} title={b.loyalty_badges.description}><Medal/>{b.loyalty_badges.name}</span>)}</div>;
@@ -56,12 +56,11 @@ export function MemberSocialProfile({memberId,owner}:{memberId?:string;owner?:Ow
   return api.put('/members/me/gallery',{slot,path:prepared.path});
  },onSuccess:async()=>{await refresh();setDeleteSlot(null);}});
  const love=useMutation({mutationFn:()=>api.post('/members/me/community/reactions',{targetMemberUserId:memberId,reactionType:'love'}),onSuccess:refresh});
- if(query.isPending)return <section className="panel" role="status">Cargando perfil social…</section>;
- if(query.isError)return <section className="panel"><p className="alert error">{apiErrorMessage(query.error)}</p><button className="ghost" onClick={()=>void query.refetch()}>Reintentar</button>{!memberId&&<div className="profile-quick-links"><Link to="/portal/settings">Configuración</Link><Link to="/portal/payments">Membresía y pagos</Link></div>}</section>;
+ if(query.data===undefined)return <section className="panel"><QueryFeedback query={query} label="el perfil social"/>{!memberId&&<div className="profile-quick-links"><Link to="/portal/settings">Configuración</Link><Link to="/portal/payments">Membresía y pagos</Link></div>}</section>;
  const p=query.data;
  const tabs=[{id:'moments',label:'Momentos'},{id:'badges',label:'Medallas'},{id:'activity',label:'Actividad'}];
  const moments=<ProfileMoments gallery={p.gallery} own={p.own} pending={photo.isPending} error={photo.error} onPreview={setPreview} onFile={(slot,file)=>photo.mutate({slot,file})} onDelete={setDeleteSlot}/>;
- return <section className="panel social-profile profile-social-shell">
+ return <section className="panel social-profile profile-social-shell"><QueryFeedback query={query} label="el perfil social"/>{!memberId && <QueryFeedback query={friends} label="tus amistades"/>}
   <ProfileHeader profile={owner?{...p,name:owner.name,avatarUrl:owner.avatarUrl??p.avatarUrl}:p} shareUrl={p.own&&p.communityVisible?`${window.location.origin}/portal/community/${p.id}`:undefined} actions={p.own?<><button type="button" className="ghost" onClick={()=>{setBio(p.bio);save.reset();setEditing(true);}}><Pencil/>Editar perfil</button><Link className="ghost" to="/portal/settings" aria-label="Configuración"><Settings/></Link></>:<><button className={p.loved?'primary':'ghost'} disabled={love.isPending} aria-pressed={p.loved} onClick={()=>love.mutate()}><Heart/>{p.loved?'Quitar Me encanta':'Me encanta'}</button><MemberFriendshipActions memberId={p.id}/></>}/>
   {p.own&&<div className="profile-quick-links">{friends.data?.available&&<Link to="/portal/friends"><Users/>{friends.data.counts?`${friends.data.counts.friends} amigos`:'Mis amigos'}{Boolean(friends.data.counts?.incoming)&&<span className="badge">{friends.data.counts!.incoming} solicitudes</span>}</Link>}<Link to="/portal/payments">Membresía y pagos →</Link></div>}
   {p.own&&!p.communityVisible&&<p className="form-note">Tu perfil está oculto en Comunidad. <Link to="/portal/settings">Configurar privacidad</Link></p>}

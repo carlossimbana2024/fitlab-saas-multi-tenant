@@ -1,3 +1,4 @@
+import { QueryFeedback } from './QueryFeedback';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Bell, Medal, Users, Target } from 'lucide-react';
@@ -23,10 +24,9 @@ export function LoyaltyEngagement() {
  const [code, setCode] = useState('');
  const [promotionId, setPromotionId] = useState('');
  const action = useMutation({ mutationFn: async ({ path, body, put }: { path: string; body?: unknown; put?: boolean }) => put ? api.put(`/loyalty/me/${path}`, body) : api.post(`/loyalty/me/${path}`, body), onSuccess: async () => { await client.invalidateQueries({ queryKey: key }); } });
- if (query.isPending) return <p role="status">Cargando tus logros…</p>;
- if (query.isError) return <p className="alert error">{apiErrorMessage(query.error)}</p>;
+ if (query.data === undefined) return <QueryFeedback query={query} label="tus logros"/>;
  const data = query.data;
- return <div className="loyalty-engagement">
+ return <div className="loyalty-engagement"><QueryFeedback query={query} label="tus logros"/><QueryFeedback query={campaigns} label="las campañas de referidos"/>
   {action.isError && <p role="alert" className="alert error">{apiErrorMessage(action.error)}</p>}
   <div className="loyalty-grid">
    <section className="panel loyalty-card"><Target/><h2>Tu meta semanal</h2>{data.mission ? <><strong>{data.mission.progress} / {data.mission.target} días</strong><progress max={data.mission.target} value={Math.min(data.mission.progress, data.mission.target)}/><p>Una meta a tu ritmo, basada en tu frecuencia deseada. Descansar también forma parte del proceso.</p></> : <p>Tu meta aparecerá después de la próxima evaluación del gimnasio.</p>}</section>

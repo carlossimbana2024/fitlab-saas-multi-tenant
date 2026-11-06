@@ -1,3 +1,4 @@
+import { QueryFeedback } from './QueryFeedback';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Gift, Trophy } from 'lucide-react';
 import { useState } from 'react';
@@ -33,10 +34,9 @@ export function LoyaltyRewards({ memberId }: { memberId?: string }) {
   };
   const claim = useMutation({ mutationFn: async (id: string) => api.post(`${path}/promotions/${id}/claim`), onSuccess: refresh });
   const redeem = useMutation({ mutationFn: async () => api.post(`/loyalty/rewards/${action!.reward.id}/${action!.type}`, action!.type === 'revoke' ? { reason } : {}), onSuccess: async () => { setAction(null); setReason(''); await refresh(); } });
-  if (query.isPending) return <p role="status">Cargando tus retos y recompensas…</p>;
-  if (query.isError) return <div className="alert error">{apiErrorMessage(query.error)} <button className="small-button" onClick={() => void query.refetch()}>Reintentar</button></div>;
+  if (query.data === undefined) return <QueryFeedback query={query} label="tus retos y recompensas"/>;
   const data = query.data;
-  return <div className="loyalty-content">
+  return <div className="loyalty-content"><QueryFeedback query={query} label="tus retos y recompensas"/>
     <div className="loyalty-guidance"><Gift/><p>Cada día válido cuenta una sola vez. Las clases no suman una segunda asistencia. Descansar también es parte del proceso: en retos de racha solo cuentan los días obligatorios definidos al publicar.</p></div>
     {claim.isError && <p className="alert error" role="alert">{apiErrorMessage(claim.error)}</p>}
     <h2>Retos del gimnasio</h2>
