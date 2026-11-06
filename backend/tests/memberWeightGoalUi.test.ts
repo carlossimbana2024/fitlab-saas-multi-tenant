@@ -43,8 +43,7 @@ describe('FIT-MEMBER-010 real presentation components',()=>{
  it('FIT-MEMBER-011 weight upsert retains all dependent cache invalidations and explicit current prefill',()=>{
   const source=readFileSync(new URL('../../frontend/src/pages/MemberPortalPage.tsx',import.meta.url),'utf8');
   const mutation=source.slice(source.indexOf('const recordWeight ='),source.indexOf('const recordWeight =')+650);
-  for(const key of ['my-progress','member-social-profile','member-community','member-community-rankings'])expect(mutation).toContain(`'${key}'`);
-  expect(mutation).toContain('queryClient.invalidateQueries');
+  expect(mutation).toContain("refreshMemberQueries(queryClient, queryContext, 'weight')");
   expect(source).toContain('String(progress.data.currentWeightKg)');
   expect(source).not.toContain('progress.data?.weights.at(-1)');
  });

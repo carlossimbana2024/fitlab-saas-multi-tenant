@@ -14,7 +14,8 @@ import { AttendanceQrCard } from '../components/AttendanceQrCard';
 import { ClassBookingConditions } from '../components/ClassBookingConditions';
 import { FitnessOnboardingGate } from '../components/FitnessOnboardingGate';
 import { ClassWaitlistOffer } from '../components/ClassWaitlistOffer';
-import { classWaitlistPollInterval, refreshClassQueries, waitlistExitNotice, type ClassWaitlistEntry } from '../utils/classWaitlist';
+import { classWaitlistPollInterval, waitlistExitNotice, type ClassWaitlistEntry } from '../utils/classWaitlist';
+import { classConflictNeedsRefresh, refreshMemberQueries } from '../utils/memberQueryInvalidation';
 import { classPaymentLabel, type ClassBookingEconomics } from '../utils/classBookingEconomics';
 import '../profile-header.css';
 import '../progress.css';
@@ -168,6 +169,7 @@ function sectionCopy(section: PortalSection) {
 export function MemberPortalPage({ section }: { section: PortalSection }) {
   const { session, refresh } = useAuth();
   const queryClient = useQueryClient();
+  const queryContext = { gymId: session?.gymUser?.gym_id, memberId: session?.gymUser?.id };
   const timezone = gymTimezone(session?.gymUser?.gym?.timezone);
   const calendarRange = monthRange(civilDate(Date.now(), timezone));
   const calendar = useQuery({ queryKey: ['my-calendar', session?.gymUser?.gym_id, session?.gymUser?.default_location_id, timezone, calendarRange.from], queryFn: async () => (await api.get<Calendar>('/calendar', { params: { from: shiftDate(calendarRange.from, -1), to: shiftDate(calendarRange.to, 1) } })).data });
@@ -213,18 +215,16 @@ export function MemberPortalPage({ section }: { section: PortalSection }) {
 
   const [classActionError, setClassActionError] = useState<unknown>(null);
   const [classNotice, setClassNotice] = useState<string | null>(null);
-  const refreshClasses = () => refreshClassQueries(queryClient);
+  const refreshClasses = () => refreshMemberQueries(queryClient, queryContext, 'classes');
   const classActionCallbacks = {
     onMutate: () => { setClassActionError(null); setClassNotice(null); },
-    onError: (error: unknown) => setClassActionError(error),
-    // A conflict may have expired an offer and promoted the next member in SQL.
-    onSettled: refreshClasses,
+    onError: async (error: unknown) => { setClassActionError(error); if (classConflictNeedsRefresh(error)) await refreshClasses(); },
   };
-  const reserveClass = useMutation({ mutationFn: async (scheduleId: string) => api.post(`/activities/schedules/${scheduleId}/bookings/self`), ...classActionCallbacks, onSuccess: () => setClassNotice('Reserva confirmada. Consulta sus condiciones y pago.') });
-  const cancelClass = useMutation({ mutationFn: async (bookingId: string) => api.patch(`/activities/bookings/${bookingId}/cancel-self`, { reason: 'Cancelada desde el portal del miembro' }), ...classActionCallbacks, onSuccess: () => setClassNotice('Reserva cancelada. Disponibilidad actualizada.') });
-  const joinWaitlist = useMutation({ mutationFn: async (scheduleId: string) => api.post(`/activities/schedules/${scheduleId}/waitlist/self`), ...classActionCallbacks, onSuccess: () => setClassNotice('Ya estás en la lista de espera. Tu posición se consulta al servidor.') });
-  const leaveWaitlist = useMutation({ mutationFn: async (waitlistId: string) => api.patch<{ waitlist: { state?: string } }>(`/activities/waitlist/${waitlistId}/cancel-self`, { reason: 'Salida o rechazo desde el portal del miembro' }), ...classActionCallbacks, onSuccess: response => setClassNotice(waitlistExitNotice(response.data.waitlist.state)) });
-  const acceptOffer = useMutation({ mutationFn: async (offerId: string) => api.post(`/activities/waitlist/offers/${offerId}/accept-self`), ...classActionCallbacks, onSuccess: () => setClassNotice('Cupo aceptado. Tu reserva y sus condiciones están confirmadas.') });
+  const reserveClass = useMutation({ mutationFn: async (scheduleId: string) => api.post(`/activities/schedules/${scheduleId}/bookings/self`), ...classActionCallbacks, onSuccess: async () => { await refreshClasses(); setClassNotice('Reserva confirmada. Consulta sus condiciones y pago.'); } });
+  const cancelClass = useMutation({ mutationFn: async (bookingId: string) => api.patch(`/activities/bookings/${bookingId}/cancel-self`, { reason: 'Cancelada desde el portal del miembro' }), ...classActionCallbacks, onSuccess: async () => { await refreshClasses(); setClassNotice('Reserva cancelada. Disponibilidad actualizada.'); } });
+  const joinWaitlist = useMutation({ mutationFn: async (scheduleId: string) => api.post(`/activities/schedules/${scheduleId}/waitlist/self`), ...classActionCallbacks, onSuccess: async () => { await refreshClasses(); setClassNotice('Ya estás en la lista de espera. Tu posición se consulta al servidor.'); } });
+  const leaveWaitlist = useMutation({ mutationFn: async (waitlistId: string) => api.patch<{ waitlist: { state?: string } }>(`/activities/waitlist/${waitlistId}/cancel-self`, { reason: 'Salida o rechazo desde el portal del miembro' }), ...classActionCallbacks, onSuccess: async response => { await refreshClasses(); setClassNotice(waitlistExitNotice(response.data.waitlist.state)); } });
+  const acceptOffer = useMutation({ mutationFn: async (offerId: string) => api.post(`/activities/waitlist/offers/${offerId}/accept-self`), ...classActionCallbacks, onSuccess: async () => { await refreshClasses(); setClassNotice('Cupo aceptado. Tu reserva y sus condiciones están confirmadas.'); } });
   const refreshExpiredOffer = () => {
     setClassNotice('El plazo visual de una oferta terminó. Consultando su estado real…');
     void refreshClasses().then(() => {
@@ -239,9 +239,10 @@ export function MemberPortalPage({ section }: { section: PortalSection }) {
         if (passwords.next !== passwords.confirmation) throw new Error('Las contraseñas nuevas no coinciden.');
       }
       await api.put('/members/me/profile', { fullName: profile.fullName, phone: profile.phone || null });
+      await Promise.all([refresh(), refreshMemberQueries(queryClient, queryContext, 'identity')]);
       if (passwords.current && passwords.next) await api.put('/auth/change-password', { currentPassword: passwords.current, newPassword: passwords.next });
     },
-    onSuccess: async () => { await refresh(); setPasswords({ current: '', next: '', confirmation: '' }); setEditing(false); },
+    onSuccess: async () => { setPasswords({ current: '', next: '', confirmation: '' }); setEditing(false); },
   });
   const saveFitnessProfile = useMutation({
     mutationFn: async (form: FitnessForm) => {
@@ -250,14 +251,14 @@ export function MemberPortalPage({ section }: { section: PortalSection }) {
       if (!fitnessSetupRequired) for (const [key] of privacyOptions) delete payload[key];
       return api.put('/members/me/fitness-profile', payload);
     },
-    onSuccess: async () => { await Promise.all(['my-fitness-profile','member-social-profile','member-community','member-community-rankings','my-progress'].map(key=>queryClient.invalidateQueries({queryKey:[key]}))); setFitnessEditing(false); },
+    onSuccess: async () => { await refreshMemberQueries(queryClient, queryContext, 'fitness'); setFitnessEditing(false); },
   });
   const savePrivacy=useMutation({mutationFn:async({key,value}:{key:PrivacyKey;value:boolean})=>{
     return api.patch('/members/me/privacy', {key,value});
-  },onSettled:()=>Promise.all(['my-fitness-profile','member-social-profile','member-community','member-friendship','member-friends','member-training-social'].map(key=>queryClient.invalidateQueries({queryKey:[key]})))});
+  },onSuccess:()=>refreshMemberQueries(queryClient, queryContext, 'privacy')});
   const recordWeight = useMutation({
     mutationFn: async () => api.post('/members/me/weight', { weightKg: Number(weightValue), measuredOn: weightDate }),
-    onSuccess: async () => { await Promise.all(['my-progress','member-social-profile','member-community','member-community-rankings'].map(key=>queryClient.invalidateQueries({queryKey:[key]}))); setRecordingWeight(false); setWeightValue(''); setWeightDate(range.today); },
+    onSuccess: async () => { await refreshMemberQueries(queryClient, queryContext, 'weight'); setRecordingWeight(false); setWeightValue(''); setWeightDate(range.today); },
   });
   const avatarUpload = useMutation({
     mutationFn: async (file: File) => {
@@ -271,7 +272,7 @@ export function MemberPortalPage({ section }: { section: PortalSection }) {
       if (!uploadResponse.ok) throw new Error('No se pudo subir la foto. Intenta nuevamente.');
       return (await api.put<{ profile: { avatar_url: string | null }; avatarPath: string }>('/members/me/avatar', { path: prepared.path })).data;
     },
-    onSuccess: async () => { await refresh(); await queryClient.invalidateQueries({ queryKey: ['member-social-profile'] }); },
+    onSuccess: async () => { await Promise.all([refresh(), refreshMemberQueries(queryClient, queryContext, 'identity')]); },
   });
 
   const loading = memberships.isLoading || attendances.isLoading || streaks.isLoading;

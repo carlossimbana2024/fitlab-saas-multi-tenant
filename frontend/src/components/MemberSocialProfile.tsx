@@ -4,6 +4,8 @@ import { useId, useState, type ReactNode } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { Heart, Pencil, Plus, Settings, Trash2, Upload, Users } from 'lucide-react';
 import { api, apiErrorMessage } from '../services/api';
+import { useAuth } from '../context/AuthContext';
+import { refreshMemberQueries } from '../utils/memberQueryInvalidation';
 import { MemberFriendshipActions, useFriendSummary } from './MemberFriendships';
 import { ProfileHeader } from './ProfileHeader';
 import { ProfilePhotoViewer } from './ProfilePhotoViewer';
@@ -17,8 +19,9 @@ type Badge={badge_code:string;earned_at:string;loyalty_badges:{name:string;descr
 type Profile={id:string;own:boolean;name:string;avatarUrl:string|null;bio:string;gallery:Array<string|null>;communityVisible:boolean;showGallery:boolean;showBadges:boolean;goalType:string|null;progressPercent?:number|null;weightMaintenance?:WeightMaintenance|null;streak:{current_streak:number;longest_streak:number}|null;monthlyAttendances:number|null;badges:Badge[];loveCount:number;loved:boolean};
 function useSocialProfile(memberId?:string){return useQuery({queryKey:['member-social-profile',memberId??'me'],queryFn:async()=>(await api.get<{profile:Profile}>(memberId?`/members/me/community/profiles/${memberId}`:'/members/me/social-profile')).data.profile,refetchInterval:240000});}
 export function SocialPrivacySettings(){
+ const {session}=useAuth();
  const query=useSocialProfile();const client=useQueryClient();
- const save=useMutation({mutationFn:(change:{showGallery?:boolean;showBadges?:boolean})=>api.put('/members/me/social-profile',change),onSettled:()=>Promise.all(['member-social-profile','member-community'].map(key=>client.invalidateQueries({queryKey:[key]})))});
+ const save=useMutation({mutationFn:(change:{showGallery?:boolean;showBadges?:boolean})=>api.put('/members/me/social-profile',change),onSuccess:()=>refreshMemberQueries(client,{gymId:session?.gymUser?.gym_id,memberId:session?.gymUser?.id},'social')});
  if(query.isPending)return <p role="status">Cargando privacidad social…</p>;
  if(query.isError)return <p className="alert error">{apiErrorMessage(query.error)}</p>;
  return <>{(['showGallery','showBadges'] as const).map(key=><PrivacySwitch key={key} label={key==='showGallery'?'Compartir momentos':'Mostrar mis medallas'} disabled={save.isPending} checked={save.isPending&&key in save.variables?Boolean(save.variables[key]):query.data[key]} onChange={value=>save.mutate({[key]:value})}/>)}{save.isSuccess&&<small role="status">✓ Guardado</small>}{save.isError&&<p className="alert error" role="alert">{apiErrorMessage(save.error)}</p>}</>;
@@ -38,10 +41,11 @@ async function optimizedPhoto(file:File):Promise<Blob> {
 }
 type OwnerControls={name:string;avatarUrl:string|null;onEditAccount:()=>void;onAvatarFile:(file:File)=>void;avatarUploading:boolean;avatarError:unknown;activity:ReactNode};
 export function MemberSocialProfile({memberId,owner}:{memberId?:string;owner?:OwnerControls}) {
+ const {session}=useAuth();
  const client=useQueryClient();const query=useSocialProfile(memberId);const friends=useFriendSummary(!memberId);
  const [bio,setBio]=useState('');const [editing,setEditing]=useState(false);const [allBadges,setAllBadges]=useState(false);const [deleteSlot,setDeleteSlot]=useState<number|null>(null);const [preview,setPreview]=useState<string|null>(null);const avatarInput=useId();
  const [params,setParams]=useSearchParams();const tab=['moments','badges','activity'].includes(params.get('tab')??'')?params.get('tab')!:'moments';
- const refresh=async()=>{await Promise.all(['member-social-profile','member-community'].map(key=>client.invalidateQueries({queryKey:[key]})));};
+ const refresh=()=>refreshMemberQueries(client,{gymId:session?.gymUser?.gym_id,memberId:session?.gymUser?.id},'social');
  const save=useMutation({mutationFn:()=>api.put('/members/me/social-profile',{bio}),onSuccess:async()=>{await refresh();setEditing(false);}});
  const photo=useMutation({mutationFn:async({slot,file}:{slot:number;file:File|null})=>{
   if(!file)return api.put('/members/me/gallery',{slot,path:null});

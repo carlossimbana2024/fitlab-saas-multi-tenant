@@ -6,6 +6,8 @@ import { api,apiErrorMessage } from '../services/api';
 import {TrainingFriendActions} from './MemberTrainingSocial';
 import {PrivacySwitch} from './PrivacySwitch';
 import {ProfileTabs} from './ProfileTabs';
+import {useAuth} from '../context/AuthContext';
+import {refreshMemberQueries} from '../utils/memberQueryInvalidation';
 import '../social-profile.css';
 
 type Action='request'|'accept'|'reject'|'cancel'|'remove';
@@ -13,15 +15,16 @@ type Relationship={id:string;targetId:string;name:string;avatarUrl?:string|null;
 type FriendsData={available:boolean;allowRequests:boolean;total:number;counts?:{friends:number;incoming:number;outgoing:number};relationships:Relationship[]};
 export function useFriendSummary(enabled=true){return useQuery({queryKey:['member-friends',0,'all'],queryFn:async()=>(await api.get<FriendsData>('/members/me/friends',{params:{page:0,filter:'all'}})).data,refetchInterval:30000,enabled});}
 export function FriendRequestsPreference(){
+ const {session}=useAuth();
  const query=useFriendSummary();const client=useQueryClient();
- const preference=useMutation({mutationFn:(allowRequests:boolean)=>api.put('/members/me/friend-preferences',{allowRequests}),onSettled:()=>Promise.all(['member-friends','member-friendship'].map(key=>client.invalidateQueries({queryKey:[key]})))});
+ const preference=useMutation({mutationFn:(allowRequests:boolean)=>api.put('/members/me/friend-preferences',{allowRequests}),onSuccess:()=>refreshMemberQueries(client,{gymId:session?.gymUser?.gym_id,memberId:session?.gymUser?.id},'friendPreference')});
  if(query.isPending)return <p role="status">Cargando privacidad de amistades…</p>;
  if(query.isError)return <p className="alert error">{apiErrorMessage(query.error)}</p>;
  if(!query.data.available)return null;
  return <><PrivacySwitch label="Permitir solicitudes de amistad" disabled={preference.isPending} checked={preference.isPending?Boolean(preference.variables):query.data.allowRequests} onChange={value=>preference.mutate(value)}/><p className="form-note">Ambos deben aparecer en Comunidad. Desactivarlo no elimina tus amigos.</p>{preference.isSuccess&&<small role="status">✓ Guardado</small>}{preference.isError&&<p className="alert error" role="alert">{apiErrorMessage(preference.error)}</p>}</>;
 }
 function useFriendActions(){
- const client=useQueryClient();return useMutation({mutationFn:({targetMemberId,action}:{targetMemberId:string;action:Action})=>api.post('/members/me/friends',{targetMemberId,action}),onSettled:async()=>{await Promise.all(['member-friends','member-friendship','member-training-social','loyalty-engagement'].map(key=>client.invalidateQueries({queryKey:[key]})));}});
+ const {session}=useAuth();const client=useQueryClient();return useMutation({mutationFn:({targetMemberId,action}:{targetMemberId:string;action:Action})=>api.post('/members/me/friends',{targetMemberId,action}),onSuccess:()=>refreshMemberQueries(client,{gymId:session?.gymUser?.gym_id,memberId:session?.gymUser?.id},'friendAction')});
 }
 export function MemberFriendshipActions({memberId}:{memberId:string}){
  const query=useQuery({queryKey:['member-friendship',memberId],queryFn:async()=>(await api.get<{available:boolean;canRequest:boolean;status:string;direction:string}>(`/members/me/friends/${memberId}`)).data,refetchInterval:30000});

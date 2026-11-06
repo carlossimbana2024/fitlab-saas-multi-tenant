@@ -5,6 +5,7 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { api, apiErrorMessage } from '../services/api';
 import { selectMembershipCoverage } from '../utils/membershipCoverage';
+import { refreshMemberQueries } from '../utils/memberQueryInvalidation';
 import { GymContactCard } from '../components/GymContactCard';
 import { gymWhatsAppNumber, membershipMoney, membershipPaymentMethodLabels as methods, membershipPaymentStatusLabels as statuses, membershipWhatsAppMessage, type MembershipPaymentPlan, type MembershipPaymentRequest } from '../utils/membershipPayments';
 import '../membership-payments.css';
@@ -38,20 +39,25 @@ export function MemberPaymentsPage() {
   const plan = data?.plans.find((p) => p.id === planId);
   useEffect(() => { if (plan) setForm((current) => ({ ...current, amount: String(plan.price) })); }, [plan?.id, plan?.price]);
   const refresh = async () => {
-    await Promise.all(['my-membership-payments', 'my-memberships', 'my-payments', 'loyalty-engagement'].map((key) => client.invalidateQueries({ queryKey: [key] })));
+    await refreshMemberQueries(client, {gymId:session?.gymUser?.gym_id,memberId:session?.gymUser?.id}, 'paymentRequest');
   };
   const submit = useMutation({
     mutationFn: async () => {
       if (channel === 'fitlab' && (!file || file.size > 5_242_880 || !['image/jpeg', 'image/png', 'application/pdf'].includes(file.type))) throw new Error('Selecciona un JPG, PNG o PDF de hasta 5 MB.');
       const prepared = (await api.post<{ id: string; signedUrl: string | null; amount: number }>('/membership-payment-requests/me/prepare', { planId, channel, ...(channel === 'fitlab' ? { contentType: file!.type } : {}) })).data;
-      if (channel === 'fitlab') {
-        const uploaded = await fetch(prepared.signedUrl!, { method: 'PUT', headers: { 'content-type': file!.type, 'x-upsert': 'false' }, body: file! });
-        if (!uploaded.ok) throw new Error('No se pudo subir el comprobante. Puedes intentarlo de nuevo.');
+      try {
+        if (channel === 'fitlab') {
+          const uploaded = await fetch(prepared.signedUrl!, { method: 'PUT', headers: { 'content-type': file!.type, 'x-upsert': 'false' }, body: file! });
+          if (!uploaded.ok) throw new Error('No se pudo subir el comprobante. Puedes intentarlo de nuevo.');
+        }
+        return await api.post(`/membership-payment-requests/me/${prepared.id}/submit`, { ...form, amount: Number(form.amount), channel });
+      } catch (error) {
+        // prepare already saved a draft; reconcile only that resource, not coverage/income.
+        await refresh();
+        throw error;
       }
-      return api.post(`/membership-payment-requests/me/${prepared.id}/submit`, { ...form, amount: Number(form.amount), channel });
     },
     onSuccess: async () => { setFile(null); setSuccess(true); await refresh(); },
-    onError: refresh,
   });
   const cancel = useMutation({ mutationFn: async (id: string) => api.post(`/membership-payment-requests/me/${id}/cancel`), onSuccess: refresh });
   const proof = useMutation({ mutationFn: async (id: string) => (await api.get<{ url: string }>(`/membership-payment-requests/me/${id}/proof`)).data.url, onSuccess: setProofUrl });

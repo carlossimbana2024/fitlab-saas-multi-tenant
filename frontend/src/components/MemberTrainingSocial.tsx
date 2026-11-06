@@ -3,11 +3,13 @@ import {Link} from 'react-router-dom';
 import {Flame,Hand,Users} from 'lucide-react';
 import {api,apiErrorMessage} from '../services/api';
 import {PrivacySwitch} from './PrivacySwitch';
+import {useAuth} from '../context/AuthContext';
+import {refreshMemberQueries} from '../utils/memberQueryInvalidation';
 type Action='poke'|'invite'|'accept'|'reject'|'cancel'|'end';
 type Streak={id:string;targetId:string;status:'pending'|'active';direction:string;startsOn:string|null;myTarget:number;friendTarget:number;myVisits:number;friendVisits:number;currentWeeks:number;bestWeeks:number;canContinue:boolean};
 type Data={available:boolean;allowPokes:boolean;streaks:Streak[];cooldowns:{targetId:string;nextAt:string}[]};
 function useTraining(){return useQuery({queryKey:['member-training-social'],queryFn:async()=>(await api.get<Data>('/members/me/training-social')).data,refetchInterval:30000});}
-function useAction(){const client=useQueryClient();return useMutation({mutationFn:({targetMemberId,action}:{targetMemberId:string;action:Action})=>api.post('/members/me/training-social',{targetMemberId,action}),onSettled:async()=>{await Promise.all(['member-training-social','loyalty-engagement'].map(key=>client.invalidateQueries({queryKey:[key]})));}});}
+function useAction(){const {session}=useAuth();const client=useQueryClient();return useMutation({mutationFn:({targetMemberId,action}:{targetMemberId:string;action:Action})=>api.post('/members/me/training-social',{targetMemberId,action}),onSuccess:()=>refreshMemberQueries(client,{gymId:session?.gymUser?.gym_id,memberId:session?.gymUser?.id},'trainingAction')});}
 export function TrainingFriendActions({memberId}:{memberId:string}){
  const query=useTraining();const action=useAction();const d=query.data;
  if(query.isError)return <p className="alert error">{apiErrorMessage(query.error)}</p>;
@@ -16,8 +18,9 @@ export function TrainingFriendActions({memberId}:{memberId:string}){
  return <div className="friend-actions"><button className="ghost" disabled={action.isPending||!d.allowPokes||Boolean(waiting)} onClick={()=>action.mutate({targetMemberId:memberId,action:'poke'})}><Hand/>{waiting?'Toque enviado':'Dar un toque'}</button>{!existing&&<button className="ghost" disabled={action.isPending||!d.allowPokes} onClick={()=>action.mutate({targetMemberId:memberId,action:'invite'})}><Flame/>Invitar a racha juntos</button>}{waiting&&<small>Disponible otra vez: {new Date(cooldown.nextAt).toLocaleString('es-EC')}</small>}{!d.allowPokes&&<small><Link to="/portal/settings">Activa “Permitir toques” en Configuración.</Link></small>}{existing&&<Link to="/portal/profile?tab=activity">Ver racha compartida</Link>}{action.isSuccess&&<p role="status">Acción registrada. Tu amigo recibirá un aviso en FitLab.</p>}{action.isError&&<p className="alert error">{apiErrorMessage(action.error)}</p>}</div>;
 }
 export function PokePreference(){
+ const {session}=useAuth();
  const query=useTraining();const client=useQueryClient();
- const preference=useMutation({mutationFn:(allowPokes:boolean)=>api.put('/members/me/poke-preferences',{allowPokes}),onSettled:()=>client.invalidateQueries({queryKey:['member-training-social']})});
+ const preference=useMutation({mutationFn:(allowPokes:boolean)=>api.put('/members/me/poke-preferences',{allowPokes}),onSuccess:()=>refreshMemberQueries(client,{gymId:session?.gymUser?.gym_id,memberId:session?.gymUser?.id},'trainingPreference')});
  if(query.isPending)return <p role="status">Cargando privacidad de toques…</p>;
  if(query.isError)return <p className="alert error">{apiErrorMessage(query.error)}</p>;
  if(!query.data.available)return null;

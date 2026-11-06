@@ -5,6 +5,7 @@ import { Activity, CalendarDays, ChevronRight, Dumbbell, Flame, Heart, LoaderCir
 import { useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { api, apiErrorMessage } from '../services/api';
+import { refreshMemberQueries } from '../utils/memberQueryInvalidation';
 import '../community.css';
 
 type CommunityFilter = 'all' | 'similar_goal' | 'consistent' | 'new' | 'longest_streak' | 'featured' | 'progress';
@@ -84,7 +85,7 @@ export function MemberCommunityPage() {
   });
   const react = useMutation({
     mutationFn: async (targetMemberUserId: string) => api.post('/members/me/community/reactions', { targetMemberUserId, reactionType: 'love' }),
-    onSuccess: async () => { await Promise.all(['member-community', 'member-social-profile'].map(key => queryClient.invalidateQueries({ queryKey: [key] }))); },
+    onSuccess: () => refreshMemberQueries(queryClient, { gymId: session?.gymUser?.gym_id, memberId: session?.gymUser?.id }, 'reaction'),
   });
   const members = [...new Map((community.data?.pages.flatMap(page => page.items) ?? []).map(member => [member.id, member])).values()];
   const ranking = rankings.data?.ranking;

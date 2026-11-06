@@ -59,6 +59,7 @@ async function mount(options: { expired?: boolean; invalidRefresh?: boolean; tra
     '../components/ThemeToggle': { ThemeToggle: () => null },
     '../components/AttendanceQrScanner': { AttendanceQrScanner: () => null },
     '../utils/attendanceQr': compile('utils/attendanceQr.ts'), '../styles/attendanceQr.css': {},
+    '../utils/memberQueryInvalidation': compile('utils/memberQueryInvalidation.ts'),
   });
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   queryClient.setQueryData(['private-member'], { secret: 'private' });

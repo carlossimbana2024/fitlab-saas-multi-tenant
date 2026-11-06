@@ -7,6 +7,7 @@ import { AttendanceQrScanner } from '../components/AttendanceQrScanner';
 import { useAuth } from '../context/AuthContext';
 import { api, apiErrorMessage } from '../services/api';
 import { attendanceTokenFromHash } from '../utils/attendanceQr';
+import { refreshMemberQueries } from '../utils/memberQueryInvalidation';
 import '../styles/attendanceQr.css';
 
 type CheckIn = {
@@ -40,6 +41,7 @@ export function CheckInPage() {
  * A keyed instance prevents a late response from a former QR/member showing here.
  */
 function QrAttendanceConfirmation({ token, memberId, memberName, onRescan }: { token: string; memberId: string; memberName: string; onRescan: () => void }) {
+  const {session}=useAuth();
   const queryClient = useQueryClient();
   const [preview, setPreview] = useState<CheckIn | null>(null);
   const [error, setError] = useState('');
@@ -71,11 +73,7 @@ function QrAttendanceConfirmation({ token, memberId, memberName, onRescan }: { t
       if (!navigator.onLine) throw new Error('Conéctate a internet para confirmar. No se guardarán asistencias pendientes para enviarlas después.');
       return (await api.post<CheckIn>('/attendances/qr/check-in', { token })).data;
     },
-    onSuccess: () => {
-      for (const key of ['my-attendances', 'my-streak', 'my-weekly-progress', 'my-progress', 'member-community', 'member-community-rankings', 'member-social-profile', 'loyalty-engagement', 'member-training-social']) {
-        void queryClient.invalidateQueries({ queryKey: [key] });
-      }
-    },
+    onSuccess: () => refreshMemberQueries(queryClient, {gymId:session?.gymUser?.gym_id,memberId}, 'attendance'),
     onSettled: () => { submitting.current = false; },
   });
   const result = confirm.data ?? preview;

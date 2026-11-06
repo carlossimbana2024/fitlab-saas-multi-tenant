@@ -5,7 +5,8 @@ import ts from 'typescript';
 const req=createRequire(new URL('../../frontend/package.json',import.meta.url));
 const React=req('react');const {act,create}=req('react-test-renderer');
 const {QueryClient,QueryClientProvider}=req('@tanstack/react-query');
-const api={get:vi.fn(),post:vi.fn()};
+const mutations=new Map<string,any>();
+const api={get:vi.fn(),post:vi.fn(),put:vi.fn(),patch:vi.fn()};
 let session:any;
 const noop=()=>null;
 const emptyModules=new Proxy({}, {get:()=>noop});
@@ -15,7 +16,8 @@ function load(file:string){
    if(id.endsWith('.css'))return {};
    if(id.includes('/services/api'))return {api,apiErrorMessage:()=> 'API_FAILED'};
    if(id.includes('/context/AuthContext'))return {useAuth:()=>({session,refresh:vi.fn()})};
-   if(['membershipCoverage','currentPortalDate','currentWeeklyProgress','portalTime','classScheduleHours','branchOpenStatus'].some(name=>id===`../utils/${name}`||id===`./${name}`))return load(`utils/${id.split('/').at(-1)}.ts`);
+   if(id==='@tanstack/react-query')return {...req(id),useMutation:(options:any)=>{const mutation=req(id).useMutation(options);mutations.set(options.mutationFn.toString(),mutation);return mutation;}};
+   if(['membershipCoverage','currentPortalDate','currentWeeklyProgress','portalTime','classScheduleHours','branchOpenStatus','memberQueryInvalidation'].some(name=>id===`../utils/${name}`||id===`./${name}`))return load(`utils/${id.split('/').at(-1)}.ts`);
    if(id==='../components/BranchOpenStatus')return load('components/BranchOpenStatus.tsx');
    if(id.includes('/components/AttendanceQrCard'))return {AttendanceQrCard:({hasAttendanceToday}:any)=>React.createElement('div',{'data-attended-today':hasAttendanceToday})};
    if(id==='react-router-dom')return {Link:({children}:any)=>React.createElement('a',null,children)};
@@ -29,7 +31,7 @@ const {BranchOpenStatus}=load('components/BranchOpenStatus.tsx');
 const trees:any[]=[];const clients:any[]=[];
 const flush=async()=>{await act(async()=>{await new Promise(r=>setTimeout(r,30));});};
 async function mount(component:any,props={}){
- const client=new QueryClient({defaultOptions:{queries:{retry:false,gcTime:0},mutations:{retry:false}}});clients.push(client);
+ const client=new QueryClient({defaultOptions:{queries:{retry:false,gcTime:Infinity},mutations:{retry:false}}});clients.push(client);
  let tree:any;await act(async()=>{tree=create(React.createElement(QueryClientProvider,{client},React.createElement(component,props)));});trees.push(tree);
  await flush();await flush();return {tree,client};
 }
@@ -37,8 +39,105 @@ const text=(tree:any)=>JSON.stringify(tree.toJSON());
 const button=(tree:any,label:string)=>tree.root.findAllByType('button').find((b:any)=>b.props.children===label);
 async function click(tree:any,label:string){await act(async()=>button(tree,label).props.onClick());await flush();}
 const ranking=(month='2026-11')=>({ranking:{period:{key:month,label:month,from:month+'-01',to:month+'-28',isCurrent:false},availablePeriods:[{key:'2026-11',label:'Nov'},{key:'2026-10',label:'Oct'}],historyMode:'reconstructed',categories:Object.fromEntries(['attendance','streak','progress'].map(key=>[key,{title:key,explanation:key,entries:[{position:1,memberUserId:'winner',name:`SQL winner ${month}`,avatarUrl:null,value:123,displayValue:'123 SQL',goalType:null}]}]))}});
-beforeEach(()=>{session={gymUser:{id:'viewer',gym_id:'gym-a',profiles:{full_name:'Reader'}}};api.get.mockReset();});
+beforeEach(()=>{session={user:{email:'reader@example.test'},gymUser:{id:'viewer',gym_id:'gym-a',profiles:{full_name:'Reader'}}};Object.values(api).forEach(mock=>mock.mockReset());mutations.clear();});
 afterEach(async()=>{await act(async()=>trees.splice(0).forEach(t=>t.unmount()));clients.splice(0).forEach(c=>c.clear());vi.useRealTimers();vi.unstubAllGlobals();});
+
+describe('FIT-MEMBER-015 real mutation integration',()=>{
+ const action=(path:string)=>[...mutations.entries()].find(([source])=>source.includes(path))![1];
+ function setup(){
+  let weight=85,goal='lose_weight',visible=true;
+  api.get.mockImplementation(async(url:string)=>({data:url==='/members/me/progress'?{progress:{currentWeightKg:weight,weights:[],goal:{goalType:goal,initialWeightKg:90,currentWeightKg:weight,targetWeightKg:80,progressPercent:50},attendanceByMonth:[],attendanceByWeek:[],motivation:{title:'SQL summary'}}}
+   :url==='/members/me/fitness-profile'?{fitnessProfile:{id:'fitness',goal_type:goal,show_in_community:visible}}
+   :url==='/calendar'?{hours:[],exceptions:[],location:{timezone:'America/Guayaquil'}}
+   :url.endsWith('/rankings')?ranking()
+   :url==='/members/me/community'?{items:[],hasMore:false,nextCursor:null}
+   :{memberships:[],attendances:[],streaks:[],progress:[],schedules:[],announcements:[]}}));
+  api.post.mockImplementation(async()=>{weight=84;return {data:{}};});
+  api.put.mockImplementation(async()=>{goal='gain_weight';return {data:{}};});
+  api.patch.mockImplementation(async()=>{visible=false;return {data:{}};});
+ }
+ const seed=(client:any)=>{
+  client.setQueryData(['member-community','gym-a','viewer','all'],{pages:[{items:[{id:'old'}]}],pageParams:[null]});
+  client.setQueryData(['member-social-profile','me'],{currentWeight:85});
+  client.setQueryData(['member-community-rankings','gym-a','viewer','2026-11'],{old:true});
+  client.setQueryData(['member-community-rankings','other','reader','2026-11'],{old:true});
+  client.setQueryData(['branch-open-status','gym-a','viewer','branch'],{isOpenNow:true});
+ };
+ it('A: weight write refreshes canonical summary used by Home/Progress/Profile and invalidates shared metrics',async()=>{
+  setup();const {tree,client}=await mount(MemberPortalPage,{section:'progress'});seed(client);
+  await act(async()=>{await action('/members/me/weight').mutateAsync();});await flush();
+  expect(client.getQueryCache().findAll({queryKey:['my-progress']})[0].state.data.currentWeightKg).toBe(84);
+  expect(client.getQueryState(['member-social-profile','me']).isInvalidated).toBe(true);
+  expect(client.getQueryState(['member-community-rankings','gym-a','viewer','2026-11']).isInvalidated).toBe(true);
+  expect(client.getQueryData(['member-community','gym-a','viewer','all'])).toBeUndefined();
+  expect(client.getQueryState(['member-community-rankings','other','reader','2026-11']).isInvalidated).toBe(false);
+  expect(client.getQueryState(['branch-open-status','gym-a','viewer','branch']).isInvalidated).toBe(false);
+  await act(async()=>tree.update(React.createElement(QueryClientProvider,{client},React.createElement(MemberPortalPage,{section:'home'}))));await flush();
+  expect(client.getQueryCache().findAll({queryKey:['my-progress']})[0].state.data.currentWeightKg).toBe(84);
+ });
+ it('B: changing goal refreshes fitness, canonical Progress and Community',async()=>{
+  setup();const {client}=await mount(MemberPortalPage,{section:'progress'});seed(client);
+  await act(async()=>{await action('/members/me/fitness-profile').mutateAsync({weightKg:'85',heightCm:'175',goalType:'gain_weight',experienceLevel:'beginner',trainingFrequencyPerWeek:'3',availableDays:[1],targetWeightKg:'90',preferredTrainingType:'',goalHorizonMonths:'',publicMessage:''});});await flush();
+  expect(client.getQueryData(['my-fitness-profile']).goal_type).toBe('gain_weight');
+  expect(client.getQueryCache().findAll({queryKey:['my-progress']})[0].state.data.goal.goalType).toBe('gain_weight');
+  expect(client.getQueryState(['member-social-profile','me']).isInvalidated).toBe(true);
+  expect(client.getQueryData(['member-community','gym-a','viewer','all'])).toBeUndefined();
+ });
+ it.each([true,false])('C/G: privacy success=%s refreshes only on confirmed PATCH',async success=>{
+  setup();const {client}=await mount(MemberPortalPage,{section:'settings'});seed(client);
+  if(!success)api.patch.mockRejectedValueOnce(new Error('denied'));
+  await act(async()=>{await action('/members/me/privacy').mutateAsync({key:'showInCommunity',value:false}).catch(()=>{});});await flush();
+  expect(api.patch).toHaveBeenCalledWith('/members/me/privacy',{key:'showInCommunity',value:false});
+  expect(client.getQueryData(['my-fitness-profile']).show_in_community).toBe(!success);
+  expect(client.getQueryState(['member-social-profile','me']).isInvalidated).toBe(success);
+  expect(client.getQueryState(['member-community-rankings','gym-a','viewer','2026-11']).isInvalidated).toBe(success);
+  expect(client.getQueryState(['branch-open-status','gym-a','viewer','branch']).isInvalidated).toBe(false);
+ });
+ it('G: rejected weight write preserves cached metrics and never marks success',async()=>{
+  setup();const {client}=await mount(MemberPortalPage,{section:'progress'});seed(client);
+  api.post.mockRejectedValueOnce(new Error('denied'));
+  await act(async()=>{await action('/members/me/weight').mutateAsync().catch(()=>{});});
+  expect(client.getQueryCache().findAll({queryKey:['my-progress']})[0].state.data.currentWeightKg).toBe(85);
+  expect(client.getQueryState(['member-social-profile','me']).isInvalidated).toBe(false);
+  expect(client.getQueryData(['member-community','gym-a','viewer','all']).pages[0].items[0].id).toBe('old');
+ });
+ it.each([true,false])('D/G: reaction success=%s reconciles card counter without touching rankings',async success=>{
+  let loved=false;api.get.mockImplementation(async(url:string)=>({data:url.endsWith('/rankings')?ranking():{items:[{id:'person',name:'Person',currentStreak:null,longestStreak:null,monthlyAttendances:null,goalType:null,progressPercent:null,reactions:{love:loved?1:0,mine:loved?'love':null}}],hasMore:false,nextCursor:null}}));
+  api.post.mockImplementation(async()=>{if(!success)throw Error('denied');loved=true;return {data:{reaction:{reacted:true}}};});
+  const {tree,client}=await mount(MemberCommunityPage);const getCalls=api.get.mock.calls.length;
+  await act(async()=>{await action('/members/me/community/reactions').mutateAsync('person').catch(()=>{});});await flush();
+  const card=tree.root.findAllByType('button').find((b:any)=>b.props['aria-pressed']!==undefined&&b.findAllByType('b').length>0);
+  expect(card.props['aria-pressed']).toBe(success);
+  expect(client.getQueryData(['member-community','gym-a','viewer','all']).pages[0].items[0].reactions.love).toBe(success?1:0);
+  expect(api.get.mock.calls.slice(getCalls).some(([url])=>url.endsWith('/rankings'))).toBe(false);
+ });
+ it('E/F: reserve and cancel reconcile both upcoming Home/Classes and history, not attendance or branch',async()=>{
+  setup();const {client}=await mount(MemberPortalPage,{section:'classes'});
+  const key=client.getQueryCache().findAll({queryKey:['my-activities','upcoming']})[0].queryKey;
+  let booked=false;api.get.mockImplementation(async(url:string)=>({data:url==='/activities'?{schedules:[{id:'class',starts_at:'2099-01-01T12:00Z',ends_at:'2099-01-01T13:00Z',status:'scheduled',activity:{name:'Boxeo',billing_mode:'included'},location:{name:'Branch',timezone:'America/Guayaquil'},capacity:1,available:booked?0:1,myBooking:booked?{id:'booking',status:'reserved'}:null}]}:{}}));
+  api.post.mockImplementation(async()=>{booked=true;return {data:{}};});api.patch.mockImplementation(async()=>{booked=false;return {data:{}};});
+  const before=client.getQueryCache().findAll({queryKey:['my-attendances']})[0].state.dataUpdatedAt;
+  await act(async()=>{await action('/bookings/self').mutateAsync('class');});await flush();
+  expect(client.getQueryData(key).schedules[0].myBooking.status).toBe('reserved');expect(client.getQueryData(key).schedules[0].available).toBe(0);
+  await act(async()=>{await action('/cancel-self').mutateAsync('booking');});await flush();
+  expect(client.getQueryData(key).schedules[0].myBooking).toBeNull();expect(client.getQueryData(key).schedules[0].available).toBe(1);
+  expect(client.getQueryCache().findAll({queryKey:['my-attendances']})[0].state.dataUpdatedAt).toBe(before);
+ });
+ it.each(['/waitlist/self','Salida o rechazo','/accept-self'])('waitlist action %s refreshes upcoming + history only after confirmation',async fragment=>{
+  setup();const {client}=await mount(MemberPortalPage,{section:'classes'});const before=api.get.mock.calls.filter(([u])=>u==='/activities').length;
+  api.post.mockResolvedValue({data:{}});api.patch.mockResolvedValue({data:{waitlist:{state:'cancelled'}}});
+  await act(async()=>{await action(fragment).mutateAsync('id');});await flush();
+  expect(api.get.mock.calls.filter(([u])=>u==='/activities').length-before).toBe(2);
+  expect(client.getQueryCache().findAll({queryKey:['my-progress']})[0].state.data.currentWeightKg).toBe(85);
+ });
+ it.each([false,true])('failed class mutation: known conflict=%s reconciles only if authoritative state may have changed',async conflict=>{
+  setup();const {tree}=await mount(MemberPortalPage,{section:'classes'});const before=api.get.mock.calls.filter(([u])=>u==='/activities').length;
+  api.post.mockRejectedValueOnce(conflict?{response:{status:409,data:{error:{code:'CLASS_WAITLIST_OFFER_EXPIRED'}}}}:new Error('network'));
+  await act(async()=>{await action('/bookings/self').mutateAsync('id').catch(()=>{});});await flush();
+  expect(api.get.mock.calls.filter(([u])=>u==='/activities').length-before).toBe(conflict?2:0);
+  expect(text(tree)).not.toContain('Reserva confirmada');
+ });
+});
 
 it.each([true,false])('FIT-MEMBER-014 UI renders authoritative SQL state %s',async isOpenNow=>{
  api.get.mockResolvedValue({data:{isOpenNow,timezone:'America/Guayaquil',nextTransitionAt:null,revalidateAt:new Date(Date.now()+86400000).toISOString(),validUntil:new Date(Date.now()+86400000).toISOString()}});
