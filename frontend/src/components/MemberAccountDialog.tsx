@@ -11,7 +11,7 @@ const same = (a: AccountProfile, b: AccountProfile) => a.fullName === b.fullName
 function passwordFailure(error: unknown) {
   const code = (error as { response?: { data?: { error?: { code?: string } } } })?.response?.data?.error?.code;
   if (code === 'CURRENT_PASSWORD_INVALID') return 'La contraseña actual no es correcta. Vuelve a ingresarla.';
-  if (['AUTH_REQUIRED', 'INVALID_SESSION', 'INVALID_REFRESH_TOKEN', 'REFRESH_TOKEN_REQUIRED'].includes(code ?? '')) {
+  if (['AUTH_REQUIRED', 'INVALID_SESSION', 'INVALID_REFRESH_TOKEN', 'REFRESH_TOKEN_REQUIRED', 'PASSWORD_REAUTHENTICATION_REQUIRED'].includes(code ?? '')) {
     return 'Necesitas iniciar sesión nuevamente antes de cambiar tu contraseña.';
   }
   return 'No pudimos confirmar el cambio de contraseña. Vuelve a ingresar los campos para reintentar. Si perdiste la conexión, comprueba qué contraseña funciona antes de repetirlo.';

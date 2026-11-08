@@ -4,7 +4,7 @@
 | --- | --- | --- | --- |
 | Nombre/teléfono | public.profiles del authUser | PUT /members/me/profile | Sesión/cabecera, perfil social, Comunidad y ranking |
 | Email | Supabase Auth (solo lectura en este portal) | No hay formulario ni endpoint de cambio de email del miembro | No aplicaba; no se crea flujo nuevo |
-| Contraseña | Supabase Auth | PUT /auth/change-password: comprueba actual con signInWithPassword y actualiza con admin.updateUserById | No escribe perfiles ni retorna nuevas cookies; no cierre de sesión forzado |
+| Contraseña | Supabase Auth | PUT /auth/change-password: comprueba actual y actualiza mediante PUT Auth /user con el bearer verificado del solicitante | No escribe perfiles ni retorna nuevas cookies; conserva sesión actual si Auth lo permite |
 | Avatar | Bucket privado member-avatars + profiles.avatar_url | Preparar signed URL, PUT archivo, PUT /members/me/avatar | Solo al confirmar referencia se refrescan sesión y vistas identity |
 | Bio/momentos/consentimientos | Perfil social/galería/fitness | Operaciones independientes ya existentes | No se agrupan con nombre/contraseña; se preserva 001/015 |
 
@@ -94,3 +94,71 @@ Sin Supabase remoto, migraciones, commit/push ni avance a 018.
 4. Cambiar contraseña correctamente: inputs vacíos y sesión conservada.
 5. Subir foto: mensaje propio y avatar actualizado. Los fallos parciales y de
    transporte se simulan en los tests locales, no mediante mutaciones en producción.
+
+## Subcaso reabierto — logout tras perfil + contraseña
+
+### Causa y comparación de caminos
+
+La implementación anterior de changePassword usaba admin.updateUserById. En el
+código oficial de Auth, adminUserUpdate llama a UpdatePassword con sessionID=nil,
+que revoca todas las sesiones. No modificaba las cookies de FitLab; quedaban
+credenciales de una sesión revocada en el navegador.
+
+- Password-only: el diálogo mostraba éxito pero no ejecutaba onIdentitySaved.
+  La sesión seguía en el estado React hasta una nueva comprobación protegida.
+  Permanecer visualmente en el portal no demostraba que la sesión siguiera vigente
+  en Auth. El test nuevo comprueba también una petición protegida posterior.
+- Perfil + contraseña: finalmente ejecutaba reconcileIdentity, con /auth/me y las
+  invalidaciones identity de 015. verifyJWT verificaba la sesión revocada, devolvía
+  INVALID_SESSION; el recuperador de 006 intentaba /auth/refresh, recibía el rechazo
+  definitivo y notificaba clear() en AuthProvider. setSession(null) hacía que
+  ProtectedRoute navegara a /login. No se llamaba explícitamente a logout/signOut
+  en el frontend. Era una invalidación provocada por nuestro endpoint de cambio
+  de contraseña, no un error de red que debamos silenciar.
+
+Fuentes primarias inspeccionadas (comportamiento del proveedor, sin tocar remoto):
+
+- https://github.com/supabase/auth/blob/master/internal/api/admin.go — adminUserUpdate.
+- https://github.com/supabase/auth/blob/master/internal/models/user.go — UpdatePassword.
+- https://github.com/supabase/auth/blob/master/internal/api/user.go — UserUpdate usa
+  la sesión autenticada y conserva esa sesión al cambiar contraseña.
+
+### Reproducción antes de corregir
+
+memberAccountSession.test.ts usa el diálogo, AuthProvider, ProtectedRoute,
+interceptores Axios de 006, QueryClient/invalidation de 015 y changePassword y
+verifyJWT reales de FitLab. Solo Auth externo y el almacenamiento de perfil se
+simulan: reset administrativo revoca sesiones; /user conserva la sesión llamante.
+No es una prueba contra Supabase de producción.
+
+Con el backend anterior: A (password-only + petición protegida), C (combinado) y E
+(combinado + fallo de relectura) fallaron; B, D y F pasaron. C reprodujo sesión
+nula/redirección después de guardar ambos cambios. No se necesitó modificar
+AuthContext ni desactivar la validación de sesiones para reproducirlo.
+
+### Corrección
+
+- Sustituido el reset administrativo por PUT /auth/v1/user, con accessToken ya
+  verificado por middleware, clave pública y solo password/current_password.
+  Sin clave administrativa ni tokens de otro usuario ni login automático.
+- Petición HTTP directa porque el cliente SDK de servidor no conserva la sesión
+  del navegador; auth.updateUser requiere una sesión SDK en memoria. Se evita
+  inventar tokens, persistirlos o crear/rotar cookies para hacer esa llamada.
+- Se mantienen la comprobación actual, longitud, confirmación y contrato de éxito.
+  Se comprueba identidad del resultado, timeout y clasificación de indisponibilidad.
+- Si Auth exige reautenticación/AAL, el error PASSWORD_REAUTHENTICATION_REQUIRED
+  se muestra explícitamente, conservando los resultados parciales. No se cambian
+  policies, MFA ni configuración Auth y no se fuerza logout.
+- No se suprime /auth/me ni su refetch: 401 realmente inválido continúa siguiendo
+  006; una relectura fallida por 503 mantiene sesión/datos y muestra advertencia.
+- Se conservan intactos avatar retry, bloqueo de doble submit, checkpoint de
+  perfil, limpieza de contraseñas e invalidación selectiva 015/016.
+
+Validación de este subcaso: 194 pruebas aprobadas en 12 archivos, con seis
+escenarios A–F de sesión (incluye redirección por Auth realmente inválido), 21
+pruebas del endpoint de contraseña y 17 del diálogo. Regresiones de 006, 015,
+016, privacidad/perfil/avatar aprobadas. Typecheck/build backend y frontend OK;
+sin ejecutar SQL ni pruebas contra producción. Avisos previos no bloqueantes de
+React test renderer y Vite conservados. Smoke remoto pendiente después del futuro
+despliegue; no se cambiaron Supabase, FIT-MEMBER-005 ni la configuración. No se
+hizo commit/push y no se avanzó a 018.

@@ -247,6 +247,7 @@ export async function changePassword(request: Request, response: Response) {
 
   const email = request.authUser?.email;
   if (!email) throw new AppError(400, 'ACCOUNT_EMAIL_REQUIRED', 'La cuenta no tiene un correo válido.');
+  if (!request.accessToken) throw new AppError(401, 'AUTH_REQUIRED', 'Debes iniciar sesión.');
 
   const { error: verificationError } = await authCall(() => supabasePublic.auth.signInWithPassword({
     email,
@@ -257,11 +258,28 @@ export async function changePassword(request: Request, response: Response) {
     throw new AppError(401, 'CURRENT_PASSWORD_INVALID', 'La contraseña actual no es correcta.');
   }
 
-  const { error: updateError } = await authCall(() => supabaseAdmin.auth.admin.updateUserById(request.authUser!.id, {
-    password: input.data.newPassword,
-  }));
-  checkAuthAvailability(updateError);
-  if (updateError) throw new AppError(400, 'PASSWORD_UPDATE_FAILED', 'No se pudo actualizar la contraseña.');
+  // An admin password update revokes ALL sessions, including this browser's.
+  // Auth's authenticated /user endpoint preserves the calling session instead.
+  // Use its verified bearer directly: the server SDK has no persisted browser session.
+  const updated = await authCall(async () => {
+    const result = await fetch(`${env.SUPABASE_URL}/auth/v1/user`, {
+      method: 'PUT',
+      headers: { apikey: env.SUPABASE_PUBLISHABLE_KEY, Authorization: `Bearer ${request.accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: input.data.newPassword, current_password: input.data.currentPassword }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    const data: unknown = await result.json();
+    return { ok: result.ok, status: result.status, data: (data && typeof data === 'object' ? data : {}) as { id?: string; code?: string } };
+  });
+  if (!updated.ok) {
+    checkAuthAvailability({ status: updated.status });
+    if (['reauthentication_needed', 'reauthentication_not_valid', 'insufficient_aal'].includes(updated.data.code ?? '')) {
+      throw new AppError(400, 'PASSWORD_REAUTHENTICATION_REQUIRED', 'Necesitas autenticarte nuevamente para cambiar la contraseña.');
+    }
+    if (updated.status === 401) throw new AppError(401, 'INVALID_SESSION', 'La sesión no es válida o expiró.');
+    throw new AppError(400, 'PASSWORD_UPDATE_FAILED', 'No se pudo actualizar la contraseña.');
+  }
+  if (updated.data.id !== request.authUser!.id) throw new AppError(503, 'AUTH_SERVICE_UNAVAILABLE', 'No se pudo confirmar la actualización de contraseña.');
 
   response.json({ message: 'Contraseña actualizada correctamente.' });
 }

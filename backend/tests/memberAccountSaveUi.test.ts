@@ -155,7 +155,7 @@ describe('FIT-MEMBER-017 account write checkpoints', () => {
     expect(onIdentitySaved).toHaveBeenCalledTimes(2);
     expect(text(tree)).not.toContain('no pudimos actualizar todas las vistas');
   });
-  it.each(['AUTH_REQUIRED', 'INVALID_SESSION', 'INVALID_REFRESH_TOKEN', 'REFRESH_TOKEN_REQUIRED'])('J: %s requests reauthentication without inventing success or calling logout', async code => {
+  it.each(['AUTH_REQUIRED', 'INVALID_SESSION', 'INVALID_REFRESH_TOKEN', 'REFRESH_TOKEN_REQUIRED', 'PASSWORD_REAUTHENTICATION_REQUIRED'])('J: %s requests reauthentication without inventing success or calling logout', async code => {
     const { tree, onIdentitySaved } = await mount();
     api.put.mockRejectedValueOnce(error(code));
     await fillPasswords(tree); await submit(tree);
