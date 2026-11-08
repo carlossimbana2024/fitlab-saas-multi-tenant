@@ -2,7 +2,7 @@ import { WeightMaintenanceSummary, type WeightMaintenance } from '../components/
 import { QueryFeedback } from '../components/QueryFeedback';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Activity, Bell, CalendarCheck, CheckCircle2, ChevronRight, Clock3, CreditCard, Dumbbell, Flame, Gift, LoaderCircle, Pencil, ShieldCheck, UserRound, UsersRound, X } from 'lucide-react';
-import { useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { api, apiErrorMessage } from '../services/api';
@@ -10,7 +10,7 @@ import { MemberSocialProfile, SocialPrivacySettings } from '../components/Member
 import { FriendRequestsPreference } from '../components/MemberFriendships';
 import { MyTrainingSocial, PokePreference } from '../components/MemberTrainingSocial';
 import { PrivacySwitch } from '../components/PrivacySwitch';
-import { ProfileDialog } from '../components/ProfileDialog';
+import { MemberAccountDialog } from '../components/MemberAccountDialog';
 import { AttendanceQrCard } from '../components/AttendanceQrCard';
 import { ClassBookingConditions } from '../components/ClassBookingConditions';
 import { FitnessOnboardingGate } from '../components/FitnessOnboardingGate';
@@ -168,7 +168,7 @@ function sectionCopy(section: PortalSection) {
 }
 
 export function MemberPortalPage({ section }: { section: PortalSection }) {
-  const { session, refresh } = useAuth();
+  const { session, refresh, applyConfirmedProfile } = useAuth();
   const queryClient = useQueryClient();
   const queryContext = { gymId: session?.gymUser?.gym_id, memberId: session?.gymUser?.id };
   const timezone = gymTimezone(session?.gymUser?.gym?.timezone);
@@ -178,8 +178,6 @@ export function MemberPortalPage({ section }: { section: PortalSection }) {
   const range = useMemo(() => monthRange(today), [today]);
   const [editing, setEditing] = useState(false);
   const [fitnessEditing, setFitnessEditing] = useState(false);
-  const [profile, setProfile] = useState({ fullName: session?.gymUser?.profiles?.full_name ?? '', phone: session?.gymUser?.profiles?.phone ?? '' });
-  const [passwords, setPasswords] = useState({ current: '', next: '', confirmation: '' });
   const memberships = useQuery({ queryKey: ['my-memberships', session?.gymUser?.id], queryFn: async () => (await api.get<{ memberships: Membership[] }>('/memberships')).data.memberships, enabled: Boolean(session?.gymUser) });
   const announcements = useQuery({ queryKey: ['gym-announcements', session?.gymUser?.gym_id, session?.gymUser?.default_location_id], queryFn: async () => (await api.get<{ announcements: GymAnnouncement[] }>('/announcements')).data.announcements, enabled: section === 'home' && Boolean(session?.gymUser), refetchInterval: 60_000 });
   const attendances = useQuery({ queryKey: ['my-attendances'], queryFn: async () => (await api.get<{ attendances: Attendance[] }>('/attendances')).data.attendances });
@@ -233,18 +231,11 @@ export function MemberPortalPage({ section }: { section: PortalSection }) {
         : 'Estado actualizado. Si la oferta ya no aparece, dejó de estar disponible; puedes consultar las opciones actuales de la clase.');
     }).catch(error => { setClassNotice(null); setClassActionError(error); });
   };
-  const saveProfile = useMutation({
-    mutationFn: async () => {
-      if (passwords.current || passwords.next || passwords.confirmation) {
-        if (!passwords.current || !passwords.next || !passwords.confirmation) throw new Error('Completa los tres campos de contraseña.');
-        if (passwords.next !== passwords.confirmation) throw new Error('Las contraseñas nuevas no coinciden.');
-      }
-      await api.put('/members/me/profile', { fullName: profile.fullName, phone: profile.phone || null });
-      await Promise.all([refresh(), refreshMemberQueries(queryClient, queryContext, 'identity')]);
-      if (passwords.current && passwords.next) await api.put('/auth/change-password', { currentPassword: passwords.current, newPassword: passwords.next });
-    },
-    onSuccess: async () => { setPasswords({ current: '', next: '', confirmation: '' }); setEditing(false); },
-  });
+  const reconcileIdentity = () => Promise.all([refresh({ background: true }), refreshMemberQueries(queryClient, queryContext, 'identity')]).then(() => undefined);
+  const avatarLock = useRef(false);
+  const pendingAvatarPath = useRef<string | null>(null);
+  const [avatarRetry, setAvatarRetry] = useState(false);
+  const [avatarNotice, setAvatarNotice] = useState('');
   const saveFitnessProfile = useMutation({
     mutationFn: async (form: FitnessForm) => {
       const payload: Partial<ReturnType<typeof fitnessPayload>> = fitnessPayload(form);
@@ -262,18 +253,24 @@ export function MemberPortalPage({ section }: { section: PortalSection }) {
     onSuccess: async () => { await refreshMemberQueries(queryClient, queryContext, 'weight'); setRecordingWeight(false); setWeightValue(''); setWeightDate(range.today); },
   });
   const avatarUpload = useMutation({
-    mutationFn: async (file: File) => {
-      if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) throw new Error('La foto debe ser JPG, PNG o WEBP.');
-      if (file.size > 5 * 1024 * 1024) throw new Error('La foto no puede superar 5 MB.');
-      const prepared = (await api.post<{ upload: { signedUrl: string; path: string } }>('/members/me/avatar-upload', { contentType: file.type })).data.upload;
-      const body = new FormData();
-      body.append('cacheControl', '3600');
-      body.append('', file);
-      const uploadResponse = await fetch(prepared.signedUrl, { method: 'PUT', headers: { 'x-upsert': 'false' }, body });
-      if (!uploadResponse.ok) throw new Error('No se pudo subir la foto. Intenta nuevamente.');
-      return (await api.put<{ profile: { avatar_url: string | null }; avatarPath: string }>('/members/me/avatar', { path: prepared.path })).data;
+    mutationFn: async (file: File | null) => {
+      if (file) {
+        pendingAvatarPath.current = null; setAvatarRetry(false);
+        if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) throw new Error('La foto debe ser JPG, PNG o WEBP.');
+        if (file.size > 5 * 1024 * 1024) throw new Error('La foto no puede superar 5 MB.');
+        const prepared = (await api.post<{ upload: { signedUrl: string; path: string } }>('/members/me/avatar-upload', { contentType: file.type })).data.upload;
+        const body = new FormData();
+        body.append('cacheControl', '3600');
+        body.append('', file);
+        const uploadResponse = await fetch(prepared.signedUrl, { method: 'PUT', headers: { 'x-upsert': 'false' }, body });
+        if (!uploadResponse.ok) throw new Error('No se pudo subir la foto. Intenta nuevamente.');
+        pendingAvatarPath.current = prepared.path; setAvatarRetry(true);
+      }
+      if (!pendingAvatarPath.current) throw new Error('Selecciona nuevamente una foto para subir.');
+      return (await api.put<{ profile: { avatar_url: string | null }; avatarPath: string }>('/members/me/avatar', { path: pendingAvatarPath.current })).data;
     },
-    onSuccess: async () => { await Promise.all([refresh(), refreshMemberQueries(queryClient, queryContext, 'identity')]); },
+    onSuccess: async () => { pendingAvatarPath.current = null; setAvatarRetry(false); setAvatarNotice('Foto guardada.'); try { await reconcileIdentity(); } catch { setAvatarNotice('La foto se guardó, pero no pudimos actualizar todas las vistas. Vuelve a consultar tu perfil.'); } },
+    onSettled: () => { avatarLock.current = false; },
   });
 
   const fitnessSetupRequired = fitnessProfile.isSuccess && fitnessProfile.data === null;
@@ -295,7 +292,6 @@ export function MemberPortalPage({ section }: { section: PortalSection }) {
   const copy = sectionCopy(section);
   const showHeadingCheckIn = section !== 'profile' && section !== 'classes' && section !== 'settings';
 
-  const submitProfile = (event: FormEvent) => { event.preventDefault(); saveProfile.mutate(); };
   const mutationError = classActionError;
 
   return <>
@@ -319,10 +315,12 @@ export function MemberPortalPage({ section }: { section: PortalSection }) {
 
     {section === 'progress' && <><QueryFeedback query={progress} label="tu resumen"/>{progress.data !== undefined && <ProgressView range={range} days={days} firstOffset={firstOffset} membership={membership} currentWeek={currentWeek} streak={streak} attendances={attendances.data ?? []} progress={progress.data} progressLoading={false} calendarUnavailable={calendar.data === undefined || attendances.data === undefined} calendarFeedback={<><QueryFeedback query={calendar} label="el calendario"/><QueryFeedback query={attendances} label="tus asistencias"/></>} attendanceUnavailable={attendances.data === undefined} attendanceFeedback={<QueryFeedback query={attendances} label="tus asistencias"/>} weeklyUnavailable={memberships.data === undefined || (membership?.attendance_mode_snapshot === 'weekly' && weekly.data === undefined)} weeklyFeedback={<><QueryFeedback query={memberships} label="tu membresía"/>{membership?.attendance_mode_snapshot === 'weekly' && <QueryFeedback query={weekly} label="tu progreso semanal"/>}</>} onRecordWeight={() => { setWeightValue(progress.data?.currentWeightKg != null ? String(progress.data.currentWeightKg) : ''); setWeightDate(range.today); setRecordingWeight(true); }} />}</>}
 
-    {section === 'profile' && <MemberSocialProfile owner={{name:displayName,avatarUrl:session?.gymUser?.profiles?.avatar_url??null,onEditAccount:()=>setEditing(true),onAvatarFile:file=>avatarUpload.mutate(file),avatarUploading:avatarUpload.isPending,avatarError:avatarUpload.error,activity:<><QueryFeedback query={fitnessProfile} label="tu perfil deportivo"/><QueryFeedback query={progress} label="tu progreso"/>{fitnessProfile.data !== undefined && progress.data !== undefined && <ProfileGoalSummary profile={fitnessProfile.data} progress={progress.data}/>}<MyTrainingSocial/></>}}/>}
-    {section === 'settings'&&<ProfileSettingsView profileUnavailable={fitnessProfile.data === undefined} profileFeedback={<QueryFeedback query={fitnessProfile} label="tu perfil deportivo"/>} session={session} profile={fitnessProfile.data} onEdit={()=>setEditing(true)} onEditFitness={()=>setFitnessEditing(true)} onPrivacySave={(key,value)=>savePrivacy.mutate({key,value})} pending={savePrivacy.isPending} variables={savePrivacy.variables} error={savePrivacy.error} saved={savePrivacy.isSuccess}/>}
+    {section === 'profile' && <MemberSocialProfile owner={{name:displayName,avatarUrl:session?.gymUser?.profiles?.avatar_url??null,onEditAccount:()=>{if(!avatarLock.current)setEditing(true);},onAvatarFile:file=>{if(avatarLock.current||editing)return;avatarLock.current=true;setAvatarNotice('');avatarUpload.mutate(file);},avatarUploading:avatarUpload.isPending,avatarError:avatarUpload.error,activity:<><QueryFeedback query={fitnessProfile} label="tu perfil deportivo"/><QueryFeedback query={progress} label="tu progreso"/>{fitnessProfile.data !== undefined && progress.data !== undefined && <ProfileGoalSummary profile={fitnessProfile.data} progress={progress.data}/>}<MyTrainingSocial/></>}}/>}
+    {section === 'settings'&&<ProfileSettingsView profileUnavailable={fitnessProfile.data === undefined} profileFeedback={<QueryFeedback query={fitnessProfile} label="tu perfil deportivo"/>} session={session} profile={fitnessProfile.data} onEdit={()=>{if(!avatarLock.current)setEditing(true);}} onEditFitness={()=>setFitnessEditing(true)} onPrivacySave={(key,value)=>savePrivacy.mutate({key,value})} pending={savePrivacy.isPending} variables={savePrivacy.variables} error={savePrivacy.error} saved={savePrivacy.isSuccess}/>}
 
-    {editing && <ProfileDialog title="Editar cuenta" onClose={()=>setEditing(false)} busy={saveProfile.isPending}><form className="profile-modal" onSubmit={submitProfile}><div className="checkout-form single"><label>Nombre completo<input required minLength={2} maxLength={150} value={profile.fullName} onChange={(event) => setProfile({ ...profile, fullName: event.target.value })}/></label><label>Teléfono<input maxLength={30} value={profile.phone} onChange={(event) => setProfile({ ...profile, phone: event.target.value })}/></label><div className="form-divider"><strong>Actualizar contraseña</strong><span>Déjalo vacío si no deseas cambiarla.</span></div><label>Contraseña actual<input type="password" minLength={8} maxLength={128} autoComplete="current-password" value={passwords.current} onChange={(event) => setPasswords({ ...passwords, current: event.target.value })}/></label><label>Nueva contraseña<input type="password" minLength={8} maxLength={128} autoComplete="new-password" value={passwords.next} onChange={(event) => setPasswords({ ...passwords, next: event.target.value })}/></label><label>Confirmar nueva contraseña<input type="password" minLength={8} maxLength={128} autoComplete="new-password" value={passwords.confirmation} onChange={(event) => setPasswords({ ...passwords, confirmation: event.target.value })}/></label>{saveProfile.isError && <div className="alert error">{saveProfile.error instanceof Error && !('response' in saveProfile.error) ? saveProfile.error.message : apiErrorMessage(saveProfile.error)}</div>}<div className="modal-actions"><button type="button" className="ghost" disabled={saveProfile.isPending} onClick={() => setEditing(false)}>Cancelar</button><button className="primary" disabled={saveProfile.isPending}>{saveProfile.isPending ? 'Guardando…' : 'Guardar cambios'}</button></div></div></form></ProfileDialog>}
+    {avatarNotice && section === 'profile' && <p role="status">{avatarNotice}</p>}
+    {section === 'profile' && avatarRetry && avatarUpload.isError && <div className="alert error" role="alert">La imagen se subió, pero no pudimos confirmar su asociación con tu cuenta. <button type="button" disabled={avatarUpload.isPending || editing} onClick={() => { if (avatarLock.current || editing) return; avatarLock.current = true; avatarUpload.mutate(null); }}>Reintentar guardar foto</button></div>}
+    {editing && <MemberAccountDialog key={session?.gymUser?.id} initialProfile={{ fullName: session?.gymUser?.profiles?.full_name ?? '', phone: session?.gymUser?.profiles?.phone ?? '' }} onClose={()=>setEditing(false)} onProfileSaved={profile=>applyConfirmedProfile(session!.user.id,profile)} onIdentitySaved={reconcileIdentity}/>}
     {(fitnessSetupRequired || fitnessEditing) && (
       <FitnessOnboardingGate key={session?.gymUser?.id} required={fitnessSetupRequired} pending={saveFitnessProfile.isPending} error={saveFitnessProfile.error}>{readOnlyAction => <div className={fitnessSetupRequired?'':'sports-edit-only'}><FitnessProfileModal
         readOnlyAction={readOnlyAction}

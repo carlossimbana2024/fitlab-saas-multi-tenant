@@ -64,9 +64,10 @@ async function mount(options: { expired?: boolean; invalidRefresh?: boolean; tra
   });
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   queryClient.setQueryData(['private-member'], { secret: 'private' });
-  let value: any; let location: any; let loginRenders = 0;
+  let value: any; let location: any; let loginRenders = 0; let protectedMounts = 0;
   function Probe() { value = auth.useAuth(); location = useLocation(); return null; }
   function Login() { loginRenders++; return React.createElement('p', null, 'LOGIN'); }
+  function ProtectedProbe() { React.useEffect(() => { protectedMounts++; }, []); return React.createElement('p', null, 'PORTAL'); }
   let tree: any;
   await act(async () => {
     tree = create(React.createElement(React.StrictMode, null,
@@ -75,12 +76,12 @@ async function mount(options: { expired?: boolean; invalidRefresh?: boolean; tra
           React.createElement(auth.AuthProvider, null,
             React.createElement(Probe), React.createElement(Routes, null,
               React.createElement(Route, { element: React.createElement(ProtectedRoute) },
-                React.createElement(Route, { path: '/portal', element: React.createElement('p', null, 'PORTAL') })),
+                React.createElement(Route, { path: '/portal', element: React.createElement(ProtectedProbe) })),
               React.createElement(Route, { path: '/check-in', element: React.createElement(CheckInPage) }),
               React.createElement(Route, { path: '/login', element: React.createElement(Login) })) )))));
   });
   trees.push(tree);
-  return { tree, queryClient, calls, get value() { return value; }, get location() { return location; }, get loginRenders() { return loginRenders; },
+  return { tree, queryClient, calls, get value() { return value; }, get location() { return location; }, get loginRenders() { return loginRenders; }, get protectedMounts() { return protectedMounts; },
     async recoverNetwork() { temporary = false; await act(async () => { tree.root.findByType('button').props.onClick(); }); },
     async release() { await act(async () => { release(); await gate; }); },
     async failNetwork() { temporary = true; await act(async () => { await value.refresh(); }); },
@@ -111,6 +112,37 @@ describe('Real React AuthProvider + router lifecycle', () => {
   it('existing authenticated user/cache survive temporary revalidation failure', async () => {
     const s = await mount(); await s.failNetwork(); expect(s.value.session.user.id).toBe('member');
     expect(s.queryClient.getQueryData(['private-member'])).toBeDefined(); expect(s.loginRenders).toBe(0);
+  });
+  it('FIT-MEMBER-017 background identity refresh does not unmount protected account state', async () => {
+    const s = await mount();
+    const mounts = s.protectedMounts;
+    await act(async () => { await s.value.refresh({ background: true }); });
+    expect(s.value.loading).toBe(false); expect(s.value.session.user.id).toBe('member');
+    expect(JSON.stringify(s.tree.toJSON())).toContain('PORTAL');
+    expect(s.protectedMounts).toBe(mounts);
+    expect(s.calls.filter(c => c === '/auth/me')).toHaveLength(2);
+  });
+  it('FIT-MEMBER-017 background read failure is surfaced without clearing authenticated cache', async () => {
+    const s = await mount(); await s.failNetwork();
+    await act(async () => { await expect(s.value.refresh({ background: true })).rejects.toBeDefined(); });
+    expect(s.value.loading).toBe(false); expect(s.value.session.user.id).toBe('member');
+    expect(s.queryClient.getQueryData(['private-member'])).toBeDefined(); expect(s.loginRenders).toBe(0);
+  });
+  it('FIT-MEMBER-017 confirmed profile survives a failed session read without changing auth fields', async () => {
+    const s = await mount();
+    await act(async () => { s.value.applyConfirmedProfile('member', { fullName: 'Nombre confirmado', phone: '0990000001' }); });
+    await s.failNetwork();
+    expect(s.value.session.gymUser.profiles).toEqual({ full_name: 'Nombre confirmado', phone: '0990000001' });
+    expect(s.value.session.user.id).toBe('member'); expect(s.value.session.gymUser.role).toBe('member');
+    expect(s.queryClient.getQueryData(['private-member'])).toBeDefined();
+  });
+  it('FIT-MEMBER-017 late profile confirmation neither crosses accounts nor recreates a logged-out session', async () => {
+    const s = await mount(); const apply = s.value.applyConfirmedProfile;
+    await act(async () => { apply('different-user', { fullName: 'Otro usuario', phone: '' }); });
+    expect(s.value.session.gymUser.profiles).toBeUndefined();
+    await act(async () => { await s.value.logout(); });
+    await act(async () => { apply('member', { fullName: 'Nombre tardío', phone: '' }); });
+    expect(s.value.session).toBeNull(); expect(s.location.pathname).toBe('/login');
   });
   it('I: external QR hash survives refresh; confirmation opens without recording attendance', async () => {
     const hash = '#token=' + 'a'.repeat(43);

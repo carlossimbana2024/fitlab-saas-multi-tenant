@@ -6,7 +6,7 @@ import { useQueryClient } from '@tanstack/react-query';
 
 type GymUser = { id: string; gym_id: string; gym?: { timezone?: string | null }; role: 'owner' | 'staff' | 'member'; status: string; default_location_id?: string | null; profiles?: { full_name?: string; phone?: string | null; avatar_url?: string | null }; staff_permissions?: Array<{ permission_key: string; access_mode: 'allowed' | 'requires_pin' | 'denied' }> };
 type Session = { user: { id: string; email?: string }; gymUser: GymUser | null; onboardingRequired?: boolean };
-type AuthValue = { session: Session | null; loading: boolean; login: (email: string, password: string) => Promise<void>; logout: () => Promise<void>; refresh: () => Promise<void> };
+type AuthValue = { session: Session | null; loading: boolean; login: (email: string, password: string) => Promise<void>; logout: () => Promise<void>; refresh: (options?: { background?: boolean }) => Promise<void>; applyConfirmedProfile: (userId: string, profile: { fullName: string; phone: string }) => void };
 const AuthContext = createContext<AuthValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -16,6 +16,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [unavailable, setUnavailable] = useState(false);
   const generation = useRef(0);
   const pending = useRef<Promise<void> | null>(null);
+  // Only confirmed profile writes may update these fields; never recreate a cleared session.
+  const applyConfirmedProfile: AuthValue['applyConfirmedProfile'] = (userId, profile) => {
+    setSession(previous => !previous?.gymUser || previous.user.id !== userId ? previous : {
+      ...previous,
+      gymUser: { ...previous.gymUser, profiles: { ...previous.gymUser.profiles, full_name: profile.fullName, phone: profile.phone || null } },
+    });
+  };
   const clear = () => {
     generation.current++;
     pending.current = null;
@@ -23,10 +30,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     queryClient.clear();
     setSession(null); setUnavailable(false); setLoading(false);
   };
-  const load = (throwOnError = false): Promise<void> => {
+  const load = (throwOnError = false, background = false): Promise<void> => {
     if (pending.current) return pending.current;
     const current = generation.current;
-    setLoading(true); setUnavailable(false);
+    // Account reconciliation must not unmount a form holding a partial-save result.
+    if (!background) setLoading(true);
+    setUnavailable(false);
     const task = api.get<Session>('/auth/me').then(({ data }) => {
       if (current === generation.current) setSession(data);
     }).catch(error => {
@@ -59,7 +68,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     finally { release(); }
     clear();
   };
-  return <AuthContext.Provider value={{ session, loading, login, logout, refresh: () => load() }}>
+  return <AuthContext.Provider value={{ session, loading, login, logout, applyConfirmedProfile, refresh: options => load(Boolean(options?.background), Boolean(options?.background)) }}>
     {unavailable && !session ? <main className="splash"><section role="alert">
       <h1>No pudimos comprobar tu sesión</h1><p>Puede ser un problema temporal de conexión. No hemos cerrado tu sesión.</p>
       <button className="primary" onClick={() => void load()}>Volver a intentar</button>

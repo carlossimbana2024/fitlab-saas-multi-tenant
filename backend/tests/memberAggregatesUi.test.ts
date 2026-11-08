@@ -8,6 +8,8 @@ const {QueryClient,QueryClientProvider}=req('@tanstack/react-query');
 const mutations=new Map<string,any>();
 const api={get:vi.fn(),post:vi.fn(),put:vi.fn(),patch:vi.fn()};
 let session:any;
+let profileOwner:any;
+const authRefresh=vi.fn();
 const noop=()=>null;
 const emptyModules=new Proxy({}, {get:()=>noop});
 function load(file:string){
@@ -15,11 +17,16 @@ function load(file:string){
  new Function('exports','require','React',ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.React,esModuleInterop:true}}).outputText)(exports,(id:string)=>{
    if(id.endsWith('.css'))return {};
    if(id.includes('/services/api'))return {api,apiErrorMessage:()=> 'API_FAILED'};
-   if(id.includes('/context/AuthContext'))return {useAuth:()=>({session,refresh:vi.fn()})};
+   if(id.includes('/context/AuthContext'))return {useAuth:()=>({session,refresh:authRefresh,applyConfirmedProfile:(userId:string,profile:any)=>{
+     if(session?.user.id===userId)session={...session,gymUser:{...session.gymUser,profiles:{...session.gymUser.profiles,full_name:profile.fullName,phone:profile.phone||null}}};
+   }})};
    if(id==='@tanstack/react-query')return {...req(id),useMutation:(options:any)=>{const mutation=req(id).useMutation(options);mutations.set(options.mutationFn.toString(),mutation);return mutation;}};
    if(['membershipCoverage','currentPortalDate','currentWeeklyProgress','portalTime','classScheduleHours','branchOpenStatus','memberQueryInvalidation'].some(name=>id===`../utils/${name}`||id===`./${name}`))return load(`utils/${id.split('/').at(-1)}.ts`);
    if(id==='../components/BranchOpenStatus')return load('components/BranchOpenStatus.tsx');
    if(id==='../components/QueryFeedback')return load('components/QueryFeedback.tsx');
+   if(id==='../components/MemberAccountDialog')return load('components/MemberAccountDialog.tsx');
+   if(id==='./ProfileDialog')return {ProfileDialog:({children}:any)=>React.createElement('section',null,children)};
+   if(id==='../components/MemberSocialProfile')return {MemberSocialProfile:({owner}:any)=>{profileOwner=owner;return null;},SocialPrivacySettings:()=>null};
    if(id.includes('/components/AttendanceQrCard'))return {AttendanceQrCard:({hasAttendanceToday}:any)=>React.createElement('div',{'data-attended-today':hasAttendanceToday})};
    if(id==='react-router-dom')return {Link:({children}:any)=>React.createElement('a',null,children)};
    if(id==='lucide-react'||id.startsWith('../components/')||id.startsWith('../utils/'))return emptyModules;
@@ -40,7 +47,7 @@ const text=(tree:any)=>JSON.stringify(tree.toJSON());
 const button=(tree:any,label:string)=>tree.root.findAllByType('button').find((b:any)=>b.props.children===label);
 async function click(tree:any,label:string){await act(async()=>button(tree,label).props.onClick());await flush();}
 const ranking=(month='2026-11')=>({ranking:{period:{key:month,label:month,from:month+'-01',to:month+'-28',isCurrent:false},availablePeriods:[{key:'2026-11',label:'Nov'},{key:'2026-10',label:'Oct'}],historyMode:'reconstructed',categories:Object.fromEntries(['attendance','streak','progress'].map(key=>[key,{title:key,explanation:key,entries:[{position:1,memberUserId:'winner',name:`SQL winner ${month}`,avatarUrl:null,value:123,displayValue:'123 SQL',goalType:null}]}]))}});
-beforeEach(()=>{session={user:{email:'reader@example.test'},gymUser:{id:'viewer',gym_id:'gym-a',profiles:{full_name:'Reader'}}};Object.values(api).forEach(mock=>mock.mockReset());mutations.clear();});
+beforeEach(()=>{session={user:{id:'auth-viewer',email:'reader@example.test'},gymUser:{id:'viewer',gym_id:'gym-a',profiles:{full_name:'Reader'}}};Object.values(api).forEach(mock=>mock.mockReset());authRefresh.mockReset().mockResolvedValue(undefined);mutations.clear();});
 afterEach(async()=>{await act(async()=>trees.splice(0).forEach(t=>t.unmount()));clients.splice(0).forEach(c=>c.clear());vi.useRealTimers();vi.unstubAllGlobals();});
 
 describe('FIT-MEMBER-015 real mutation integration',()=>{
@@ -137,6 +144,38 @@ describe('FIT-MEMBER-015 real mutation integration',()=>{
   await act(async()=>{await action('/bookings/self').mutateAsync('id').catch(()=>{});});await flush();
   expect(api.get.mock.calls.filter(([u])=>u==='/activities').length-before).toBe(conflict?2:0);
   expect(text(tree)).not.toContain('Reserva confirmada');
+ });
+ it('FIT-MEMBER-017 avatar retry reuses uploaded path and invalidates identity only after association',async()=>{
+  setup();const {tree,client}=await mount(MemberPortalPage,{section:'profile'});seed(client);
+  const upload=vi.fn(async()=>({ok:true}));vi.stubGlobal('fetch',upload);
+  api.post.mockResolvedValue({data:{upload:{signedUrl:'https://storage.invalid/upload',path:'g/profile/image.png'}}});
+  api.put.mockRejectedValueOnce(new Error('finalize failed')).mockResolvedValue({data:{avatarPath:'g/profile/image.png'}});
+  const file=new File(['image'],'image.png',{type:'image/png'});
+  await act(async()=>{profileOwner.onAvatarFile(file);profileOwner.onAvatarFile(file);});await flush();
+  expect(api.post).toHaveBeenCalledTimes(1);expect(upload).toHaveBeenCalledTimes(1);
+  expect(client.getQueryState(['member-social-profile','me']).isInvalidated).toBe(false);
+  expect(text(tree)).toContain('Reintentar guardar foto');
+  await click(tree,'Reintentar guardar foto');
+  expect(api.post).toHaveBeenCalledTimes(1);expect(upload).toHaveBeenCalledTimes(1);expect(api.put).toHaveBeenCalledTimes(2);
+  expect(text(tree)).toContain('Foto guardada.');
+  expect(client.getQueryState(['member-social-profile','me']).isInvalidated).toBe(true);
+ });
+ it('FIT-MEMBER-017 reopening after failed identity read preserves the confirmed name on the next phone edit',async()=>{
+  setup();const {tree}=await mount(MemberPortalPage,{section:'profile'});
+  api.put.mockResolvedValue({data:{}});authRefresh.mockRejectedValueOnce(new Error('session read failed'));
+  await act(async()=>profileOwner.onEditAccount());
+  const inputs=()=>tree.root.findAllByType('input').filter((n:any)=>n.props.type!=='password');
+  await act(async()=>inputs()[0].props.onChange({target:{value:'Nombre confirmado'}}));
+  await act(async()=>{await tree.root.findByType('form').props.onSubmit({preventDefault(){}});});
+  expect(text(tree)).toContain('no pudimos actualizar todas las vistas');
+  await click(tree,'Cerrar');await act(async()=>profileOwner.onEditAccount());
+  expect(inputs()[0].props.value).toBe('Nombre confirmado');
+  await act(async()=>inputs()[1].props.onChange({target:{value:'0990000001'}}));
+  await act(async()=>{await tree.root.findByType('form').props.onSubmit({preventDefault(){}});});
+  expect(api.put.mock.calls.filter(([url])=>url==='/members/me/profile')).toEqual([
+    ['/members/me/profile',{fullName:'Nombre confirmado',phone:null}],
+    ['/members/me/profile',{fullName:'Nombre confirmado',phone:'0990000001'}],
+  ]);
  });
 });
 

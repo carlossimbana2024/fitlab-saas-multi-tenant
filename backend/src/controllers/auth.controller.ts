@@ -248,17 +248,19 @@ export async function changePassword(request: Request, response: Response) {
   const email = request.authUser?.email;
   if (!email) throw new AppError(400, 'ACCOUNT_EMAIL_REQUIRED', 'La cuenta no tiene un correo válido.');
 
-  const { error: verificationError } = await supabasePublic.auth.signInWithPassword({
+  const { error: verificationError } = await authCall(() => supabasePublic.auth.signInWithPassword({
     email,
     password: input.data.currentPassword,
-  });
+  }));
+  checkAuthAvailability(verificationError);
   if (verificationError) {
     throw new AppError(401, 'CURRENT_PASSWORD_INVALID', 'La contraseña actual no es correcta.');
   }
 
-  const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(request.authUser!.id, {
+  const { error: updateError } = await authCall(() => supabaseAdmin.auth.admin.updateUserById(request.authUser!.id, {
     password: input.data.newPassword,
-  });
+  }));
+  checkAuthAvailability(updateError);
   if (updateError) throw new AppError(400, 'PASSWORD_UPDATE_FAILED', 'No se pudo actualizar la contraseña.');
 
   response.json({ message: 'Contraseña actualizada correctamente.' });
