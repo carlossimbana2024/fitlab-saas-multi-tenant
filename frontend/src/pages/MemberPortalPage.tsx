@@ -20,7 +20,7 @@ import { classConflictNeedsRefresh, refreshMemberQueries } from '../utils/member
 import { classPaymentLabel, type ClassBookingEconomics } from '../utils/classBookingEconomics';
 import '../profile-header.css';
 import '../progress.css';
-import { selectMembershipCoverage } from '../utils/membershipCoverage';
+import { selectMembershipCoverage, summarizeMembershipCoverage } from '../utils/membershipCoverage';
 import { selectCurrentWeeklyProgress, type WeeklyProgress } from '../utils/currentWeeklyProgress';
 import { useCurrentPortalDate } from '../utils/currentPortalDate';
 import { civilDate, formatBranchInstant, gymTimezone, monthInstants } from '../utils/portalTime';
@@ -142,21 +142,6 @@ function monthRange(today: string) {
   return { today, year: year!, month: month!, from: `${year}-${String(month).padStart(2, '0')}-01`, to: `${year}-${String(month).padStart(2, '0')}-${last}`, last };
 }
 
-function daysUntil(end: string | undefined, today: string) {
-  if (!end) return null;
-  const [endYear, endMonth, endDay] = end.split('-').map(Number);
-  const [todayYear, todayMonth, todayDay] = today.split('-').map(Number);
-  return Math.floor((Date.UTC(endYear!, endMonth! - 1, endDay!) - Date.UTC(todayYear!, todayMonth! - 1, todayDay!)) / 86_400_000);
-}
-
-function membershipCoverageLabel(remaining: number | null, today: string, period?: Period) {
-  if (period && period.starts_on > today) return `Comienza el ${period.starts_on}`;
-  if (remaining === null) return 'Sin fecha de cobertura';
-  if (remaining > 0) return `${remaining} días restantes`;
-  if (remaining === 0) return 'Vigente hasta hoy';
-  return 'Cobertura vencida';
-}
-
 function sectionCopy(section: PortalSection) {
   return {
     home: ['Tu centro de entrenamiento', 'Todo lo importante, de un vistazo.'],
@@ -178,7 +163,7 @@ export function MemberPortalPage({ section }: { section: PortalSection }) {
   const range = useMemo(() => monthRange(today), [today]);
   const [editing, setEditing] = useState(false);
   const [fitnessEditing, setFitnessEditing] = useState(false);
-  const memberships = useQuery({ queryKey: ['my-memberships', session?.gymUser?.id], queryFn: async () => (await api.get<{ memberships: Membership[] }>('/memberships')).data.memberships, enabled: Boolean(session?.gymUser) });
+  const memberships = useQuery({ queryKey: ['my-memberships', session?.gymUser?.id], queryFn: async () => (await api.get<{ memberships: Membership[] }>('/memberships')).data.memberships, enabled: Boolean(session?.gymUser), staleTime: 0 });
   const announcements = useQuery({ queryKey: ['gym-announcements', session?.gymUser?.gym_id, session?.gymUser?.default_location_id], queryFn: async () => (await api.get<{ announcements: GymAnnouncement[] }>('/announcements')).data.announcements, enabled: section === 'home' && Boolean(session?.gymUser), refetchInterval: 60_000 });
   const attendances = useQuery({ queryKey: ['my-attendances'], queryFn: async () => (await api.get<{ attendances: Attendance[] }>('/attendances')).data.attendances });
   const streaks = useQuery({ queryKey: ['my-streak'], queryFn: async () => (await api.get<{ streaks: Streak[] }>('/attendances/streaks')).data.streaks });
@@ -202,10 +187,11 @@ export function MemberPortalPage({ section }: { section: PortalSection }) {
   const [weightValue, setWeightValue] = useState('');
   const [weightDate, setWeightDate] = useState(range.today);
 
-  const { membership, period } = selectMembershipCoverage(memberships.data ?? [], progress.data?.today ?? range.today);
+  const { membership } = selectMembershipCoverage(memberships.data ?? [], progress.data?.today ?? range.today);
+  const homeCoverage = section === 'home' && memberships.data !== undefined ? summarizeMembershipCoverage(memberships.data, today) : undefined;
+  const homeMembership = homeCoverage?.membership;
   const streak = streaks.data?.[0];
   const currentWeek = selectCurrentWeeklyProgress(weekly.data ?? [], membership, progress.data?.today ?? range.today);
-  const remaining = daysUntil(period?.ends_on, range.today);
   const hasAttendanceToday = progress.data?.hasAttendanceToday ?? false;
   const upcomingClasses = (classes.data?.schedules ?? []).filter((item) => new Date(item.starts_at).getTime() > Date.now());
   const upcomingReservations = upcomingClasses.filter((item) => item.myBooking?.status === 'reserved' || ((classReferenceIssue(item) || item.status !== 'scheduled') && (item.myBooking || item.myWaitlist)));
@@ -275,7 +261,7 @@ export function MemberPortalPage({ section }: { section: PortalSection }) {
 
   const fitnessSetupRequired = fitnessProfile.isSuccess && fitnessProfile.data === null;
   const notices = [
-    membership && period && period.starts_on <= range.today && remaining !== null && remaining > 0 && remaining <= 5 ? `Tu membresía vence en ${remaining} día${remaining === 1 ? '' : 's'}.` : '',
+    homeCoverage?.notice,
     weekly.data !== undefined && membership?.attendance_mode_snapshot === 'weekly' && currentWeek && !currentWeek.goal_met ? `Te faltan ${Math.max(0, currentWeek.target_attendances - currentWeek.completed_attendances)} asistencias para completar tu meta semanal.` : '',
     streak?.current_streak ? `Mantienes una racha de ${streak.current_streak}. ¡Sigue así!` : '',
   ].filter(Boolean);
@@ -305,7 +291,7 @@ export function MemberPortalPage({ section }: { section: PortalSection }) {
       <QueryFeedback query={announcements} label="los avisos del gimnasio"/>
       {membership?.attendance_mode_snapshot === 'weekly' && <QueryFeedback query={weekly} label="tu progreso semanal"/>}
       {notices.length > 0 && <section className="portal-notices"><div className="panel-title"><div><h2>Avisos</h2><p>Información importante para ti</p></div><Bell/></div>{notices.map((notice) => <div className="notice" key={notice}>{notice}</div>)}</section>}
-      <div className="portal-grid home-summary-grid"><article className="portal-card coverage"><CreditCard aria-hidden="true"/><div className="home-membership-copy"><span>Membresía</span><QueryFeedback query={memberships} label="tu membresía"/><strong>{memberships.data === undefined ? (memberships.isError ? 'No disponible' : 'Cargando…') : membership?.plans?.name ?? 'Sin membresía activa'}</strong>{memberships.data !== undefined && <small>{period ? `${period.starts_on} → ${period.ends_on}` : 'Sin cobertura vigente'}</small>}{period && <span className="home-coverage-chip">{membershipCoverageLabel(remaining, today, period)}</span>}{membership && <small>{Number(membership.price_at_purchase).toFixed(2)} {membership.currency} · {membership.attendance_mode_snapshot === 'weekly' ? `${membership.weekly_target_snapshot} veces por semana` : 'Asistencia diaria'}</small>}</div></article><article className="portal-card home-activity-stat"><Activity aria-hidden="true"/><span>Asistencias válidas</span><strong>{progress.data?.totalAttendances ?? (progress.isError ? 'No disponible' : 'Cargando…')}</strong><small>{progress.data ? (progress.data.latestAttendanceDate ? `Última: ${progress.data.latestAttendanceDate}` : 'Aún no hay registros') : progress.isError ? 'No se pudo cargar el resumen' : 'Consultando resumen…'}</small></article><article className="portal-card streak home-activity-stat"><Flame aria-hidden="true"/><span>Racha actual</span><QueryFeedback query={streaks} label="tu racha"/>{streaks.data !== undefined && <><strong>{streak?.current_streak ?? 0}</strong><small>Mejor racha: {streak?.longest_streak ?? 0}</small></>}</article></div>
+      <div className="portal-grid home-summary-grid"><article className="portal-card coverage"><CreditCard aria-hidden="true"/><div className="home-membership-copy"><span>Membresía</span><QueryFeedback query={memberships} label="tu membresía"/><strong>{!homeCoverage ? (memberships.isError ? 'No disponible' : 'Cargando…') : homeMembership?.plans?.name ?? 'Sin membresía activa'}</strong>{homeCoverage && (homeCoverage.period ? <><small>{homeCoverage.period.starts_on} → {homeCoverage.period.ends_on}</small><span className="home-coverage-chip">{homeCoverage.label}</span></> : <small>{homeCoverage.label}</small>)}{homeMembership && <small>{Number(homeMembership.price_at_purchase).toFixed(2)} {homeMembership.currency} · {homeMembership.attendance_mode_snapshot === 'weekly' ? `${homeMembership.weekly_target_snapshot} veces por semana` : 'Asistencia diaria'}</small>}</div></article><article className="portal-card home-activity-stat"><Activity aria-hidden="true"/><span>Asistencias válidas</span><strong>{progress.data?.totalAttendances ?? (progress.isError ? 'No disponible' : 'Cargando…')}</strong><small>{progress.data ? (progress.data.latestAttendanceDate ? `Última: ${progress.data.latestAttendanceDate}` : 'Aún no hay registros') : progress.isError ? 'No se pudo cargar el resumen' : 'Consultando resumen…'}</small></article><article className="portal-card streak home-activity-stat"><Flame aria-hidden="true"/><span>Racha actual</span><QueryFeedback query={streaks} label="tu racha"/>{streaks.data !== undefined && <><strong>{streak?.current_streak ?? 0}</strong><small>Mejor racha: {streak?.longest_streak ?? 0}</small></>}</article></div>
       <section className="panel portal-classes portal-home-classes"><div className="panel-title"><CalendarCheck aria-hidden="true"/><div><h2>Próximas clases</h2><p>Reserva desde tu sección de Clases.</p></div><Link className="ghost" to="/portal/classes">Ver todas<ChevronRight aria-hidden="true"/></Link></div><div className="home-class-grid">{classes.data !== undefined && upcomingClasses.slice(0, 3).map((item) => <ClassSummary key={item.id} schedule={item}/>)}</div><QueryFeedback query={classes} label="tus próximas clases"/>{classes.data !== undefined && !upcomingClasses.length && <div className="empty compact"><Dumbbell/><strong>No hay próximas clases publicadas</strong><span>Cuando el gimnasio programe una actividad aparecerá aquí.</span></div>}</section>
     </div>}
 

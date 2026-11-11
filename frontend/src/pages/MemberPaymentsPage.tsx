@@ -5,8 +5,10 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { api, apiErrorMessage } from '../services/api';
-import { selectMembershipCoverage } from '../utils/membershipCoverage';
+import { summarizeMembershipCoverage } from '../utils/membershipCoverage';
 import { refreshMemberQueries } from '../utils/memberQueryInvalidation';
+import { portalDate, useCurrentPortalDate } from '../utils/currentPortalDate';
+import { gymTimezone } from '../utils/portalTime';
 import { GymContactCard } from '../components/GymContactCard';
 import { gymWhatsAppNumber, membershipMoney, membershipPaymentMethodLabels as methods, membershipPaymentStatusLabels as statuses, membershipWhatsAppMessage, type MembershipPaymentPlan, type MembershipPaymentRequest } from '../utils/membershipPayments';
 import '../membership-payments.css';
@@ -22,7 +24,7 @@ type PortalPayments = {
 export function MemberPaymentsPage() {
   const { session } = useAuth();
   const client = useQueryClient();
-  const query = useQuery({ queryKey: ['my-membership-payments', session?.gymUser?.id], queryFn: async () => (await api.get<PortalPayments>('/membership-payment-requests/me')).data, refetchInterval: 30_000 });
+  const query = useQuery({ queryKey: ['my-membership-payments', session?.gymUser?.id], queryFn: async () => (await api.get<PortalPayments>('/membership-payment-requests/me')).data, staleTime: 0, refetchInterval: 30_000 });
   const otherPayments=useQuery({queryKey:['my-payments'],queryFn:async()=>(await api.get<{payments:Array<{id:string;amount:number;currency:string;payment_method:string;status:string;paid_at:string}>}>('/member-payments/me')).data.payments});
   const [planId, setPlanId] = useState('');
   const [file, setFile] = useState<File | null>(null);
@@ -31,12 +33,13 @@ export function MemberPaymentsPage() {
   const [proofUrl, setProofUrl] = useState('');
   const [success, setSuccess] = useState(false);
   const data = query.data;
-  const today = new Intl.DateTimeFormat('en-CA', { timeZone: data?.gym.timezone ?? 'America/Guayaquil', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+  const coverageToday = useCurrentPortalDate(gymTimezone(session?.gymUser?.gym?.timezone), session?.gymUser?.gym_id);
+  const paymentToday = portalDate(Date.now(), gymTimezone(data?.gym.timezone));
   useEffect(() => {
     if (!data) return;
     setPlanId((current) => data.plans.some((p) => p.id === current) ? current : data.plans[0]?.id ?? '');
-    setForm((current) => ({ ...current, paidOn: current.paidOn || today, method: data.settings.methods.includes(current.method) ? current.method : data.settings.methods[0] ?? '' }));
-  }, [data, today]);
+    setForm((current) => ({ ...current, paidOn: current.paidOn || paymentToday, method: data.settings.methods.includes(current.method) ? current.method : data.settings.methods[0] ?? '' }));
+  }, [data, paymentToday]);
   const plan = data?.plans.find((p) => p.id === planId);
   useEffect(() => { if (plan) setForm((current) => ({ ...current, amount: String(plan.price) })); }, [plan?.id, plan?.price]);
   const refresh = async () => {
@@ -63,18 +66,15 @@ export function MemberPaymentsPage() {
   const cancel = useMutation({ mutationFn: async (id: string) => api.post(`/membership-payment-requests/me/${id}/cancel`), onSuccess: refresh });
   const proof = useMutation({ mutationFn: async (id: string) => (await api.get<{ url: string }>(`/membership-payment-requests/me/${id}/proof`)).data.url, onSuccess: setProofUrl });
   if (data === undefined) return <QueryFeedback query={query} label="tu membresía y pagos"/>;
-  const { membership, period } = selectMembershipCoverage(data!.memberships, today);
-  const fallback = data!.memberships.find((m) => m.status === 'active') ?? data!.memberships[0];
-  const shownMembership = membership ?? fallback;
-  const remaining = period ? Math.max(0, Math.floor((Date.parse(`${period.ends_on}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86400000) + 1) : 0;
-  const coverageState = period ? period.starts_on > today ? 'Cobertura futura' : period.ends_on < today ? 'Vencida' : 'Vigente' : 'Sin cobertura vigente';
+  const { membership, period, label } = summarizeMembershipCoverage(data.memberships, coverageToday);
+  const shownMembership = membership ?? data.memberships[0];
   const pending = data!.requests.find((r) => r.status === 'pending');
   const revision = data!.requests.find((r) => r.status === 'revision_requested');
   const phone = gymWhatsAppNumber(data!.whatsappPhone);
   const onSubmit = (event: FormEvent) => { event.preventDefault(); setSuccess(false); setProofUrl(''); submit.mutate(); };
   return <div className="member-payment-page"><QueryFeedback query={query} label="tu membresía y pagos"/>
     <div className="page-heading"><div><p className="eyebrow">TU MEMBRESÍA</p><h1>Membresía y pagos</h1><p>{data!.gym.name}{data!.location ? ` · ${data!.location}` : ''}</p></div></div>
-    <section className="panel membership-payment-summary"><CreditCard/><div><h2>{shownMembership?.plans?.name ?? 'Elige tu primera membresía'}</h2><p>{period ? `${period.starts_on} → ${period.ends_on}` : 'Aún no tienes un período vigente'}</p><span className="badge">{coverageState}</span>{period && <small>{remaining} días de cobertura restantes</small>}</div><strong>{plan ? membershipMoney(plan.price, plan.currency) : 'Consulta en recepción'}</strong></section>
+    <section className="panel membership-payment-summary"><CreditCard/><div><h2>{shownMembership?.plans?.name ?? 'Elige tu primera membresía'}</h2>{period && <p>{period.starts_on} → {period.ends_on}</p>}<span className="badge">{label}</span></div><strong>{plan ? membershipMoney(plan.price, plan.currency) : 'Consulta en recepción'}</strong></section>
     {success && <p className="alert success" role="status">Solicitud registrada. Tu membresía se activará o renovará cuando el gimnasio confirme el ingreso.{channel === 'whatsapp' && ' Ahora abre WhatsApp y adjunta tu comprobante.'}</p>}
     {pending && <section className="panel"><h2>Pago en revisión</h2><p>{membershipMoney(pending.amount, pending.currency)} · {pending.plan_snapshot.name}</p><p>El gimnasio debe verificar el ingreso antes de activar la cobertura.</p>{pending.channel === 'whatsapp' && phone && <a className="primary" href={`https://wa.me/${phone}?text=${encodeURIComponent(membershipWhatsAppMessage(session?.gymUser?.profiles?.full_name ?? 'Miembro', session!.gymUser!.id, pending))}`} target="_blank" rel="noreferrer"><MessageCircle/>Abrir WhatsApp y adjuntar comprobante</a>}<button className="ghost" disabled={cancel.isPending} onClick={() => { if (window.confirm('¿Retirar esta solicitud de revisión? Esto no devuelve el dinero transferido.')) cancel.mutate(pending.id); }}>Retirar solicitud</button></section>}
     {revision && <p className="alert warning">El gimnasio solicita una corrección: {revision.review_reason}. Completa el formulario y envía el comprobante nuevamente.</p>}
@@ -84,7 +84,7 @@ export function MemberPaymentsPage() {
       <form className="membership-payment-form" onSubmit={onSubmit}>
         <label>Plan<select required value={planId} disabled={Boolean(shownMembership)} onChange={(e) => setPlanId(e.target.value)}>{data!.plans.map((p) => <option key={p.id} value={p.id}>{p.name} · {membershipMoney(p.price, p.currency)}</option>)}</select></label>
         <label>Valor pagado ({plan.currency})<input required type="number" step="0.01" min="0.01" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })}/><small>Debe coincidir con {membershipMoney(plan.price, plan.currency)}.</small></label>
-        <label>Fecha del pago<input required type="date" max={today} value={form.paidOn} onChange={(e) => setForm({ ...form, paidOn: e.target.value })}/></label>
+        <label>Fecha del pago<input required type="date" max={paymentToday} value={form.paidOn} onChange={(e) => setForm({ ...form, paidOn: e.target.value })}/></label>
         <label>Método<select required value={form.method} onChange={(e) => setForm({ ...form, method: e.target.value })}>{data!.settings.methods.map((m) => <option key={m} value={m}>{methods[m]}</option>)}</select></label>
         <label>Referencia opcional<input maxLength={200} value={form.reference} onChange={(e) => setForm({ ...form, reference: e.target.value })}/></label>
         <label>Cómo entregar el comprobante<select value={channel} disabled={submit.isPending} onChange={(e) => setChannel(e.target.value as typeof channel)}><option value="fitlab">Adjuntarlo en FitLab</option>{phone && <option value="whatsapp">Enviarlo por WhatsApp</option>}</select></label>

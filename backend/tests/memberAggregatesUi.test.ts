@@ -238,7 +238,7 @@ it.each(['America/Guayaquil','Europe/Madrid'])('FIT-MEMBER-013 membership, calen
     :url==='/calendar'?{gym:{timezone:tz},location:{timezone:'America/New_York'},hours:[],exceptions:[]}
     :{fitnessProfile:{id:'profile'},attendances:[],streaks:[],schedules:[],progress:[],announcements:[]}}));
   const {tree}=await mount(MemberPortalPage,{section:'home'});
-  expect(text(tree)).toContain(tz==='Europe/Madrid'?'1 días restantes':'2 días restantes');
+  expect(text(tree)).toContain(tz==='Europe/Madrid'?'1 día restante':'2 días restantes');
   await act(async()=>tree.update(React.createElement(QueryClientProvider,{client:clients.at(-1)},React.createElement(MemberPortalPage,{section:'progress'}))));
   await click(tree,'Registrar peso');
   const date=tree.root.findAllByType('input').find((n:any)=>n.props.type==='date');

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
 import ts from 'typescript';
@@ -6,7 +6,7 @@ const req=createRequire(new URL('../../frontend/package.json',import.meta.url));
 const React=req('react'),{act,create}=req('react-test-renderer');
 const {QueryClient,QueryClientProvider}=req('@tanstack/react-query');
 const api={get:vi.fn(),post:vi.fn(),patch:vi.fn(),put:vi.fn()};
-const session={user:{email:'member@example.test'},gymUser:{id:'m',gym_id:'g',profiles:{full_name:'Atleta'}}};
+const session={user:{email:'member@example.test'},gymUser:{id:'m',gym_id:'g',gym:{timezone:'America/Guayaquil'},profiles:{full_name:'Atleta'}}};
 const empty=new Proxy({},{get:()=>()=>null});const modules=new Map();
 function load(file:string):any{
  if(modules.has(file))return modules.get(file);
@@ -31,7 +31,7 @@ const flush=()=>act(async()=>{await new Promise(r=>setTimeout(r,20));});
 const text=(node:any):string=>node==null?'':Array.isArray(node)?node.map(text).join(' '):typeof node==='object'?text(node.children):String(node);
 const visible=(tree:any)=>text(tree.toJSON()).replace(/\s+/g,' ');
 async function mount(component=MemberPortalPage,props:any={section:'home'}){
- const client=new QueryClient({defaultOptions:{queries:{retry:false,gcTime:Infinity},mutations:{retry:false}}});clients.push(client);
+ const client=new QueryClient({defaultOptions:{queries:{retry:false,gcTime:Infinity,staleTime:30_000},mutations:{retry:false}}});clients.push(client);
  let tree:any;await act(async()=>{tree=create(React.createElement(QueryClientProvider,{client},React.createElement(component,props)));});trees.push(tree);await flush();await flush();return {tree,client};
 }
 async function click(tree:any,label:string){const b=tree.root.findAllByType('button').find((b:any)=>text(b.props.children)===label);expect(b,label).toBeDefined();await act(async()=>{await b.props.onClick();});await flush();}
@@ -50,8 +50,8 @@ function payload(url:string){
  if(url==='/membership-payment-requests/me')return {memberships:[],plans:[],requests:[],payments:[],settings:{enabled:false,methods:[],instructions:''},gym:{name:'Gym',timezone:'America/Guayaquil'},location:null};
  if(url==='/member-payments/me')return {payments:[]};throw Error('Unexpected endpoint '+url);
 }
-beforeEach(()=>{failures.clear();overrides.clear();api.get.mockReset();api.get.mockImplementation(async(url:string)=>{if(failures.has(url))throw Error('RPC failed 500 Internal Server Error');return {data:payload(url)};});});
-afterEach(async()=>{await act(async()=>trees.splice(0).forEach(t=>t.unmount()));clients.splice(0).forEach(c=>c.clear());});
+beforeEach(()=>{session.gymUser.gym.timezone='America/Guayaquil';failures.clear();overrides.clear();api.get.mockReset();api.get.mockImplementation(async(url:string)=>{if(failures.has(url))throw Error('RPC failed 500 Internal Server Error');return {data:payload(url)};});});
+afterEach(async()=>{await act(async()=>trees.splice(0).forEach(t=>t.unmount()));clients.splice(0).forEach(c=>c.clear());vi.useRealTimers();vi.unstubAllGlobals();});
 
 it('A: a successful zero is a real zero, not an error',async()=>{const {tree}=await mount();expect(visible(tree)).toContain('Asistencias válidas 0');expect(visible(tree)).not.toContain('No pudimos');});
 it('B/L: failed canonical summary shows neither attendance zero nor a false empty weight history',async()=>{
@@ -104,4 +104,91 @@ it('failed payment refetch keeps receipts and independent other-payment error',a
  const p=payload('/membership-payment-requests/me');p.payments=[{id:'receipt',amount:30,currency:'USD',status:'confirmed',payment_method:'cash',paid_at:'2026-11-01T12:00Z',receipt_number:12}];overrides.set('/membership-payment-requests/me',p);
  const {tree,client}=await mount(MemberPaymentsPage,{});failures.add('/membership-payment-requests/me');failures.add('/member-payments/me');await act(async()=>{await client.refetchQueries({queryKey:['my-membership-payments']});await client.refetchQueries({queryKey:['my-payments']});});await flush();
  expect(visible(tree)).toContain('Ver recibo 12');expect(visible(tree)).toContain('No pudimos actualizar tu membresía y pagos');expect(visible(tree)).toContain('No pudimos actualizar otros pagos');
+});
+
+describe('FIT-MEMBER-018 membership coverage in both real views',()=>{
+ const useDate=(instant:string)=>{vi.useFakeTimers({toFake:['Date']});vi.setSystemTime(new Date(instant));};
+ const coverage=(start:string,end:string,status='active')=>{
+  const memberships=[{id:'coverage',status,plans:{name:'Plan mensual'},price_at_purchase:30,currency:'USD',attendance_mode_snapshot:'daily',membership_periods:[{starts_on:start,ends_on:end,status:'active'}]}];
+  const payments={...payload('/membership-payment-requests/me'),memberships};
+  overrides.set('/memberships',{memberships});overrides.set('/membership-payment-requests/me',payments);
+ };
+ const readCoverage=(home:any,payments:any)=>[
+  text(home.root.findByProps({className:'home-membership-copy'})),
+  text(payments.root.findByProps({className:'panel membership-payment-summary'})),
+ ];
+ const mountBoth=async()=>[await mount(),await mount(MemberPaymentsPage,{})] as const;
+
+ it.each([
+  ['2026-11-01','2026-11-26','active','21 días restantes'],
+  ['2026-11-01','2026-11-06','active','1 día restante'],
+  ['2026-11-01','2026-11-05','active','Vence hoy'],
+  ['2026-11-05','2026-11-05','active','Vence hoy'],
+  ['2026-11-01','2026-11-04','active','Cobertura vencida'],
+  ['2026-11-01','2026-11-04','expired','Cobertura vencida'],
+  ['2026-11-06','2026-11-26','active','Comienza el 2026-11-06'],
+  ['2026-11-01','2026-11-26','paused','Membresía pausada'],
+ ])('same label in Inicio and Pagos for %s → %s (%s): %s',async(start,end,status,label)=>{
+  useDate('2026-11-06T04:59:59Z');coverage(start,end,status);
+  const [home,payments]=await mountBoth();
+  for(const summary of readCoverage(home.tree,payments.tree)){
+   expect(summary).toContain(label);expect(summary).not.toMatch(/-\d+ días? restante|\b0 días? restante|\b1 días restantes/);
+   if(label.startsWith('Comienza')||status==='paused')expect(summary).not.toContain('restante');
+  }
+  if(label==='Vence hoy')expect(visible(home.tree)).toContain('Tu membresía vence hoy.');
+ });
+
+ it('moves both views from 1 day to today to expired without refetching memberships or reloading',async()=>{
+  useDate('2026-11-05T04:59:59Z');coverage('2026-11-01','2026-11-05');
+  const tab=Object.assign(new EventTarget(),{visibilityState:'visible'});
+  vi.stubGlobal('document',tab);vi.stubGlobal('window',new EventTarget());
+  const [home,payments]=await mountBoth();
+  const expectBoth=(label:string)=>readCoverage(home.tree,payments.tree).forEach(summary=>expect(summary).toContain(label));
+  expectBoth('1 día restante');
+  await act(async()=>{vi.setSystemTime(new Date('2026-11-05T05:00:00Z'));tab.dispatchEvent(new Event('visibilitychange'));});
+  expectBoth('Vence hoy');
+  // The progress fixture keeps its previous date; membership rendering must not depend on it.
+  await act(async()=>{vi.setSystemTime(new Date('2026-11-06T05:00:00Z'));tab.dispatchEvent(new Event('visibilitychange'));});
+  expectBoth('Cobertura vencida');
+  expect(api.get.mock.calls.filter(([url])=>url==='/memberships'||url==='/membership-payment-requests/me')).toHaveLength(2);
+ });
+
+ it('uses the gym timezone from the session, not the branch, device or progress response',async()=>{
+  session.gymUser.gym.timezone='America/New_York';
+  useDate('2026-07-06T04:00:00Z');coverage('2026-07-06','2026-07-06');
+  overrides.set('/calendar',{hours:[],exceptions:[],location:{name:'Hawaii',timezone:'Pacific/Honolulu'}});
+  const previous=process.env.TZ;
+  process.env.TZ='America/Los_Angeles';
+  try{
+   expect(new Date().getDate()).toBe(5); // The simulated device is still on July 5.
+   const [home,payments]=await mountBoth();
+   for(const summary of readCoverage(home.tree,payments.tree))expect(summary).toContain('Vence hoy');
+  }finally{if(previous===undefined)delete process.env.TZ;else process.env.TZ=previous;}
+ });
+
+ it('reopening either view revalidates coverage inside the default cache window',async()=>{
+  useDate('2026-11-05T17:00:00Z');coverage('2026-11-01','2026-11-05');
+  const [home,payments]=await mountBoth();
+  for(const summary of readCoverage(home.tree,payments.tree))expect(summary).toContain('Vence hoy');
+  await act(async()=>{home.tree.update(null);payments.tree.update(null);});
+  vi.setSystemTime(new Date('2026-11-05T17:00:01Z'));
+  coverage('2026-11-01','2026-11-26');
+  await act(async()=>{
+   home.tree.update(React.createElement(QueryClientProvider,{client:home.client},React.createElement(MemberPortalPage,{section:'home'})));
+   payments.tree.update(React.createElement(QueryClientProvider,{client:payments.client},React.createElement(MemberPaymentsPage)));
+  });await flush();
+  for(const summary of readCoverage(home.tree,payments.tree))expect(summary).toContain('21 días restantes');
+  expect(api.get.mock.calls.filter(([url])=>url==='/memberships'||url==='/membership-payment-requests/me')).toHaveLength(4);
+ });
+
+ it.each([true,false])('API failure=%s is not an invented countdown or an empty membership',async failed=>{
+  if(failed){failures.add('/memberships');failures.add('/membership-payment-requests/me');}
+  const [home,payments]=await mountBoth();
+  for(const {tree} of [home,payments]){
+   expect(visible(tree)).not.toMatch(/\d+ días? restante|Vence hoy|Cobertura vencida/);
+   expect(visible(tree).includes('Sin cobertura vigente')).toBe(!failed);
+   expect(visible(tree).includes('No pudimos cargar tu membresía')).toBe(failed);
+  }
+  if(!failed)expect(visible(payments.tree)).toContain('Elige tu primera membresía');
+ });
 });
