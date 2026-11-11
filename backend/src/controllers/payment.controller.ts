@@ -5,6 +5,7 @@ import { AppError } from '../errors/AppError.js';
 import { summarizeDashboardIncome, type DashboardPaymentRow } from '../services/dashboardIncome.js';
 import { dateInTimezone, localMidnightAsUtc } from '../utils/gymDate.js';
 import { fromSupabaseError } from '../utils/supabaseError.js';
+import { historyCursorFilter, historyCursorParam, historyPage, MEMBER_HISTORY_PAGE_SIZE, parseHistoryInput } from '../utils/memberHistoryPagination.js';
 import { paymentReversalSchema } from '../validators/membership.validator.js';
 
 const uuid = z.string().uuid();
@@ -28,13 +29,24 @@ function maskMemberName(name: string) {
 
 export async function listMyPayments(request: Request, response: Response) {
   if (request.tenant!.role !== 'member') throw new AppError(403, 'MEMBER_REQUIRED', 'Esta opción pertenece al portal del miembro.');
-  const { data, error } = await supabaseAdmin.from('member_payments')
+  const { kind, status, cursor } = parseHistoryInput(z.object({
+    kind: z.enum(['membership', 'other']).optional(),
+    status: z.enum(['pending', 'confirmed', 'voided', 'refunded', 'failed']).optional(),
+    cursor: historyCursorParam,
+  }), request.query);
+  // Legacy callers without a history filter keep their original first-page size.
+  const size = kind || status || cursor ? MEMBER_HISTORY_PAGE_SIZE : 100;
+  let query = supabaseAdmin.from('member_payments')
     .select('id,amount,currency,payment_method,status,paid_at,receipt_number,receipt_verification_token')
-    .eq('gym_id', request.tenant!.gymId).eq('member_user_id', request.tenant!.gymUserId)
-    .not('membership_id', 'is', null).order('paid_at', { ascending: false }).limit(100);
+    .eq('gym_id', request.tenant!.gymId).eq('member_user_id', request.tenant!.gymUserId);
+  query = kind === 'other' ? query.is('membership_id', null) : query.not('membership_id', 'is', null);
+  if (status) query = query.eq('status', status);
+  if (cursor) query = query.or(historyCursorFilter(cursor, 'paid_at'));
+  const { data, error } = await query.order('paid_at', { ascending: false }).order('id', { ascending: false }).limit(size + 1);
   if (error) throw fromSupabaseError(error);
+  const page = historyPage(data ?? [], row => row.paid_at, size);
   response.setHeader('Cache-Control', 'no-store');
-  response.json({ payments: data });
+  response.json({ payments: page.items, nextCursor: page.nextCursor });
 }
 
 export async function listPayments(request: Request, response: Response) {

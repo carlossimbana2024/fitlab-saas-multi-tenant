@@ -18,6 +18,7 @@ function load(file:string):any{
    if(id.includes('/context/AuthContext'))return {useAuth:()=>({session,refresh:vi.fn()})};
    if(id.startsWith('../utils/')||(file.startsWith('utils/')&&id.startsWith('./')))return load('utils/'+id.split('/').at(-1)+'.ts');
    if(id.endsWith('/QueryFeedback'))return load('components/QueryFeedback.tsx');
+   if(id.endsWith('/ClassBookingConditions'))return load('components/ClassBookingConditions.tsx');
    if(id.endsWith('/WeightMaintenanceSummary'))return load('components/WeightMaintenanceSummary.tsx');
    if(id.endsWith('/MemberSocialProfile'))return {MemberSocialProfile:({owner}:any)=>owner?.activity??null,SocialPrivacySettings:()=>null};
    if(id==='react-router-dom')return {Link:({children,...props}:any)=>React.createElement('a',props,children),useParams:()=>({}),useSearchParams:()=>[new URLSearchParams(),()=>{}]};
@@ -47,8 +48,9 @@ function payload(url:string){
  if(url==='/attendances/weekly-progress')return {progress:[]};if(url==='/activities')return {schedules:[],offersEnabled:false};
  if(url==='/announcements')return {announcements:[]};if(url==='/members/me/community')return {items:[],hasMore:false,nextCursor:null};
  if(url.endsWith('/rankings'))return ranking();
- if(url==='/membership-payment-requests/me')return {memberships:[],plans:[],requests:[],payments:[],settings:{enabled:false,methods:[],instructions:''},gym:{name:'Gym',timezone:'America/Guayaquil'},location:null};
- if(url==='/member-payments/me')return {payments:[]};throw Error('Unexpected endpoint '+url);
+ if(url==='/membership-payment-requests/me')return {memberships:[],plans:[],activeRequest:null,settings:{enabled:false,methods:[],instructions:''},gym:{name:'Gym',timezone:'America/Guayaquil'},location:null};
+ if(url==='/activities/me/history'||url==='/membership-payment-requests/me/history')return {items:[],nextCursor:null};
+ if(url==='/member-payments/me')return {payments:[],nextCursor:null};throw Error('Unexpected endpoint '+url);
 }
 beforeEach(()=>{session.gymUser.gym.timezone='America/Guayaquil';failures.clear();overrides.clear();api.get.mockReset();api.get.mockImplementation(async(url:string)=>{if(failures.has(url))throw Error('RPC failed 500 Internal Server Error');return {data:payload(url)};});});
 afterEach(async()=>{await act(async()=>trees.splice(0).forEach(t=>t.unmount()));clients.splice(0).forEach(c=>c.clear());vi.useRealTimers();vi.unstubAllGlobals();});
@@ -101,9 +103,106 @@ it.each([false,true])('payment query failed=%s never implies an empty payment hi
  if(failed)failures.add('/membership-payment-requests/me');const {tree}=await mount(MemberPaymentsPage,{});expect(visible(tree).includes('Todavía no hay pagos de membresía')).toBe(!failed);expect(visible(tree).includes('No pudimos cargar tu membresía y pagos')).toBe(failed);
 });
 it('failed payment refetch keeps receipts and independent other-payment error',async()=>{
- const p=payload('/membership-payment-requests/me');p.payments=[{id:'receipt',amount:30,currency:'USD',status:'confirmed',payment_method:'cash',paid_at:'2026-11-01T12:00Z',receipt_number:12}];overrides.set('/membership-payment-requests/me',p);
- const {tree,client}=await mount(MemberPaymentsPage,{});failures.add('/membership-payment-requests/me');failures.add('/member-payments/me');await act(async()=>{await client.refetchQueries({queryKey:['my-membership-payments']});await client.refetchQueries({queryKey:['my-payments']});});await flush();
+ const receipt={id:'receipt',amount:30,currency:'USD',status:'confirmed',payment_method:'cash',paid_at:'2026-11-01T12:00Z',receipt_number:12,receipt_verification_token:'token'};
+ api.get.mockImplementation(async(url:string,config?:any)=>{
+  if(failures.has(url)||failures.has(config?.params?.kind))throw Error('API unavailable');
+  return {data:url==='/member-payments/me'&&config?.params?.kind==='membership'?{payments:[receipt],nextCursor:null}:payload(url)};
+ });
+ const {tree,client}=await mount(MemberPaymentsPage,{});failures.add('/membership-payment-requests/me');failures.add('other');await act(async()=>{await client.refetchQueries({queryKey:['my-membership-payments']});await client.refetchQueries({queryKey:['my-payments-history']});});await flush();
  expect(visible(tree)).toContain('Ver recibo 12');expect(visible(tree)).toContain('No pudimos actualizar tu membresía y pagos');expect(visible(tree)).toContain('No pudimos actualizar otros pagos');
+});
+
+describe('FIT-MEMBER-019 paginated histories in the member portal',()=>{
+ const classItem=(id:string)=>({id,starts_at:'2026-11-05T15:00Z',ends_at:'2026-11-05T16:00Z',status:'completed',
+  activity:{name:id,is_active:false},location:{name:'Sucursal anterior',timezone:'America/Guayaquil',is_active:false},
+  myBooking:{id:`booking-${id}`,status:'attended',payment_state:'refunded',economic_terms:{billing_mode:'additional_fee',agreed_amount:19,currency:'USD',evidence_state:'verified'}}});
+ const payment=(id:string,status='confirmed')=>({id,amount:30,currency:'USD',payment_method:'cash',status,paid_at:'2026-11-01T12:00Z',receipt_number:id,receipt_verification_token:id});
+ const buttonIn=(container:any,label:string)=>container.findAllByType('button').find((b:any)=>text(b.props.children).trim()===label);
+ const history=(tree:any,title:string)=>tree.root.findAllByType('section').find((s:any)=>s.findAllByType('h2').some((h:any)=>text(h.props.children)===title));
+ const run=async(button:any)=>{expect(button).toBeDefined();await act(async()=>{button.props.onClick();});await flush();};
+ const change=async(input:any,value:string)=>{await act(async()=>input.props.onChange({target:{value}}));await flush();};
+
+ it('class pages append, retry locally on failure, and restart when the month changes (including an empty month)',async()=>{
+  vi.useFakeTimers({toFake:['Date']});vi.setSystemTime(new Date('2026-11-20T12:00:00Z'));
+  let failPage=true;
+  api.get.mockImplementation(async(url:string,config?:any)=>{
+   if(url!=='/activities/me/history')return {data:payload(url)};
+   const {from,to,cursor}=config.params;
+   if(from.startsWith('2026-10')){expect(cursor).toBeUndefined();return {data:{items:[],nextCursor:null}};}
+   expect([from,to]).toEqual(['2026-11-01T05:00:00.000Z','2026-12-01T05:00:00.000Z']);
+   if(cursor){expect(cursor).toBe('nov-page-2');if(failPage)throw Error('next page failed');}
+   return {data:cursor?{items:[classItem('Clase segunda')],nextCursor:null}:{items:[classItem('Clase primera')],nextCursor:'nov-page-2'}};
+  });
+  const {tree}=await mount(MemberPortalPage,{section:'classes'});
+  const section=()=>history(tree,'Historial de mis clases');
+  expect(visible(tree)).toContain('Clase primera');expect(visible(tree)).toContain('Actividad y sucursal no disponibles');
+  expect(visible(tree)).toContain('Reserva: Asististe');expect(visible(tree)).toContain('importe acordado');
+  await run(buttonIn(section(),'Cargar más'));
+  expect(visible(tree)).toContain('Clase primera');expect(visible(tree)).toContain('No pudimos cargar más registros');
+  expect(visible(tree)).not.toContain('No tienes clases en este mes');
+  failPage=false;await run(buttonIn(section(),'Reintentar cargar más'));
+  expect(visible(tree)).toContain('Clase primera');expect(visible(tree)).toContain('Clase segunda');
+  expect(buttonIn(section(),'Cargar más')).toBeUndefined();
+  const month=()=>tree.root.findAllByType('input').find((node:any)=>node.props.type==='month');
+  await change(month(),'2026-10');
+  expect(visible(tree)).toContain('No tienes clases en este mes');expect(visible(tree)).not.toContain('Clase primera');
+  await change(month(),'2026-11');
+  expect(visible(tree)).toContain('Clase primera');expect(visible(tree)).not.toContain('Clase segunda');
+  expect(api.get.mock.calls.filter(([u])=>u==='/activities/me/history').at(-1)?.[1]?.params.cursor).toBeUndefined();
+ });
+
+ it('a failed first class-history page is not shown as an empty month',async()=>{
+  failures.add('/activities/me/history');const {tree}=await mount(MemberPortalPage,{section:'classes'});
+  expect(visible(tree)).toContain('No pudimos cargar el historial de clases');
+  expect(visible(tree)).not.toContain('No tienes clases en este mes');
+  expect(visible(tree)).toContain('No hay próximas clases publicadas');
+ });
+
+ it('payment histories keep receipts, separate filters and first-page errors, and retry a later failure',async()=>{
+  let failNext=true;
+  api.get.mockImplementation(async(url:string,config?:any)=>{
+   if(url!=='/member-payments/me')return {data:payload(url)};
+   const {kind,status,cursor}=config.params;
+   if(kind==='other')throw Error('other unavailable');
+   if(status){expect(cursor).toBeUndefined();return {data:{payments:[payment('Anulado','voided')],nextCursor:null}};}
+   if(cursor&&failNext)throw Error('next page failed');
+   return {data:cursor?{payments:[payment('B','refunded')],nextCursor:null}:{payments:[payment('A')],nextCursor:'more'}};
+  });
+  const {tree}=await mount(MemberPaymentsPage,{});
+  const section=()=>history(tree,'Historial de pagos');
+  expect(visible(tree)).toContain('Ver recibo A');expect(visible(tree)).toContain('No pudimos cargar otros pagos registrados');
+  expect(visible(tree)).not.toContain('Todavía no hay otros pagos');
+  await run(buttonIn(section(),'Cargar más'));expect(visible(tree)).toContain('Ver recibo A');expect(visible(tree)).toContain('No pudimos cargar más registros');
+  failNext=false;await run(buttonIn(section(),'Reintentar cargar más'));
+  expect(visible(tree)).toContain('Ver recibo B');expect(visible(tree)).toContain('Reembolsado');
+  await change(section().findByType('select'),'voided');
+  expect(visible(tree)).toContain('Ver recibo Anulado');expect(visible(tree)).not.toContain('Ver recibo B');
+  await change(section().findByType('select'),'');
+  expect(visible(tree)).toContain('Ver recibo A');expect(visible(tree)).not.toContain('Ver recibo B');
+ });
+
+ it('review status changes revalidate all loaded request pages with fresh cursors and keep older proofs reachable',async()=>{
+  const pending={id:'pending',status:'pending',channel:'fitlab',plan_snapshot:{name:'En revisión'},amount:30,currency:'USD',created_at:'2026-11-01'};
+  let reviewed=false;
+  const requestPage=(cursor?:string)=>cursor
+   ? {items:[{...pending,id:'old',status:'rejected',plan_snapshot:{name:`Anterior ${cursor}`}}],nextCursor:null}
+   : {items:[reviewed?{...pending,status:'approved',plan_snapshot:{name:'Ya aprobada'}}:pending],nextCursor:reviewed?'updated':'original'};
+  api.get.mockImplementation(async(url:string,config?:any)=>({data:url==='/membership-payment-requests/me'
+   ?{...payload(url),activeRequest:reviewed?null:pending}:url==='/membership-payment-requests/me/history'
+   ?requestPage(config?.params.cursor):url.endsWith('/old/proof')?{url:'https://proof.invalid/signed'}:payload(url)}));
+  const {tree,client}=await mount(MemberPaymentsPage,{});
+  const section=()=>history(tree,'Mis solicitudes');
+  await run(buttonIn(section(),'Cargar más'));
+  expect(visible(tree)).toContain('Anterior original');expect(visible(tree)).toContain('Pago en revisión');
+  reviewed=true;
+  await act(async()=>{await client.refetchQueries({queryKey:['my-membership-payments']});});await flush();await flush();
+  expect(visible(tree)).toContain('Ya aprobada');expect(visible(tree)).toContain('Anterior updated');
+  expect(visible(tree)).not.toContain('Anterior original');expect(visible(tree)).not.toContain('Pago en revisión');
+  const oldRow=section().findAllByType('article').find((row:any)=>text(row).includes('Anterior updated'));
+  await run(buttonIn(oldRow,'Comprobante'));
+  expect(visible(tree)).toContain('Descargar comprobante');
+  expect(api.get.mock.calls.filter(([u])=>u==='/membership-payment-requests/me/history').map(([,c])=>c.params.cursor)).toEqual([undefined,'original',undefined,'updated']);
+ });
 });
 
 describe('FIT-MEMBER-018 membership coverage in both real views',()=>{

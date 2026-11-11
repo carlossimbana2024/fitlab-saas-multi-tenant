@@ -21,7 +21,7 @@ function load(file:string){
      if(session?.user.id===userId)session={...session,gymUser:{...session.gymUser,profiles:{...session.gymUser.profiles,full_name:profile.fullName,phone:profile.phone||null}}};
    }})};
    if(id==='@tanstack/react-query')return {...req(id),useMutation:(options:any)=>{const mutation=req(id).useMutation(options);mutations.set(options.mutationFn.toString(),mutation);return mutation;}};
-   if(['membershipCoverage','currentPortalDate','currentWeeklyProgress','portalTime','classScheduleHours','branchOpenStatus','memberQueryInvalidation'].some(name=>id===`../utils/${name}`||id===`./${name}`))return load(`utils/${id.split('/').at(-1)}.ts`);
+   if(['membershipCoverage','currentPortalDate','currentWeeklyProgress','portalTime','classScheduleHours','branchOpenStatus','memberQueryInvalidation','memberHistory'].some(name=>id===`../utils/${name}`||id===`./${name}`))return load(`utils/${id.split('/').at(-1)}.ts`);
    if(id==='../components/BranchOpenStatus')return load('components/BranchOpenStatus.tsx');
    if(id==='../components/QueryFeedback')return load('components/QueryFeedback.tsx');
    if(id==='../components/MemberAccountDialog')return load('components/MemberAccountDialog.tsx');
@@ -59,6 +59,7 @@ describe('FIT-MEMBER-015 real mutation integration',()=>{
    :url==='/calendar'?{hours:[],exceptions:[],location:{timezone:'America/Guayaquil'}}
    :url.endsWith('/rankings')?ranking()
    :url==='/members/me/community'?{items:[],hasMore:false,nextCursor:null}
+   :url==='/activities/me/history'?{items:[],nextCursor:null}
    :{memberships:[],attendances:[],streaks:[],progress:[],schedules:[],announcements:[]}}));
   api.post.mockImplementation(async()=>{weight=84;return {data:{}};});
   api.put.mockImplementation(async()=>{goal='gain_weight';return {data:{}};});
@@ -122,7 +123,7 @@ describe('FIT-MEMBER-015 real mutation integration',()=>{
  it('E/F: reserve and cancel reconcile both upcoming Home/Classes and history, not attendance or branch',async()=>{
   setup();const {client}=await mount(MemberPortalPage,{section:'classes'});
   const key=client.getQueryCache().findAll({queryKey:['my-activities','upcoming']})[0].queryKey;
-  let booked=false;api.get.mockImplementation(async(url:string)=>({data:url==='/activities'?{schedules:[{id:'class',starts_at:'2099-01-01T12:00Z',ends_at:'2099-01-01T13:00Z',status:'scheduled',activity:{name:'Boxeo',billing_mode:'included'},location:{name:'Branch',timezone:'America/Guayaquil'},capacity:1,available:booked?0:1,myBooking:booked?{id:'booking',status:'reserved'}:null}]}:{}}));
+  let booked=false;api.get.mockImplementation(async(url:string)=>({data:url==='/activities'?{schedules:[{id:'class',starts_at:'2099-01-01T12:00Z',ends_at:'2099-01-01T13:00Z',status:'scheduled',activity:{name:'Boxeo',billing_mode:'included'},location:{name:'Branch',timezone:'America/Guayaquil'},capacity:1,available:booked?0:1,myBooking:booked?{id:'booking',status:'reserved'}:null}]}:{items:[],nextCursor:null}}));
   api.post.mockImplementation(async()=>{booked=true;return {data:{}};});api.patch.mockImplementation(async()=>{booked=false;return {data:{}};});
   const before=client.getQueryCache().findAll({queryKey:['my-attendances']})[0].state.dataUpdatedAt;
   await act(async()=>{await action('/bookings/self').mutateAsync('class');});await flush();
@@ -130,19 +131,20 @@ describe('FIT-MEMBER-015 real mutation integration',()=>{
   await act(async()=>{await action('/cancel-self').mutateAsync('booking');});await flush();
   expect(client.getQueryData(key).schedules[0].myBooking).toBeNull();expect(client.getQueryData(key).schedules[0].available).toBe(1);
   expect(client.getQueryCache().findAll({queryKey:['my-attendances']})[0].state.dataUpdatedAt).toBe(before);
+  expect(api.get.mock.calls.filter(([u])=>u==='/activities/me/history')).toHaveLength(3);
  });
  it.each(['/waitlist/self','Salida o rechazo','/accept-self'])('waitlist action %s refreshes upcoming + history only after confirmation',async fragment=>{
-  setup();const {client}=await mount(MemberPortalPage,{section:'classes'});const before=api.get.mock.calls.filter(([u])=>u==='/activities').length;
+  setup();const {client}=await mount(MemberPortalPage,{section:'classes'});const before=api.get.mock.calls.filter(([u])=>u==='/activities'||u==='/activities/me/history').length;
   api.post.mockResolvedValue({data:{}});api.patch.mockResolvedValue({data:{waitlist:{state:'cancelled'}}});
   await act(async()=>{await action(fragment).mutateAsync('id');});await flush();
-  expect(api.get.mock.calls.filter(([u])=>u==='/activities').length-before).toBe(2);
+  expect(api.get.mock.calls.filter(([u])=>u==='/activities'||u==='/activities/me/history').length-before).toBe(2);
   expect(client.getQueryCache().findAll({queryKey:['my-progress']})[0].state.data.currentWeightKg).toBe(85);
  });
  it.each([false,true])('failed class mutation: known conflict=%s reconciles only if authoritative state may have changed',async conflict=>{
-  setup();const {tree}=await mount(MemberPortalPage,{section:'classes'});const before=api.get.mock.calls.filter(([u])=>u==='/activities').length;
+  setup();const {tree}=await mount(MemberPortalPage,{section:'classes'});const before=api.get.mock.calls.filter(([u])=>u==='/activities'||u==='/activities/me/history').length;
   api.post.mockRejectedValueOnce(conflict?{response:{status:409,data:{error:{code:'CLASS_WAITLIST_OFFER_EXPIRED'}}}}:new Error('network'));
   await act(async()=>{await action('/bookings/self').mutateAsync('id').catch(()=>{});});await flush();
-  expect(api.get.mock.calls.filter(([u])=>u==='/activities').length-before).toBe(conflict?2:0);
+  expect(api.get.mock.calls.filter(([u])=>u==='/activities'||u==='/activities/me/history').length-before).toBe(conflict?2:0);
   expect(text(tree)).not.toContain('Reserva confirmada');
  });
  it('FIT-MEMBER-017 avatar retry reuses uploaded path and invalidates identity only after association',async()=>{

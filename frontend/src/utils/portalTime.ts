@@ -18,12 +18,12 @@ export function formatBranchInstant(value: string, timezone: string | null | und
   if (!timezone) return 'Zona horaria de sucursal no disponible';
   return new Intl.DateTimeFormat('es-EC', { ...options, timeZone: timezone }).format(new Date(value));
 }
-export function monthInstants(month: string, timezone: string) {
+export function monthInstants(month: string, timezone: string, exclusiveEnd = false) {
   const [year, number] = month.split('-').map(Number);
   const next = new Date(Date.UTC(year!, number!, 1)).toISOString().slice(0, 7);
   return {
     from: new Date(civilDayStart(month + '-01', timezone)).toISOString(),
-    to: new Date(civilDayStart(next + '-01', timezone) - 1).toISOString(),
+    to: new Date(civilDayStart(next + '-01', timezone) - (exclusiveEnd ? 0 : 1)).toISOString(),
   };
 }
 

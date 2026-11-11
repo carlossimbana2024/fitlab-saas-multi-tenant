@@ -4,6 +4,7 @@ import { supabaseAdmin } from '../config/supabase.js';
 import { AppError } from '../errors/AppError.js';
 import { paymentProofHash, paymentProofMimeType } from '../security/paymentProof.js';
 import { fromSupabaseError } from '../utils/supabaseError.js';
+import { historyCursorFilter, historyCursorParam, historyPage, MEMBER_HISTORY_PAGE_SIZE, parseHistoryInput } from '../utils/memberHistoryPagination.js';
 import { membershipPaymentSettingsSchema, prepareMembershipPaymentSchema, reviewMembershipPaymentSchema, submitMembershipPaymentSchema } from '../validators/membershipPaymentRequest.validator.js';
 
 const bucket = 'membership-payment-proofs';
@@ -28,11 +29,16 @@ function noStore(response: Response) { response.setHeader('Cache-Control', 'no-s
 export async function getMyMembershipPayments(request: Request, response: Response) {
   member(request);
   const { g, actor } = context(request);
+  const summary = request.query.view === 'summary';
+  const ownRequests = supabaseAdmin.from('membership_payment_requests').select(requestFields).eq('gym_id', g).eq('member_user_id', actor);
   const results = await Promise.all([
     supabaseAdmin.from('memberships').select('id,plan_id,status,price_at_purchase,currency,plans(id,name,price,currency,duration_unit,duration_value,is_active),membership_periods(starts_on,ends_on,status)')
       .eq('gym_id', g).eq('member_user_id', actor).neq('status', 'cancelled').order('created_at', { ascending: false }).limit(50),
-    supabaseAdmin.from('membership_payment_requests').select(requestFields).eq('gym_id', g).eq('member_user_id', actor).order('created_at', { ascending: false }).limit(100),
-    supabaseAdmin.from('member_payments').select('id,amount,currency,payment_method,status,paid_at,receipt_number,receipt_verification_token,membership_periods(starts_on,ends_on,status)')
+    // An open request must not disappear from the form because of historical volume.
+    summary ? ownRequests.in('status', ['pending', 'revision_requested']).maybeSingle()
+      : ownRequests.order('created_at', { ascending: false }).order('id', { ascending: false }).limit(100),
+    // Retain the unversioned response for an already loaded frontend during rollout.
+    summary ? Promise.resolve({ data: null, error: null }) : supabaseAdmin.from('member_payments').select('id,amount,currency,payment_method,status,paid_at,receipt_number,receipt_verification_token,membership_periods(starts_on,ends_on,status)')
       .eq('gym_id', g).eq('member_user_id', actor).not('membership_id', 'is', null).order('paid_at', { ascending: false }).limit(100),
     request.tenant!.defaultLocationId ? supabaseAdmin.from('membership_payment_settings').select('enabled,instructions,methods').eq('gym_id', g).eq('location_id', request.tenant!.defaultLocationId).maybeSingle() : Promise.resolve({ data: null, error: null }),
     supabaseAdmin.from('gyms').select('name,timezone,whatsapp_phone').eq('id', g).single(),
@@ -45,12 +51,30 @@ export async function getMyMembershipPayments(request: Request, response: Respon
     .eq('gym_id', g).eq('is_active', true).gt('price', 0).order('name');
   check(plans.error);
   noStore(response);
-  response.json({ memberships: memberships.data, requests: requests.data, payments: payments.data,
+  response.json({ memberships: memberships.data,
+    ...(summary ? { activeRequest: requests.data } : { requests: requests.data, payments: payments.data }),
     plans: (plans.data ?? []).filter((p) => !current || p.id === current.plan_id),
     settings: location.data?.is_active && settings.data ? settings.data : { enabled: false, instructions: '', methods: [] },
     gym: { name: gym.data!.name, timezone: gym.data!.timezone }, location: location.data?.name ?? null,
     whatsappPhone: location.data?.whatsapp_phone?.trim() || gym.data!.whatsapp_phone || null,
   });
+}
+
+export async function listMyMembershipPaymentRequests(request: Request, response: Response) {
+  member(request);
+  const { g, actor } = context(request);
+  const { status, cursor } = parseHistoryInput(z.object({
+    status: z.enum(['pending', 'revision_requested', 'approved', 'rejected', 'cancelled']).optional(),
+    cursor: historyCursorParam,
+  }), request.query);
+  let query = supabaseAdmin.from('membership_payment_requests').select(requestFields)
+    .eq('gym_id', g).eq('member_user_id', actor).neq('status', 'draft');
+  if (status) query = query.eq('status', status);
+  if (cursor) query = query.or(historyCursorFilter(cursor, 'created_at'));
+  const { data, error } = await query.order('created_at', { ascending: false }).order('id', { ascending: false }).limit(MEMBER_HISTORY_PAGE_SIZE + 1);
+  check(error);
+  noStore(response);
+  response.json(historyPage(data ?? [], row => row.created_at));
 }
 
 export async function getMembershipPaymentSettings(request: Request, response: Response) {

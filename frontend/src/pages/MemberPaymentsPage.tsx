@@ -1,11 +1,12 @@
-import { QueryFeedback } from '../components/QueryFeedback';
+import { HistoryPageFeedback, QueryFeedback } from '../components/QueryFeedback';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CreditCard, FileText, LoaderCircle, MessageCircle, Upload } from 'lucide-react';
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { api, apiErrorMessage } from '../services/api';
 import { summarizeMembershipCoverage } from '../utils/membershipCoverage';
+import { useMemberHistory, type HistoryPage } from '../utils/memberHistory';
 import { refreshMemberQueries } from '../utils/memberQueryInvalidation';
 import { portalDate, useCurrentPortalDate } from '../utils/currentPortalDate';
 import { gymTimezone } from '../utils/portalTime';
@@ -15,17 +16,38 @@ import '../membership-payments.css';
 
 type PortalPayments = {
   memberships: Array<{ id: string; plan_id: string; status: string; plans?: MembershipPaymentPlan; membership_periods: Array<{ starts_on: string; ends_on: string; status: string }> }>;
-  plans: MembershipPaymentPlan[]; requests: MembershipPaymentRequest[];
-  payments: Array<{ id: string; amount: number; currency: string; payment_method: string; status: string; paid_at: string; receipt_number: number; receipt_verification_token: string }>;
+  plans: MembershipPaymentPlan[]; activeRequest: MembershipPaymentRequest | null;
   settings: { enabled: boolean; instructions: string; methods: string[] };
   gym: { name: string; timezone: string }; location: string | null; whatsappPhone: string | null;
 };
+type PaymentHistoryRow = { id: string; amount: number; currency: string; payment_method: string; status: string; paid_at: string; receipt_number: number | null; receipt_verification_token: string | null };
+const requestStatuses = ['pending', 'revision_requested', 'approved', 'rejected', 'cancelled'];
+const paymentStatuses = ['pending', 'confirmed', 'voided', 'refunded', 'failed'];
+const historyStatusLabel = (status: string) => statuses[status] ?? (status === 'failed' ? 'Fallido' : status);
+
+function PaymentHistorySection<T extends { id: string }>({ queryKey, title, label, empty, options, load, render }: {
+  queryKey: readonly unknown[]; title: string; label: string; empty: string; options: string[];
+  load: (status: string | undefined, cursor: string | null, signal: AbortSignal) => Promise<HistoryPage<T>>;
+  render: (row: T) => ReactNode;
+}) {
+  const [status, setStatus] = useState('');
+  const history = useMemberHistory([...queryKey, status], true, (cursor, signal) => load(status || undefined, cursor, signal));
+  const rows = history.data?.pages.flatMap(page => page.items);
+  return <section className="panel"><h2>{title}</h2>
+    <label>Estado <select aria-label={`Estado: ${title}`} value={status} onChange={event => setStatus(event.target.value)}>
+      <option value="">Todos</option>{options.map(option => <option key={option} value={option}>{historyStatusLabel(option)}</option>)}
+    </select></label>
+    {rows && (rows.length ? <div className="portal-history">{rows.map(render)}</div> : !history.isError && <p>{status ? 'No hay registros con este estado.' : empty}</p>)}
+    <HistoryPageFeedback query={history} label={label}/>
+  </section>;
+}
 
 export function MemberPaymentsPage() {
   const { session } = useAuth();
   const client = useQueryClient();
-  const query = useQuery({ queryKey: ['my-membership-payments', session?.gymUser?.id], queryFn: async () => (await api.get<PortalPayments>('/membership-payment-requests/me')).data, staleTime: 0, refetchInterval: 30_000 });
-  const otherPayments=useQuery({queryKey:['my-payments'],queryFn:async()=>(await api.get<{payments:Array<{id:string;amount:number;currency:string;payment_method:string;status:string;paid_at:string}>}>('/member-payments/me')).data.payments});
+  const gymId = session?.gymUser?.gym_id;
+  const memberId = session?.gymUser?.id;
+  const query = useQuery({ queryKey: ['my-membership-payments', memberId], queryFn: async () => (await api.get<PortalPayments>('/membership-payment-requests/me', { params: { view: 'summary' } })).data, staleTime: 0, refetchInterval: 30_000 });
   const [planId, setPlanId] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [channel, setChannel] = useState<'fitlab' | 'whatsapp'>('fitlab');
@@ -33,6 +55,19 @@ export function MemberPaymentsPage() {
   const [proofUrl, setProofUrl] = useState('');
   const [success, setSuccess] = useState(false);
   const data = query.data;
+  const activeRequest = data?.activeRequest;
+  const activeRequestKey = activeRequest ? `${activeRequest.id}:${activeRequest.status}` : '';
+  const lastReview = useRef<{ gymId?: string; memberId?: string; key: string } | null>(null);
+  useEffect(() => {
+    if (!data) return;
+    const previous = lastReview.current;
+    lastReview.current = { gymId, memberId, key: activeRequestKey };
+    // If the existing summary refresh sees a review decision, refresh histories
+    // without polling every loaded page on each summary tick.
+    if (previous && previous.gymId === gymId && previous.memberId === memberId && previous.key !== activeRequestKey) {
+      void refreshMemberQueries(client, { gymId, memberId }, 'paymentHistory');
+    }
+  }, [data, activeRequestKey, client, gymId, memberId]);
   const coverageToday = useCurrentPortalDate(gymTimezone(session?.gymUser?.gym?.timezone), session?.gymUser?.gym_id);
   const paymentToday = portalDate(Date.now(), gymTimezone(data?.gym.timezone));
   useEffect(() => {
@@ -68,8 +103,8 @@ export function MemberPaymentsPage() {
   if (data === undefined) return <QueryFeedback query={query} label="tu membresía y pagos"/>;
   const { membership, period, label } = summarizeMembershipCoverage(data.memberships, coverageToday);
   const shownMembership = membership ?? data.memberships[0];
-  const pending = data!.requests.find((r) => r.status === 'pending');
-  const revision = data!.requests.find((r) => r.status === 'revision_requested');
+  const pending = activeRequest?.status === 'pending' ? activeRequest : undefined;
+  const revision = activeRequest?.status === 'revision_requested' ? activeRequest : undefined;
   const phone = gymWhatsAppNumber(data!.whatsappPhone);
   const onSubmit = (event: FormEvent) => { event.preventDefault(); setSuccess(false); setProofUrl(''); submit.mutate(); };
   return <div className="member-payment-page"><QueryFeedback query={query} label="tu membresía y pagos"/>
@@ -96,10 +131,17 @@ export function MemberPaymentsPage() {
     </section>}
     {(cancel.isError || proof.isError) && <p className="alert error">{apiErrorMessage(cancel.error ?? proof.error)}</p>}
     {proofUrl && <a className="small-button" href={proofUrl} target="_blank" rel="noreferrer">Descargar comprobante · enlace válido por 1 minuto</a>}
-    <section className="panel"><h2>Mis solicitudes</h2><div className="portal-history">{data!.requests.filter((r) => r.status !== 'draft').map((r) => <article key={r.id}><div><strong>{r.plan_snapshot.name} · {membershipMoney(r.amount, r.currency)}</strong><small>{r.paid_on ?? r.created_at.slice(0, 10)} · {r.method ? methods[r.method] : ''}</small>{r.review_reason && <p>{r.review_reason}</p>}</div><div><span className={`badge ${r.status}`}>{statuses[r.status]}</span>{r.channel === 'fitlab' && <button className="small-button" disabled={proof.isPending} onClick={() => proof.mutate(r.id)}><FileText/>Comprobante</button>}</div></article>)}</div>{!data!.requests.some((r) => r.status !== 'draft') && <p>Todavía no has presentado solicitudes.</p>}</section>
-    <section className="panel"><h2>Historial de pagos</h2><div className="portal-history">{data!.payments.map((p) => <article key={p.id}><div><strong>{membershipMoney(p.amount, p.currency)}</strong><small>{new Date(p.paid_at).toLocaleDateString('es-EC', { timeZone: data!.gym.timezone })} · {methods[p.payment_method] ?? p.payment_method}</small></div><div><span className={`badge ${p.status}`}>{statuses[p.status] ?? p.status}</span><Link className="small-button" to={`/receipt/verify/${p.receipt_verification_token}`}>Ver recibo {p.receipt_number}</Link></div></article>)}</div>{!data!.payments.length && <p>Todavía no hay pagos de membresía en este historial.</p>}</section>
-    <QueryFeedback query={otherPayments} label="otros pagos registrados"/>
-    {otherPayments.data?.some(payment=>!data!.payments.some(item=>item.id===payment.id))&&<section className="panel"><h2>Otros pagos registrados</h2><div className="portal-history">{otherPayments.data.filter(payment=>!data!.payments.some(item=>item.id===payment.id)).map(payment=><article key={payment.id}><div><strong>{membershipMoney(payment.amount,payment.currency)}</strong><small>{methods[payment.payment_method]??payment.payment_method} · {new Date(payment.paid_at).toLocaleDateString('es-EC',{timeZone:data!.gym.timezone})}</small></div><span className={`badge ${payment.status}`}>{statuses[payment.status]??payment.status}</span></article>)}</div></section>}
+    <PaymentHistorySection<MembershipPaymentRequest> queryKey={['my-payment-requests-history', gymId, memberId]} title="Mis solicitudes" label="tus solicitudes" empty="Todavía no has presentado solicitudes." options={requestStatuses}
+      load={async (status, cursor, signal) => (await api.get<HistoryPage<MembershipPaymentRequest>>('/membership-payment-requests/me/history', { params: { status, cursor: cursor ?? undefined }, signal })).data}
+      render={r => <article key={r.id}><div><strong>{r.plan_snapshot.name} · {membershipMoney(r.amount, r.currency)}</strong><small>{r.paid_on ?? r.created_at.slice(0, 10)} · {r.method ? methods[r.method] : ''}</small>{r.review_reason && <p>{r.review_reason}</p>}</div><div><span className={`badge ${r.status}`}>{statuses[r.status] ?? r.status}</span>{r.channel === 'fitlab' && <button className="small-button" disabled={proof.isPending} onClick={() => proof.mutate(r.id)}><FileText/>Comprobante</button>}</div></article>}/>
+    {(['membership', 'other'] as const).map(kind => <PaymentHistorySection<PaymentHistoryRow> key={kind} queryKey={['my-payments-history', gymId, memberId, kind]}
+      title={kind === 'membership' ? 'Historial de pagos' : 'Otros pagos registrados'} label={kind === 'membership' ? 'el historial de pagos' : 'otros pagos registrados'}
+      empty={kind === 'membership' ? 'Todavía no hay pagos de membresía en este historial.' : 'Todavía no hay otros pagos registrados.'} options={paymentStatuses}
+      load={async (status, cursor, signal) => {
+        const { data: page } = await api.get<{ payments: PaymentHistoryRow[]; nextCursor: string | null }>('/member-payments/me', { params: { kind, status, cursor: cursor ?? undefined }, signal });
+        return { items: page.payments, nextCursor: page.nextCursor };
+      }}
+      render={p => <article key={p.id}><div><strong>{membershipMoney(p.amount, p.currency)}</strong><small>{new Date(p.paid_at).toLocaleDateString('es-EC', { timeZone: data.gym.timezone })} · {methods[p.payment_method] ?? p.payment_method}</small></div><div><span className={`badge ${p.status}`}>{historyStatusLabel(p.status)}</span>{kind === 'membership' && p.receipt_verification_token && <Link className="small-button" to={`/receipt/verify/${p.receipt_verification_token}`}>Ver recibo {p.receipt_number}</Link>}</div></article>}/>)}
     <GymContactCard/>
   </div>;
 }

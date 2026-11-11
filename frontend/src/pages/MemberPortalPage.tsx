@@ -1,5 +1,6 @@
 import { WeightMaintenanceSummary, type WeightMaintenance } from '../components/WeightMaintenanceSummary';
-import { QueryFeedback } from '../components/QueryFeedback';
+import { HistoryPageFeedback, QueryFeedback } from '../components/QueryFeedback';
+import { useMemberHistory, type HistoryPage } from '../utils/memberHistory';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Activity, Bell, CalendarCheck, CheckCircle2, ChevronRight, Clock3, CreditCard, Dumbbell, Flame, Gift, LoaderCircle, Pencil, ShieldCheck, UserRound, UsersRound, X } from 'lucide-react';
 import { useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
@@ -39,6 +40,10 @@ type Calendar = { gym: { name: string; email?: string | null; phone?: string | n
 type PortalClassBooking = ClassBookingEconomics & { id: string; status: 'reserved' | 'attended' | 'cancelled' | 'no_show'; payment_id?: string | null };
 type PortalClassSchedule = { id: string; starts_at: string; ends_at: string; status: string; occupied: number; capacity: number; available: number; isFull: boolean; offeredCount?: number; activity: { name: string; description?: string | null; billing_mode: 'included' | 'additional_fee'; price: number; currency: string; duration_minutes: number; is_active?: boolean } | null; location: { name: string; timezone?: string; is_active?: boolean } | null; referenceState?: string; instructor?: { name: string } | null; myBooking?: PortalClassBooking | null; myWaitlist?: ClassWaitlistEntry | null };
 type PortalActivities = { schedules: PortalClassSchedule[]; serverTime?: string; offersEnabled?: boolean; receivedAt?: number };
+type ClassHistoryItem = Pick<PortalClassSchedule, 'id' | 'starts_at' | 'ends_at' | 'status' | 'location' | 'instructor' | 'myBooking'> & {
+  activity: Pick<NonNullable<PortalClassSchedule['activity']>, 'name' | 'is_active'> | null;
+  myWaitlist?: Pick<ClassWaitlistEntry, 'status'> | null;
+};
 type FitnessGoal = 'lose_weight' | 'gain_weight' | 'build_muscle' | 'improve_fitness' | 'maintain_weight' | 'general_wellness';
 type FitnessProfile = {
   id: string;
@@ -170,9 +175,13 @@ export function MemberPortalPage({ section }: { section: PortalSection }) {
   const weekly = useQuery({ queryKey: ['my-weekly-progress', today, timezone, session?.gymUser?.gym_id], queryFn: async () => (await api.get<{ progress: WeeklyProgress[] }>('/attendances/weekly-progress')).data.progress });
   const [selectedHistoryMonth,setClassHistoryMonth] = useState<string | null>(null);
   const classHistoryMonth = selectedHistoryMonth ?? range.from.slice(0,7);
-  const historyClasses = useQuery({queryKey:['my-activities','history',classHistoryMonth,timezone,session?.gymUser?.gym_id],enabled:section==='classes',queryFn:async()=>{
-    return (await api.get<PortalActivities>('/activities',{params:monthInstants(classHistoryMonth,timezone)})).data;
-  }});
+  const historyClasses = useMemberHistory(
+    ['my-activities', 'history', classHistoryMonth, timezone, session?.gymUser?.gym_id, session?.gymUser?.id],
+    section === 'classes' && Boolean(session?.gymUser),
+    async (cursor, signal) => (await api.get<HistoryPage<ClassHistoryItem>>('/activities/me/history', {
+      params: { ...monthInstants(classHistoryMonth, timezone, true), cursor: cursor ?? undefined }, signal,
+    })).data,
+  );
   const classesQueryKey = ['my-activities', 'upcoming', today, timezone, session?.gymUser?.gym_id] as const;
   const classes = useQuery({
     queryKey: classesQueryKey,
@@ -296,8 +305,13 @@ export function MemberPortalPage({ section }: { section: PortalSection }) {
     </div>}
 
     {section === 'classes' && <section className="panel portal-classes"><div className="panel-title"><div><h2>Actividades y clases</h2><p>Reserva desde aquí. Las actividades adicionales se pagan presencialmente en recepción.</p></div><Dumbbell/></div>{Boolean(mutationError) && <div className="alert error" role="alert">{apiErrorMessage(mutationError)}</div>}{classNotice && <p role="status">{classNotice}</p>}<QueryFeedback query={classes} label="tus próximas clases"/>{classes.data !== undefined && (upcomingClasses.length ? <><div className="portal-class-section-heading"><strong>Mis reservas</strong><span>{upcomingReservations.length ? 'Tu cupo ya está guardado.' : 'Todavía no tienes próximas reservas.'}</span></div>{upcomingReservations.length > 0 && <div className="portal-class-grid">{upcomingReservations.map((item) => <ClassCard key={item.id} schedule={item} membership={membership} reservePending={reserveClass.isPending} cancelPending={cancelClass.isPending} waitlistPending={joinWaitlist.isPending} leavePending={leaveWaitlist.isPending} offerPending={acceptOffer.isPending} serverTime={classes.data?.serverTime} receivedAt={classes.data?.receivedAt} offersEnabled={classes.data?.offersEnabled} onAcceptOffer={offerId => acceptOffer.mutate(offerId)} onOfferRefresh={refreshExpiredOffer} onReserve={() => reserveClass.mutate(item.id)} onCancel={() => item.myBooking && cancelClass.mutate(item.myBooking.id)} onJoinWaitlist={() => joinWaitlist.mutate(item.id)} onLeaveWaitlist={() => item.myWaitlist && leaveWaitlist.mutate(item.myWaitlist.id)}/>)}</div>}<div className="portal-class-section-heading"><strong>Clases disponibles</strong><span>Elige una fecha y confirma tu cupo.</span></div><div className="portal-class-grid">{availableClasses.map((item) => <ClassCard key={item.id} schedule={item} membership={membership} reservePending={reserveClass.isPending} cancelPending={cancelClass.isPending} waitlistPending={joinWaitlist.isPending} leavePending={leaveWaitlist.isPending} offerPending={acceptOffer.isPending} serverTime={classes.data?.serverTime} receivedAt={classes.data?.receivedAt} offersEnabled={classes.data?.offersEnabled} onAcceptOffer={offerId => acceptOffer.mutate(offerId)} onOfferRefresh={refreshExpiredOffer} onReserve={() => reserveClass.mutate(item.id)} onCancel={() => item.myBooking && cancelClass.mutate(item.myBooking.id)} onJoinWaitlist={() => joinWaitlist.mutate(item.id)} onLeaveWaitlist={() => item.myWaitlist && leaveWaitlist.mutate(item.myWaitlist.id)}/>)}</div></> : <div className="empty compact"><Dumbbell/><strong>No hay próximas clases publicadas</strong><span>Cuando el gimnasio programe una actividad aparecerá aquí.</span></div>)}</section>}
-    {section === 'classes' && <section className="panel portal-classes"><h2>Historial de mis clases</h2><label>Mes <input type="month" value={classHistoryMonth} onChange={e=>{if(e.target.value)setClassHistoryMonth(e.target.value);}}/></label>
-    <QueryFeedback query={historyClasses} label="el historial de clases"/>{historyClasses.data !== undefined && <div className="portal-class-grid">{(historyClasses.data?.schedules??[]).filter(item=>(item.myBooking||item.myWaitlist)&&(new Date(item.starts_at).getTime()<=Date.now()||item.status!=='scheduled')).map(item=><UnavailableClass key={item.id} schedule={item}/>)}</div>}</section>}
+    {section === 'classes' && <section className="panel portal-classes"><h2>Historial de mis clases</h2>
+      <label>Mes <input type="month" value={classHistoryMonth} onChange={e=>{if(/^\d{4}-(0[1-9]|1[0-2])$/.test(e.target.value))setClassHistoryMonth(e.target.value);}}/></label>
+      {historyClasses.data && (historyClasses.data.pages[0]?.items.length
+        ? <div className="portal-class-grid">{historyClasses.data.pages.flatMap(page => page.items).map(item => <UnavailableClass key={item.id} schedule={item}/>)}</div>
+        : !historyClasses.isError && <p>No tienes clases en este mes.</p>)}
+      <HistoryPageFeedback query={historyClasses} label="el historial de clases"/>
+    </section>}
 
     {section === 'progress' && <><QueryFeedback query={progress} label="tu resumen"/>{progress.data !== undefined && <ProgressView range={range} days={days} firstOffset={firstOffset} membership={membership} currentWeek={currentWeek} streak={streak} attendances={attendances.data ?? []} progress={progress.data} progressLoading={false} calendarUnavailable={calendar.data === undefined || attendances.data === undefined} calendarFeedback={<><QueryFeedback query={calendar} label="el calendario"/><QueryFeedback query={attendances} label="tus asistencias"/></>} attendanceUnavailable={attendances.data === undefined} attendanceFeedback={<QueryFeedback query={attendances} label="tus asistencias"/>} weeklyUnavailable={memberships.data === undefined || (membership?.attendance_mode_snapshot === 'weekly' && weekly.data === undefined)} weeklyFeedback={<><QueryFeedback query={memberships} label="tu membresía"/>{membership?.attendance_mode_snapshot === 'weekly' && <QueryFeedback query={weekly} label="tu progreso semanal"/>}</>} onRecordWeight={() => { setWeightValue(progress.data?.currentWeightKg != null ? String(progress.data.currentWeightKg) : ''); setWeightDate(range.today); setRecordingWeight(true); }} />}</>}
 
@@ -327,14 +341,14 @@ function HomeAnnouncement({ announcement }: { announcement: GymAnnouncement }) {
   return <article className="gym-announcement"><small>{announcement.location_id ? 'Tu sucursal' : 'Todas las sucursales'} · {new Date(announcement.created_at).toLocaleDateString('es-EC', { timeZone: gymTimezone(session?.gymUser?.gym?.timezone) })}</small><p>{announcement.body}</p></article>;
 }
 
-function classReferenceIssue(s: PortalClassSchedule) {
+function classReferenceIssue(s: Pick<ClassHistoryItem, 'activity' | 'location'>) {
   if (!s.activity || !s.location) return 'Información de sesión incompleta. Consulta con recepción.';
   if (s.activity.is_active === false && s.location.is_active === false) return 'Actividad y sucursal no disponibles. No se aceptan nuevas reservas.';
   if (s.activity.is_active === false) return 'Actividad no disponible. No se aceptan nuevas reservas.';
   if (s.location.is_active === false) return 'Sucursal no disponible. No se aceptan nuevas reservas.';
   return null;
 }
-function UnavailableClass({schedule,children}:{schedule:PortalClassSchedule;children?:import('react').ReactNode}) {
+function UnavailableClass({schedule,children}:{schedule:ClassHistoryItem;children?:import('react').ReactNode}) {
   const labels: Record<string,string> = {scheduled:'Programada',completed:'Finalizada',cancelled:'Cancelada',reserved:'Confirmada',attended:'Asististe',no_show:'No asististe',waiting:'En espera',offered:'Ofrecida',expired:'Vencida',included:'Incluido',pending:'Pendiente',confirmed:'Confirmado',refunded:'Reembolsado',registered:'Registrado',resolution_required:'Condiciones pendientes de resolución en recepción',voided:'Anulado',failed:'Fallido'};
   return <article className="portal-class-summary"><div className="portal-class-info"><span className="eyebrow">{schedule.location?.name ?? 'Referencia de sucursal ausente'}</span><h3>{schedule.activity?.name ?? 'Referencia de actividad ausente'}</h3><p>{formatBranchInstant(schedule.starts_at, schedule.location?.timezone, { dateStyle: 'short', timeStyle: 'short' })} – {formatBranchInstant(schedule.ends_at, schedule.location?.timezone, { timeStyle: 'short' })} · {schedule.instructor?.name ?? 'Instructor por confirmar'} · {schedule.location?.timezone ?? 'Zona no disponible'}</p><p>Sesión: {labels[schedule.status] ?? schedule.status}</p>{classReferenceIssue(schedule) && <p role="status">{classReferenceIssue(schedule)}</p>}{schedule.myBooking && <p>Reserva: {labels[schedule.myBooking.status] ?? schedule.myBooking.status}</p>}{schedule.myBooking?.payment_state && <p>Pago: {labels[schedule.myBooking.payment_state] ?? schedule.myBooking.payment_state}</p>}{schedule.myBooking && <><ClassBookingConditions booking={schedule.myBooking}/>{schedule.myBooking.payment_state && <p>{classPaymentLabel(schedule.myBooking)}</p>}</>}{schedule.myWaitlist && <p>Lista de espera: {labels[schedule.myWaitlist.status] ?? schedule.myWaitlist.status}</p>}{children}</div></article>;
 }

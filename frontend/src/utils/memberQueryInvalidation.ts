@@ -1,7 +1,7 @@
 import type { QueryClient, QueryKey } from '@tanstack/react-query';
 
 export type MemberQueryContext = { gymId?: string; memberId?: string };
-export type MemberChange = 'weight' | 'fitness' | 'privacy' | 'identity' | 'social' | 'reaction' | 'attendance' | 'classes' | 'paymentRequest' | 'friendPreference' | 'friendAction' | 'trainingAction' | 'trainingPreference';
+export type MemberChange = 'weight' | 'fitness' | 'privacy' | 'identity' | 'social' | 'reaction' | 'attendance' | 'classes' | 'paymentRequest' | 'paymentHistory' | 'friendPreference' | 'friendAction' | 'trainingAction' | 'trainingPreference';
 const dependencies: Record<MemberChange, string[]> = {
   weight: ['my-progress', 'member-social-profile', 'member-community', 'member-community-rankings'],
   fitness: ['my-fitness-profile', 'my-progress', 'member-social-profile', 'member-community', 'member-community-rankings'],
@@ -11,7 +11,8 @@ const dependencies: Record<MemberChange, string[]> = {
   reaction: ['member-social-profile', 'member-community'],
   attendance: ['my-attendances', 'my-streak', 'my-weekly-progress', 'my-progress', 'member-social-profile', 'member-community', 'member-community-rankings', 'loyalty-engagement', 'member-training-social'],
   classes: ['my-activities'],
-  paymentRequest: ['my-membership-payments'],
+  paymentRequest: ['my-membership-payments', 'my-payment-requests-history', 'my-payments-history'],
+  paymentHistory: ['my-payment-requests-history', 'my-payments-history'],
   friendPreference: ['member-friends', 'member-friendship'],
   friendAction: ['member-friends', 'member-friendship', 'member-training-social', 'loyalty-engagement'],
   trainingAction: ['member-training-social', 'loyalty-engagement'],
@@ -22,9 +23,11 @@ function belongsToMember(key: QueryKey, context: MemberQueryContext) {
   switch (key[0]) {
     case 'member-community': case 'member-community-rankings': case 'my-progress': case 'loyalty-engagement':
       return key[1] === context.gymId && key[2] === context.memberId;
-    case 'my-activities': return key[4] === context.gymId;
+    case 'my-activities': return key[4] === context.gymId && (key[1] !== 'history' || key[5] === context.memberId);
     case 'my-weekly-progress': return key[3] === context.gymId;
     case 'my-membership-payments': return key[1] === context.memberId;
+    case 'my-payment-requests-history': case 'my-payments-history':
+      return key[1] === context.gymId && key[2] === context.memberId;
     // Personal legacy keys are isolated by AuthProvider's session cache lifecycle.
     default: return true;
   }

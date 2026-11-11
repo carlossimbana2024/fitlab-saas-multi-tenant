@@ -18,6 +18,7 @@ import {
   updateActivity,
 } from '../controllers/activity.controller.js';
 import { checkPermission } from '../middlewares/checkPermission.js';
+import { listMemberClassHistory } from '../controllers/memberClassHistory.controller.js';
 import { tenantContext } from '../middlewares/tenantContext.js';
 import { verifyJWT } from '../middlewares/verifyJWT.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
@@ -25,6 +26,7 @@ import { asyncHandler } from '../utils/asyncHandler.js';
 export const activityRouter = Router();
 activityRouter.use(verifyJWT, tenantContext);
 activityRouter.get('/', asyncHandler(listActivities));
+activityRouter.get('/me/history', asyncHandler(listMemberClassHistory));
 activityRouter.get('/summary', asyncHandler(getActivitySummary));
 activityRouter.post('/catalog', checkPermission('classes.manage'), asyncHandler(createActivity));
 activityRouter.put('/catalog/:id', checkPermission('classes.manage'), asyncHandler(updateActivity));

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { cancelMembershipPayment, getMembershipPaymentProof, getMembershipPaymentSettings, getMyMembershipPayments, listMembershipPaymentRequests, prepareMembershipPayment, reviewMembershipPayment, saveMembershipPaymentSettings, submitMembershipPayment } from '../controllers/membershipPaymentRequest.controller.js';
+import { cancelMembershipPayment, getMembershipPaymentProof, getMembershipPaymentSettings, getMyMembershipPayments, listMembershipPaymentRequests, listMyMembershipPaymentRequests, prepareMembershipPayment, reviewMembershipPayment, saveMembershipPaymentSettings, submitMembershipPayment } from '../controllers/membershipPaymentRequest.controller.js';
 import { checkPermission } from '../middlewares/checkPermission.js';
 import { databaseRateLimit } from '../middlewares/rateLimit.js';
 import { tenantContext } from '../middlewares/tenantContext.js';
@@ -11,6 +11,7 @@ export const membershipPaymentRequestRouter = Router();
 membershipPaymentRequestRouter.use(verifyJWT, tenantContext);
 const writes = databaseRateLimit({ bucket: 'membership_payment_requests', maximumHits: 40, windowSeconds: 600, subject: (r) => `${r.tenant!.gymId}:${r.tenant!.gymUserId}` });
 membershipPaymentRequestRouter.get('/me', asyncHandler(getMyMembershipPayments));
+membershipPaymentRequestRouter.get('/me/history', asyncHandler(listMyMembershipPaymentRequests));
 membershipPaymentRequestRouter.post('/me/prepare', writes, asyncHandler(prepareMembershipPayment));
 membershipPaymentRequestRouter.post('/me/:id/submit', writes, asyncHandler(submitMembershipPayment));
 membershipPaymentRequestRouter.post('/me/:id/cancel', writes, asyncHandler(cancelMembershipPayment));
