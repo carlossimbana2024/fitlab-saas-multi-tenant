@@ -53,7 +53,9 @@ describe('Escáner interno: solo códigos de asistencia de sitios autorizados', 
     expect(sql).toContain('supplied_token_hash and q.gym_id = target_gym_id');
     expect(page).toContain("api.post<CheckIn>('/attendances/qr/check-in', { token })");
     expect(page).toContain("networkMode: 'always'");
-    expect(page).toContain("'my-progress'");
+    expect(page).toContain("memberId}, 'attendance')");
+    const invalidation = readFileSync(join(root, 'frontend/src/utils/memberQueryInvalidation.ts'), 'utf8');
+    expect(invalidation).toMatch(/attendance: \[[^\n]*'my-personal-streaks'[^\n]*'my-progress'/);
     expect(page).not.toContain('default_location_id');
     expect(page).not.toContain('locationId:');
   });

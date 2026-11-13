@@ -21,7 +21,7 @@ function load(file:string){
      if(session?.user.id===userId)session={...session,gymUser:{...session.gymUser,profiles:{...session.gymUser.profiles,full_name:profile.fullName,phone:profile.phone||null}}};
    }})};
    if(id==='@tanstack/react-query')return {...req(id),useMutation:(options:any)=>{const mutation=req(id).useMutation(options);mutations.set(options.mutationFn.toString(),mutation);return mutation;}};
-   if(['membershipCoverage','currentPortalDate','currentWeeklyProgress','portalTime','classScheduleHours','branchOpenStatus','memberQueryInvalidation','memberHistory'].some(name=>id===`../utils/${name}`||id===`./${name}`))return load(`utils/${id.split('/').at(-1)}.ts`);
+   if(['membershipCoverage','currentPortalDate','currentWeeklyProgress','portalTime','classScheduleHours','branchOpenStatus','memberQueryInvalidation','memberHistory','memberStreaks'].some(name=>id===`../utils/${name}`||id===`./${name}`))return load(`utils/${id.split('/').at(-1)}.ts`);
    if(id==='../components/BranchOpenStatus')return load('components/BranchOpenStatus.tsx');
    if(id==='../components/QueryFeedback')return load('components/QueryFeedback.tsx');
    if(id==='../components/MemberAccountDialog')return load('components/MemberAccountDialog.tsx');
@@ -111,13 +111,13 @@ describe('FIT-MEMBER-015 real mutation integration',()=>{
   expect(client.getQueryData(['member-community','gym-a','viewer','all']).pages[0].items[0].id).toBe('old');
  });
  it.each([true,false])('D/G: reaction success=%s reconciles card counter without touching rankings',async success=>{
-  let loved=false;api.get.mockImplementation(async(url:string)=>({data:url.endsWith('/rankings')?ranking():{items:[{id:'person',name:'Person',currentStreak:null,longestStreak:null,monthlyAttendances:null,goalType:null,progressPercent:null,reactions:{love:loved?1:0,mine:loved?'love':null}}],hasMore:false,nextCursor:null}}));
+  let loved=false;api.get.mockImplementation(async(url:string)=>({data:url.endsWith('/rankings')?ranking():{items:[{id:'person',name:'Person',weeklyStreak:null,monthlyAttendances:null,goalType:null,progressPercent:null,reactions:{love:loved?1:0,mine:loved?'love':null}}],hasMore:false,nextCursor:null}}));
   api.post.mockImplementation(async()=>{if(!success)throw Error('denied');loved=true;return {data:{reaction:{reacted:true}}};});
   const {tree,client}=await mount(MemberCommunityPage);const getCalls=api.get.mock.calls.length;
   await act(async()=>{await action('/members/me/community/reactions').mutateAsync('person').catch(()=>{});});await flush();
   const card=tree.root.findAllByType('button').find((b:any)=>b.props['aria-pressed']!==undefined&&b.findAllByType('b').length>0);
   expect(card.props['aria-pressed']).toBe(success);
-  expect(client.getQueryData(['member-community','gym-a','viewer','all']).pages[0].items[0].reactions.love).toBe(success?1:0);
+  expect(client.getQueriesData({queryKey:['member-community','gym-a','viewer','all']})[0]?.[1].pages[0].items[0].reactions.love).toBe(success?1:0);
   expect(api.get.mock.calls.slice(getCalls).some(([url])=>url.endsWith('/rankings'))).toBe(false);
  });
  it('E/F: reserve and cancel reconcile both upcoming Home/Classes and history, not attendance or branch',async()=>{
@@ -259,6 +259,11 @@ it('FIT-MEMBER-012 refreshes the daily summary, week, month and upcoming classes
     membership_periods:[{status:'active',starts_on:'2026-05-01',ends_on:'2026-06-30'}]};
   const oldWeek={id:'old',membership_id:'m',week_starts_on:'2026-05-25',week_ends_on:'2026-05-31',target_attendances:3,completed_attendances:3,goal_met:true};
   api.get.mockImplementation(async(url:string)=>{
+    if(url==='/members/me/streaks'){
+      const sunday=new Date().getUTCHours()<5;
+      return {data:{streaks:{today:sunday?'2026-05-31':'2026-06-01',weeklyCurrentStreak:sunday?4:5,
+        weeklyBestStreak:8,weeklyStatus:'available',dailyCurrentStreak:3,dailyBestStreak:10}}};
+    }
     if(url==='/members/me/progress'){
       const sunday=new Date().getUTCHours()<5;
       return {data:{progress:{today:sunday?'2026-05-31':'2026-06-01',hasAttendanceToday:sunday,totalAttendances:20,
@@ -275,6 +280,7 @@ it('FIT-MEMBER-012 refreshes the daily summary, week, month and upcoming classes
   const completed=()=>tree.root.findByProps({'aria-label':'Tu objetivo semanal'}).props.value;
   expect(attendance()).toBeDefined();
   expect(completed()).toBe(3);
+  expect(text(tree)).toContain('4 semanas');
   await click(tree,'Registrar peso');
   const weightInput=()=>tree.root.findAllByType('input').find((input:any)=>input.props.type==='number');
   await act(async()=>weightInput().props.onChange({target:{value:'83.5'}}));
@@ -283,8 +289,10 @@ it('FIT-MEMBER-012 refreshes the daily summary, week, month and upcoming classes
   await flush();await flush();
   expect(tree.root.findByProps({'data-attended-today':false})).toBeDefined();
   expect(completed()).toBe(0);
+  expect(text(tree)).toContain('5 semanas');
+  expect(client.getQueryData(['my-personal-streaks','gym-a','viewer','2026-06-01','America/Guayaquil'])).toMatchObject({weeklyCurrentStreak:5});
   expect(client.getQueryData(['my-progress','gym-a','viewer','2026-06-01','America/Guayaquil'])).toMatchObject({today:'2026-06-01',currentMonthAttendances:0});
-  for(const url of ['/members/me/progress','/attendances/weekly-progress','/calendar','/activities']){
+  for(const url of ['/members/me/progress','/members/me/streaks','/attendances/weekly-progress','/calendar','/activities']){
     expect(api.get.mock.calls.filter(([path])=>path===url)).toHaveLength(2);
   }
   expect(api.get).toHaveBeenCalledWith('/calendar',{params:{from:'2026-05-31',to:'2026-07-01'}});
@@ -309,14 +317,14 @@ describe('FIT-MEMBER-008 real React consumers',()=>{
      if(url.endsWith('/rankings'))return {data:ranking(params?.month)};
      const start=params.cursor?JSON.parse(params.cursor).start:0;
      return {data:{items:Array.from({length:Math.min(20,260-start)},(_,i)=>({id:String(start+i),name:`${params.filter} ${start+i}`,avatarUrl:null,
-       currentStreak:null,longestStreak:null,monthlyAttendances:null,progressPercent:null,goalType:null,publicMessage:null,reactions:{love:0,mine:null}})),
+       weeklyStreak:null,monthlyAttendances:null,progressPercent:null,goalType:null,publicMessage:null,reactions:{love:0,mine:null}})),
        nextCursor:start+20<260?{start:start+20}:null,hasMore:start+20<260}};
    });
    const {tree,client}=await mount(MemberCommunityPage);
    for(let i=0;i<12;i++)await click(tree,'Cargar más');
    expect(tree.root.findAll((n:any)=>n.props.className==='community-card')).toHaveLength(260);
    expect(button(tree,'Cargar más')).toBeUndefined();
-   const data=client.getQueryData(['member-community','gym-a','viewer','all']);
+   const data=client.getQueriesData({queryKey:['member-community','gym-a','viewer','all']})[0]?.[1];
    expect(new Set(data.pages.flatMap((p:any)=>p.items.map((m:any)=>m.id))).size).toBe(260);
    await click(tree,'Objetivos similares');expect(tree.root.findAll((n:any)=>n.props.className==='community-card')).toHaveLength(20);
    await click(tree,'Todos');expect(tree.root.findAll((n:any)=>n.props.className==='community-card')).toHaveLength(20);
@@ -347,7 +355,7 @@ describe('FIT-MEMBER-008 real React consumers',()=>{
    api.get.mockImplementation(async(url:string,{params}:any={})=>{
      if(url.endsWith('/rankings'))return {data:ranking()};
      if(params.cursor)throw Error('expired cursor');
-     return {data:{items:[{id:'visible',name:'Visible member',avatarUrl:null,currentStreak:null,longestStreak:null,
+     return {data:{items:[{id:'visible',name:'Visible member',avatarUrl:null,weeklyStreak:null,
        monthlyAttendances:null,progressPercent:null,goalType:null,publicMessage:null,reactions:{love:0,mine:null}}],nextCursor:{start:1},hasMore:true}};
    });
    const {tree}=await mount(MemberCommunityPage);await click(tree,'Cargar más');

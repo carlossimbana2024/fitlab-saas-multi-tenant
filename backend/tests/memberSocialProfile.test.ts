@@ -35,21 +35,28 @@ describe('perfil social privado',()=>{
   const query={select:vi.fn().mockReturnThis(),eq:vi.fn().mockReturnThis(),maybeSingle:vi.fn().mockResolvedValue({data:null,error:null})};mock.from.mockReturnValue(query);
   await expect(getMemberSocialProfile(request({}, {memberId:other}),response())).rejects.toMatchObject({statusCode:404});
   expect(query.eq).toHaveBeenCalledWith('gym_id',g);expect(mock.storage.from).not.toHaveBeenCalled();
+  expect(mock.rpc).not.toHaveBeenCalled();
  });
  it('rechaza rutas de fotos ajenas antes de consultar storage',async()=>{
   await expect(changeMyGalleryPhoto(request({slot:0,path:`${g}/${other}/${actor}.png`}),response())).rejects.toMatchObject({statusCode:400});
   expect(mock.storage.from).not.toHaveBeenCalled();expect(mock.rpc).not.toHaveBeenCalled();
  });
- it('un perfil visible oculta métricas, galería y datos personales no autorizados',async()=>{
+ it.each([false,true])('un perfil visible respeta show_streak=%s y oculta el resto de métricas privadas',async showStreak=>{
   mock.from.mockImplementation((table:string)=>{
    const data=table==='gym_users'?{id:other,profiles:{full_name:'Atleta',avatar_url:'private',phone:'SECRET',email:'SECRET'}}:
-    table==='member_fitness_profiles'?{show_in_community:true,show_profile_photo:false,show_streak:false,show_attendance_count:false,show_goal:false,show_weight_progress:false,weight_kg:80,target_weight_kg:70}:
+    table==='member_fitness_profiles'?{show_in_community:true,show_profile_photo:false,show_streak:showStreak,show_attendance_count:false,show_goal:false,show_weight_progress:false,weight_kg:80,target_weight_kg:70}:
     table==='member_social_profiles'?{bio:'Hola',gallery_paths:[`${g}/${other}/${actor}.webp`,null,null],show_gallery:false,show_badges:false}:null;
    const result={data,error:null,count:2};return {select:vi.fn().mockReturnThis(),eq:vi.fn().mockReturnThis(),maybeSingle:vi.fn().mockResolvedValue(result),then:(resolve:(value:object)=>unknown)=>Promise.resolve(result).then(resolve)};
   });
+  mock.rpc.mockResolvedValue({data:{weeklyCurrentStreak:5,weeklyBestStreak:8,weeklyStatus:'available',dailyCurrentStreak:3,dailyBestStreak:10,today:'2026-11-05'},error:null});
   const res=response();await getMemberSocialProfile(request({}, {memberId:other}),res);
   const p=(res.json as ReturnType<typeof vi.fn>).mock.calls[0][0].profile;
-  expect(p.gallery).toEqual([null,null,null]);expect(p.avatarUrl).toBe(null);expect(p.streak).toBe(null);expect(p.monthlyAttendances).toBe(null);expect(p.progressPercent).toBe(null);expect(p.badges).toEqual([]);
+  expect(p.gallery).toEqual([null,null,null]);expect(p.avatarUrl).toBe(null);
+  expect(p.weeklyStreak).toEqual(showStreak?{current:5,best:8,status:'available'}:null);
+  if(showStreak)expect(mock.rpc).toHaveBeenCalledExactlyOnceWith('get_member_personal_streaks_backend',{target_gym_id:g,actor_member_user_id:other});
+  else expect(mock.rpc).not.toHaveBeenCalled();
+  expect(p).not.toHaveProperty('dailyCurrentStreak');expect(p).not.toHaveProperty('streak');
+  expect(p.monthlyAttendances).toBe(null);expect(p.progressPercent).toBe(null);expect(p.badges).toEqual([]);
   expect(JSON.stringify(p)).not.toContain('SECRET');expect(p).not.toHaveProperty('weight_kg');expect(mock.storage.from).not.toHaveBeenCalled();
  });
 });

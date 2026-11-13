@@ -5,6 +5,12 @@ import { fromSupabaseError } from '../utils/supabaseError.js';
 
 const weightMaintenance = z.object({ currentWeightKg: z.number().finite().min(20).max(500), targetWeightKg: z.number().finite().min(20).max(500), differenceKg: z.number().finite() });
 const count = z.number().int().nonnegative();
+const sharedWeeklyStreakSchema = z.object({
+  current: count.nullable(), best: count.nullable(),
+  status: z.enum(['available', 'not_evaluable', 'needs_review']),
+}).refine(({ current, best, status }) => status === 'needs_review'
+  ? current === null && best === null
+  : current !== null && best !== null && current <= best, 'Inconsistent shared weekly streak');
 const bucket = z.object({ period: z.string(), count });
 export const attendanceSummarySchema = z.object({
   today: z.string(), currentWeekStart: z.string(), currentMonthStart: z.string(),
@@ -15,8 +21,8 @@ export const attendanceSummarySchema = z.object({
 export const communityPageSchema = z.object({
   items: z.array(z.object({
     id: z.string().uuid(), name: z.string(), avatarPath: z.string().nullable(), goalType: z.string().nullable(),
-    publicMessage: z.string().nullable(), joinedAt: z.string().nullable(), currentStreak: count.nullable(),
-    longestStreak: count.nullable(), monthlyAttendances: count.nullable(), progressPercent: z.number().finite().min(0).max(100).nullable(),
+    publicMessage: z.string().nullable(), joinedAt: z.string().nullable(), weeklyStreak: sharedWeeklyStreakSchema.nullable(),
+    monthlyAttendances: count.nullable(), progressPercent: z.number().finite().min(0).max(100).nullable(),
     weightMaintenance: weightMaintenance.nullable().default(null),
     reactions: z.object({ like: count, love: count, mine: z.enum(['like','love']).nullable() }),
   })).max(50),

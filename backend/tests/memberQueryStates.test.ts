@@ -37,14 +37,16 @@ async function mount(component=MemberPortalPage,props:any={section:'home'}){
 }
 async function click(tree:any,label:string){const b=tree.root.findAllByType('button').find((b:any)=>text(b.props.children)===label);expect(b,label).toBeDefined();await act(async()=>{await b.props.onClick();});await flush();}
 const failures=new Set<string>();const overrides=new Map<string,any>();
-const canonical=()=>({today:'2026-11-05',totalAttendances:0,currentMonthAttendances:0,currentWeekAttendances:0,currentStreak:0,longestStreak:0,hasAttendanceToday:false,latestAttendanceDate:null,weights:[],goal:null,attendanceByMonth:[],attendanceByWeek:[],motivation:{title:'Continúa',message:'',tone:'neutral'}});
+const streakPayload=(changes={})=>({weeklyCurrentStreak:5,weeklyBestStreak:8,weeklyStatus:'available',
+ dailyCurrentStreak:3,dailyBestStreak:10,today:'2026-11-05',...changes});
+const canonical=()=>({today:'2026-11-05',totalAttendances:0,currentMonthAttendances:0,currentWeekAttendances:0,hasAttendanceToday:false,latestAttendanceDate:null,weights:[],goal:null,attendanceByMonth:[],attendanceByWeek:[],motivation:{title:'Continúa',message:'',tone:'neutral'}});
 const ranking=()=>({ranking:{period:{key:'2026-11',label:'Noviembre'},availablePeriods:[{key:'2026-11',label:'Noviembre'}],categories:Object.fromEntries(['attendance','streak','progress'].map(k=>[k,{title:k,explanation:'',entries:[]}]))}});
 function payload(url:string){
  if(overrides.has(url))return overrides.get(url);
  if(url==='/members/me/progress')return {progress:canonical()};
  if(url==='/members/me/fitness-profile')return {fitnessProfile:{id:'f',goal_type:'lose_weight',training_frequency_per_week:3}};
  if(url==='/calendar')return {hours:[],exceptions:[],location:{name:'Ecuador',timezone:'America/Guayaquil'}};
- if(url==='/memberships')return {memberships:[]};if(url==='/attendances')return {attendances:[]};if(url==='/attendances/streaks')return {streaks:[]};
+ if(url==='/memberships')return {memberships:[]};if(url==='/attendances')return {attendances:[]};if(url==='/members/me/streaks')return {streaks:streakPayload()};
  if(url==='/attendances/weekly-progress')return {progress:[]};if(url==='/activities')return {schedules:[],offersEnabled:false};
  if(url==='/announcements')return {announcements:[]};if(url==='/members/me/community')return {items:[],hasMore:false,nextCursor:null};
  if(url.endsWith('/rankings'))return ranking();
@@ -56,6 +58,37 @@ beforeEach(()=>{session.gymUser.gym.timezone='America/Guayaquil';failures.clear(
 afterEach(async()=>{await act(async()=>trees.splice(0).forEach(t=>t.unmount()));clients.splice(0).forEach(c=>c.clear());vi.useRealTimers();vi.unstubAllGlobals();});
 
 it('A: a successful zero is a real zero, not an error',async()=>{const {tree}=await mount();expect(visible(tree)).toContain('Asistencias válidas 0');expect(visible(tree)).not.toContain('No pudimos');});
+it.each([[0,0,'0 semanas','0 días'],[1,1,'1 semana','1 día'],[2,10,'2 semanas','10 días'],[5,3,'5 semanas','3 días']])(
+ 'Inicio presenta semanal %i y diaria %i independientemente',async (weeklyCurrentStreak,dailyCurrentStreak,weekly,daily)=>{
+ overrides.set('/members/me/streaks',{streaks:streakPayload({weeklyCurrentStreak,dailyCurrentStreak})});
+ const {tree}=await mount();const output=visible(tree);
+ expect(output).toContain(`Racha semanal ${weekly}`);
+ expect(output).toContain(`Racha de asistencia: ${daily}`);
+ expect(output).toContain('Mejor racha: 8 semanas');
+ expect(api.get.mock.calls.map(([url])=>url)).not.toContain('/attendances/streaks');
+});
+it('Progreso muestra la racha junto a la meta y mantiene las cifras del servidor',async()=>{
+ const {tree}=await mount(MemberPortalPage,{section:'progress'});
+ expect(visible(tree)).toMatch(/Tu objetivo semanal.*Racha semanal 5 semanas.*Racha de asistencia: 3 días/);
+ expect(visible(tree)).toContain('Mejor racha de asistencia: 10 días');
+});
+it.each([['not_evaluable','No aplicable actualmente',5,8],['needs_review','No disponible',null,null]])(
+ 'semanal %s no fabrica un valor actual y preserva la diaria',async(weeklyStatus,label,weeklyCurrentStreak,weeklyBestStreak)=>{
+ overrides.set('/members/me/streaks',{streaks:streakPayload({weeklyStatus,weeklyCurrentStreak,weeklyBestStreak})});
+ const {tree}=await mount();const output=visible(tree);
+ expect(output).toContain(`Racha semanal ${label}`);
+ expect(output).toContain('Racha de asistencia: 3 días');
+ expect(output).not.toContain('0 semanas');expect(output).not.toContain('Racha semanal 5 semanas');
+});
+it('si falla rachas, Inicio preserva los datos previos; el error inicial nunca simula cero',async()=>{
+ const {tree,client}=await mount();
+ failures.add('/members/me/streaks');
+ await act(async()=>{await client.invalidateQueries({queryKey:['my-personal-streaks','g','m']});});await flush();
+ expect(visible(tree)).toContain('No pudimos actualizar tus rachas');
+ expect(visible(tree)).toContain('Racha de asistencia: 3 días');
+ const initial=await mount();expect(visible(initial.tree)).toContain('No pudimos cargar tus rachas');
+ expect(visible(initial.tree)).not.toMatch(/0 semanas|0 días/);
+});
 it('B/L: failed canonical summary shows neither attendance zero nor a false empty weight history',async()=>{
  failures.add('/members/me/progress');const {tree}=await mount();expect(visible(tree)).toContain('No pudimos cargar tu resumen');expect(visible(tree)).toContain('Asistencias válidas No disponible');
  const p=await mount(MemberPortalPage,{section:'progress'});expect(visible(p.tree)).not.toContain('0 kg');expect(visible(p.tree)).not.toContain('Aún no hay mediciones');expect(visible(p.tree)).not.toContain('Sin progreso calculable');
@@ -75,7 +108,7 @@ it('initial pending queries show loading, not zero, empty weight history, daily 
 it.each([false,true])('G/H: Community failed=%s is not successful empty',async failed=>{if(failed)failures.add('/members/me/community');const {tree}=await mount(MemberCommunityPage,{});expect(visible(tree).includes('Aún no hay perfiles')).toBe(!failed);expect(visible(tree).includes('No pudimos cargar la Comunidad')).toBe(failed);expect(visible(tree)).toContain('Top 3 del mes');});
 it.each([false,true])('I/J: ranking failed=%s stays independent of community',async failed=>{if(failed)failures.add('/members/me/community/rankings');const {tree}=await mount(MemberCommunityPage,{});expect(visible(tree).includes('Aún no hay datos suficientes')).toBe(!failed);expect(visible(tree).includes('No pudimos cargar el ranking')).toBe(failed);expect(visible(tree)).toContain('Aún no hay perfiles');});
 it('K: next page failure preserves all loaded pages and successful retry appends',async()=>{
- const member=(id:string)=>({id,name:id,goalType:null,currentStreak:null,longestStreak:null,monthlyAttendances:null,progressPercent:null,reactions:{love:0,mine:null}});let fail=true;
+ const member=(id:string)=>({id,name:id,goalType:null,weeklyStreak:null,monthlyAttendances:null,progressPercent:null,reactions:{love:0,mine:null}});let fail=true;
  api.get.mockImplementation(async(url:string,config:any)=>{if(url==='/members/me/community'){if(config?.params?.cursor&&fail)throw Error('network');return {data:{items:[member(config?.params?.cursor?'Second':'First')],hasMore:!config?.params?.cursor,nextCursor:config?.params?.cursor?null:{id:'next'}}};}return {data:payload(url)};});
  const {tree}=await mount(MemberCommunityPage,{});await click(tree,'Cargar más');expect(visible(tree)).toContain('First');expect(visible(tree)).not.toContain('Aún no hay perfiles');expect(visible(tree)).toContain('No pudimos actualizar la Comunidad');
  fail=false;await click(tree,'Reintentar siguiente página');expect(visible(tree)).toContain('First');expect(visible(tree)).toContain('Second');

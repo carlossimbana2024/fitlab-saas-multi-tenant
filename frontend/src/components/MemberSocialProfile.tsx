@@ -13,11 +13,12 @@ import { ProfilePhotoViewer } from './ProfilePhotoViewer';
 import { ProfileDialog } from './ProfileDialog';
 import { ProfileTabs } from './ProfileTabs';
 import { PrivacySwitch } from './PrivacySwitch';
+import type { SharedWeeklyStreak } from '../utils/memberStreaks';
 import { Medal } from 'lucide-react';
 import '../social-profile.css';
 
 type Badge={badge_code:string;earned_at:string;loyalty_badges:{name:string;description:string}};
-type Profile={id:string;own:boolean;name:string;avatarUrl:string|null;bio:string;gallery:Array<string|null>;communityVisible:boolean;showGallery:boolean;showBadges:boolean;goalType:string|null;progressPercent?:number|null;weightMaintenance?:WeightMaintenance|null;streak:{current_streak:number;longest_streak:number}|null;monthlyAttendances:number|null;badges:Badge[];loveCount:number;loved:boolean};
+type Profile={id:string;own:boolean;name:string;avatarUrl:string|null;bio:string;gallery:Array<string|null>;communityVisible:boolean;showGallery:boolean;showBadges:boolean;goalType:string|null;progressPercent?:number|null;weightMaintenance?:WeightMaintenance|null;weeklyStreak:SharedWeeklyStreak|null;monthlyAttendances:number|null;badges:Badge[];loveCount:number;loved:boolean};
 function useSocialProfile(memberId?:string){return useQuery({queryKey:['member-social-profile',memberId??'me'],queryFn:async()=>(await api.get<{profile:Profile}>(memberId?`/members/me/community/profiles/${memberId}`:'/members/me/social-profile')).data.profile,refetchInterval:240000});}
 export function SocialPrivacySettings(){
  const {session}=useAuth();

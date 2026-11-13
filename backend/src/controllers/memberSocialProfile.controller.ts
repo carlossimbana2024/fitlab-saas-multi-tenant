@@ -7,6 +7,7 @@ import { signAvatarUrl, avatarExtension } from '../services/memberProfile.servic
 import { paymentProofMimeType } from '../security/paymentProof.js';
 import { dateInTimezone } from '../utils/gymDate.js';
 import { weightGoalMetric } from '../services/memberWeightGoal.service.js';
+import { memberPersonalStreaks, sharedWeeklyStreak } from '../services/memberPersonalStreaks.service.js';
 
 export const socialProfileSchema=z.object({bio:z.string().trim().max(160),showGallery:z.boolean(),showBadges:z.boolean()}).partial().strict().refine(input=>Object.values(input).some(value=>value!==undefined),'Indica el cambio a guardar.');
 export const galleryChangeSchema=z.object({slot:z.number().int().min(0).max(2),path:z.string().max(300).nullable()}).strict();
@@ -33,13 +34,13 @@ export async function getMemberSocialProfile(request:Request,response:Response) 
  const today=dateInTimezone(request.tenant!.timezone);
  const [badges,streak,attendance,reactions,mine,weight,firstWeight]=await Promise.all([
   showBadges?supabaseAdmin.from('member_badges').select('badge_code,earned_at,loyalty_badges(name,description)').eq('gym_id',g).eq('member_user_id',target).eq('valid',true):Promise.resolve({data:[],error:null}),
-  showStreak?supabaseAdmin.from('user_streaks').select('current_streak,longest_streak').eq('gym_id',g).eq('member_user_id',target).maybeSingle():Promise.resolve({data:null,error:null}),
+  showStreak?memberPersonalStreaks(g,target).then(sharedWeeklyStreak):null,
   showAttendance?supabaseAdmin.from('attendances').select('id',{count:'exact',head:true}).eq('gym_id',g).eq('member_user_id',target).eq('status','valid').gte('attendance_date',today.slice(0,7)+'-01').lte('attendance_date',today):Promise.resolve({count:null,error:null}),
   supabaseAdmin.from('member_community_reactions').select('id',{count:'exact',head:true}).eq('gym_id',g).eq('target_member_user_id',target).eq('reaction_type','love'),
   supabaseAdmin.from('member_community_reactions').select('reaction_type').eq('gym_id',g).eq('target_member_user_id',target).eq('actor_member_user_id',actor).maybeSingle(),
   (own||fitness.data?.show_weight_progress)&&fitness.data?supabaseAdmin.from('member_weight_entries').select('weight_kg').eq('gym_id',g).eq('member_user_id',target).order('measured_on',{ascending:false}).limit(1).maybeSingle():Promise.resolve({data:null,error:null}),
   (own||fitness.data?.show_weight_progress)&&fitness.data?supabaseAdmin.from('member_weight_entries').select('weight_kg').eq('gym_id',g).eq('member_user_id',target).order('measured_on',{ascending:true}).limit(1).maybeSingle():Promise.resolve({data:null,error:null}),
- ]);for(const r of [badges,streak,attendance,reactions,mine,weight,firstWeight])check(r.error);
+ ]);for(const r of [badges,attendance,reactions,mine,weight,firstWeight])check(r.error);
  const metric=(own||fitness.data?.show_weight_progress)&&fitness.data
   ?weightGoalMetric(fitness.data.goal_type,fitness.data.target_weight_kg==null?null:Number(fitness.data.target_weight_kg),
     firstWeight.data?.weight_kg==null?null:Number(firstWeight.data.weight_kg),weight.data?.weight_kg==null?null:Number(weight.data.weight_kg))
@@ -57,7 +58,7 @@ export async function getMemberSocialProfile(request:Request,response:Response) 
  goalType:own||fitness.data?.show_goal?fitness.data?.goal_type??null:null,
  progressPercent:metric.progressPercent,
  weightMaintenance:own||fitness.data?.show_goal?metric.maintenance:null,
- streak:streak.data,monthlyAttendances:attendance.count,badges:badges.data,
+ weeklyStreak:streak,monthlyAttendances:attendance.count,badges:badges.data,
  loveCount:reactions.count??0,loved:mine.data?.reaction_type==='love'}});
 }
 export async function updateMySocialProfile(request:Request,response:Response) {

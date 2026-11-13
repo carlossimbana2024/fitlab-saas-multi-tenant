@@ -22,7 +22,9 @@ beforeEach(()=>{
  vi.clearAllMocks();queries=[];weightError=null;
  fitness={goal_type:'lose_weight',weight_kg:85,target_weight_kg:80,show_weight_progress:true,show_goal:true,show_in_community:true};
  weights=[{id:'a',weight_kg:90,measured_on:'2026-10-01',source:'onboarding'},{id:'b',weight_kg:85,measured_on:'2026-11-01',source:'member'}];
- db.rpc.mockResolvedValue({data:summary,error:null});
+ db.rpc.mockImplementation(async (name:string)=>({data:name==='get_member_personal_streaks_backend'
+   ? {today:summary.today,weeklyCurrentStreak:0,weeklyBestStreak:0,weeklyStatus:'available',dailyCurrentStreak:0,dailyBestStreak:0}
+   : summary,error:null}));
  db.from.mockImplementation((table:string)=>{
    let ascending=true,limit:number|undefined;
    const result=()=>{
@@ -160,8 +162,7 @@ describe('FIT-MEMBER-010 consumers, history and privacy',()=>{
  });
  it.each(['lose_weight','gain_weight','maintain_weight'])('Community forwards SQL metric, never recomputes %s',async goal=>{
   const metric=weightGoalMetric(goal,goal==='gain_weight'?70:80,goal==='gain_weight'?60:90,goal==='gain_weight'?65:85);
-  const item={id:target,name:'Miembro',avatarPath:null,goalType:goal,publicMessage:null,joinedAt:null,currentStreak:null,
-   longestStreak:null,monthlyAttendances:null,progressPercent:metric.progressPercent,weightMaintenance:metric.maintenance,reactions:{like:0,love:0,mine:null}};
+  const item={id:target,name:'Miembro',avatarPath:null,goalType:goal,publicMessage:null,joinedAt:null,weeklyStreak:null,monthlyAttendances:null,progressPercent:metric.progressPercent,weightMaintenance:metric.maintenance,reactions:{like:0,love:0,mine:null}};
   db.rpc.mockResolvedValue({data:{items:[item],nextCursor:null,hasMore:false},error:null});
   const res=response();await listMemberCommunity(request(),res);
   expect(body(res).items[0]).toMatchObject({progressPercent:metric.progressPercent,weightMaintenance:metric.maintenance});

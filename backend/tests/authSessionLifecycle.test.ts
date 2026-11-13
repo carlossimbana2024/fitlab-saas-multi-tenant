@@ -45,7 +45,10 @@ async function mount(options: { expired?: boolean; invalidRefresh?: boolean; tra
     if (config.url === '/auth/login') fresh = true;
     const data = config.url === '/attendances/qr/preview'
       ? { gym_name: 'Gym', location_name: 'Branch', timezone: 'America/Guayaquil', server_time: '2026-10-30T12:00:00Z', attendance: null, membership: null }
-      : { user: { id: 'member' }, gymUser: { id: 'member', gym_id: 'gym', role: 'member', status: 'active' } };
+      : config.url === '/attendances/qr/check-in'
+        ? { gym_name: 'Gym', location_name: 'Branch', timezone: 'America/Guayaquil', server_time: '2026-10-30T12:00:00Z',
+          attendance: { id: 'entry', location_name: 'Branch', checked_in_at: '2026-10-30T12:00:00Z' }, already_registered: false }
+        : { user: { id: 'member' }, gymUser: { id: 'member', gym_id: 'gym', role: 'member', status: 'active' } };
     return { data, status: 200, statusText: 'OK', headers: {}, config };
   } });
   const sessionRecovery = recoveryModule.installSessionRecovery(api);
@@ -155,6 +158,8 @@ describe('Real React AuthProvider + router lifecycle', () => {
     const s = await mount({ route: '/check-in#token=' + 'a'.repeat(43), checkinFailure: true });
     const button = () => s.tree.root.findAllByType('button').find((b: any) => b.props.children?.includes?.('Confirmar asistencia'));
     const before = s.queryClient.getQueryData(['private-member']);
+    const streakKey = ['my-personal-streaks', 'gym', 'member', '2026-10-30', 'America/Guayaquil'];
+    s.queryClient.setQueryData(streakKey, { dailyCurrentStreak: 4 });
     await act(async () => { button().props.onClick(); await new Promise(r => setTimeout(r, 20)); });
     const rendered = JSON.stringify(s.tree.toJSON());
     expect(rendered).toContain('Confirma tu llegada');
@@ -162,6 +167,27 @@ describe('Real React AuthProvider + router lifecycle', () => {
     expect(rendered).not.toContain('¡Tu asistencia fue registrada!');
     expect(button()).toBeDefined();
     expect(s.queryClient.getQueryData(['private-member'])).toEqual(before);
+    expect(s.queryClient.getQueryState(streakKey).isInvalidated).toBe(false);
+  });
+  it('FIT-MEMBER-020 successful check-in fetches canonical streaks without optimistic changes', async () => {
+    const s = await mount({ route: '/check-in#token=' + 'a'.repeat(43) });
+    const key = ['my-personal-streaks', 'gym', 'member', '2026-10-30', 'America/Guayaquil'];
+    const other = ['my-personal-streaks', 'gym', 'other', '2026-10-30', 'America/Guayaquil'];
+    s.queryClient.setQueryData(key, { weeklyCurrentStreak: 5, dailyCurrentStreak: 2 });
+    s.queryClient.setQueryData(other, { dailyCurrentStreak: 8 });
+    const fetchStreaks = vi.fn(async () => ({ weeklyCurrentStreak: 5, dailyCurrentStreak: 1 }));
+    const observer = new (requireFrontend('@tanstack/react-query').QueryObserver)(s.queryClient,
+      { queryKey: key, queryFn: fetchStreaks, staleTime: Infinity });
+    const unsubscribe = observer.subscribe(() => {});
+    try {
+      expect(fetchStreaks).not.toHaveBeenCalled();
+      const button = s.tree.root.findAllByType('button').find((b: any) => b.props.children?.includes?.('Confirmar asistencia'));
+      await act(async () => { button.props.onClick(); await new Promise(r => setTimeout(r, 20)); });
+      expect(s.calls.filter(url => url === '/attendances/qr/check-in')).toHaveLength(1);
+      expect(fetchStreaks).toHaveBeenCalledOnce();
+      expect(s.queryClient.getQueryData(key)).toEqual({ weeklyCurrentStreak: 5, dailyCurrentStreak: 1 });
+      expect(s.queryClient.getQueryState(other).isInvalidated).toBe(false);
+    } finally { unsubscribe(); }
   });
   it('logout clears state/cache and normal login restores session', async () => {
     const s = await mount(); await act(async () => { await s.value.logout(); });

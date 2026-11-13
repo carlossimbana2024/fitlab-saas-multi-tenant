@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
 import ts from 'typescript';
+import * as streakLabels from '../../frontend/src/utils/memberStreaks';
 const req=createRequire(new URL('../../frontend/package.json',import.meta.url));
 const React=req('react'),{act,create}=req('react-test-renderer');
 const noop=()=>null,empty=new Proxy({},{get:()=>noop});
@@ -13,6 +14,8 @@ function load(path:string,expose=''){
  new Function('exports','require','React',ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.React,esModuleInterop:true}}).outputText)(
   exports,(id:string)=>{
    if(id.includes('WeightMaintenanceSummary'))return maintenance;
+   if(id.endsWith('/memberStreaks'))return streakLabels;
+   if(id.endsWith('/ProfilePhotoViewer'))return {ProfilePhotoViewer:noop};
    if(id.endsWith('.css'))return {};
    if(id==='react-router-dom')return {Link:({children}:any)=>React.createElement('a',null,children)};
    if(id==='lucide-react'||id.startsWith('../components/')||id.startsWith('../utils/')||id.startsWith('../services/')||id.startsWith('../context/'))return empty;
@@ -23,15 +26,28 @@ function load(path:string,expose=''){
 const maintenance=load('components/WeightMaintenanceSummary');
 const {ProgressView,ProfileGoalSummary}=load('pages/MemberPortalPage','\nexport { ProgressView, ProfileGoalSummary };');
 const {CommunityCard}=load('pages/MemberCommunityPage','\nexport { CommunityCard };');
+const {ProfileHeader}=load('components/ProfileHeader');
 async function render(component:any,props:any){let tree:any;await act(async()=>{tree=create(React.createElement(component,props));});trees.push(tree);return tree;}
 const visible=(node:any):string=>node==null?'':Array.isArray(node)?node.map(visible).join(''):typeof node==='object'?visible(node.children):String(node);
 const text=(tree:any)=>visible(tree.toJSON());
 afterEach(async()=>{await act(async()=>trees.splice(0).forEach(t=>t.unmount()));});
 const progress=(goal:any)=>({goal,weights:[],totalAttendances:0,attendanceByMonth:[],attendanceByWeek:[],motivation:{tone:'neutral',title:'Avanza',message:''}});
 const props=(goal:any)=>({range:{label:'Noviembre',today:'2026-11-03'},days:[],firstOffset:0,attendances:[],progress:progress(goal),progressLoading:false,onRecordWeight:vi.fn()});
-const member=(goal:any)=>({id:'m',name:'Atleta',currentStreak:null,longestStreak:null,monthlyAttendances:null,
+const member=(goal:any)=>({id:'m',name:'Atleta',weeklyStreak:null,monthlyAttendances:null,
  goalType:goal.goalType,progressPercent:goal.progressPercent,weightMaintenance:goal.maintenance,reactions:{love:0,mine:null}});
 describe('FIT-MEMBER-010 real presentation components',()=>{
+ it.each([null,{current:1,best:5,status:'available'},{current:null,best:null,status:'needs_review'}])(
+  'FIT-MEMBER-020 weekly sharing displays only the consented result (%j)',async weeklyStreak=>{
+  const base={...member({}),weeklyStreak};
+  const card=await render(CommunityCard,{member:base,pending:false,onReact:noop});
+  const profile=await render(ProfileHeader,{profile:{...base,bio:'',own:false,showBadges:false,badges:[],loveCount:0}});
+  for(const tree of [card,profile]){
+   expect(text(tree).includes('Racha semanal')).toBe(weeklyStreak!==null);
+   if(weeklyStreak?.status==='available')expect(text(tree)).toContain('1 semana');
+   if(weeklyStreak?.status==='needs_review')expect(text(tree)).toContain('No disponible');
+   expect(text(tree)).not.toMatch(/días de racha|0 semanas/);
+  }
+ });
  it('FIT-MEMBER-011 summary does not derive endpoints from the visible history',async()=>{
   const goal={goalType:'lose_weight',initialWeightKg:90,currentWeightKg:84,targetWeightKg:80,progressPercent:60,maintenance:null};
   const p=props(goal);

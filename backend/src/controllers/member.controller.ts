@@ -1,4 +1,5 @@
 import { memberAttendanceSummary } from '../services/memberAggregates.service.js';
+import { memberPersonalStreaks } from '../services/memberPersonalStreaks.service.js';
 import { computeGoalProgress } from '../services/memberWeightGoal.service.js';
 import type { Request, Response } from 'express';
 import { supabaseAdmin } from '../config/supabase.js';
@@ -100,12 +101,10 @@ function weekLabel(start: string) {
     .format(utcDate(start));
 }
 
-function motivationForProgress(currentStreak: number, currentMonthAttendances: number, latestAttendanceDate: string | null, today: string) {
+function motivationForProgress(currentMonthAttendances: number, latestAttendanceDate: string | null, today: string) {
   const daysSinceLast = latestAttendanceDate ? Math.max(0, Math.round((utcDate(today).getTime() - utcDate(latestAttendanceDate).getTime()) / DAY_MS)) : null;
-  if (currentStreak >= 7) return { tone: 'success', title: '¡Una semana completa!', message: `Llevas una racha de ${currentStreak} días. Tu disciplina está construyendo resultados.` };
   if (currentMonthAttendances >= 8) return { tone: 'success', title: 'Vas con muy buen ritmo', message: `Ya sumas ${currentMonthAttendances} asistencias este mes. Mantén ese impulso.` };
   if (daysSinceLast !== null && daysSinceLast >= 3) return { tone: 'encouragement', title: 'Tu próximo entrenamiento te espera', message: `Han pasado ${daysSinceLast} días desde tu última asistencia. Un día puede reactivar tu constancia.` };
-  if (currentStreak >= 3) return { tone: 'success', title: 'La constancia se nota', message: `Llevas ${currentStreak} días seguidos. ¡Sigue así!` };
   return { tone: 'neutral', title: 'Cada entrenamiento cuenta', message: 'Un paso a la vez: registra tu próxima asistencia y sigue acercándote a tu objetivo.' };
 }
 
@@ -195,15 +194,17 @@ export async function finalizeMyAvatar(request: Request, response: Response) {
   response.json({ profile: { ...data, avatar_url: await signAvatarUrl(data.avatar_url) }, avatarPath: path });
 }
 
+export async function getMyPersonalStreaks(request: Request, response: Response) {
+  memberOnly(request);
+  const streaks = await memberPersonalStreaks(request.tenant!.gymId, request.tenant!.gymUserId);
+  response.setHeader('Cache-Control', 'no-store');
+  response.json({ streaks });
+}
+
 export async function getMyProgress(request: Request, response: Response) {
   memberOnly(request);
-  const [summary, streakResult, weightsResult, profileResult, baselineResult, latestResult] = await Promise.all([
+  const [summary, weightsResult, profileResult, baselineResult, latestResult] = await Promise.all([
     memberAttendanceSummary(request.tenant!.gymId, request.tenant!.gymUserId),
-    supabaseAdmin.from('user_streaks')
-      .select('current_streak,longest_streak,last_attendance_date')
-      .eq('gym_id', request.tenant!.gymId)
-      .eq('member_user_id', request.tenant!.gymUserId)
-      .maybeSingle(),
     supabaseAdmin.from('member_weight_entries')
       .select('id,weight_kg,measured_on,source,created_at')
       .eq('gym_id', request.tenant!.gymId)
@@ -224,13 +225,12 @@ export async function getMyProgress(request: Request, response: Response) {
       .eq('gym_id', request.tenant!.gymId).eq('member_user_id', request.tenant!.gymUserId)
       .order('measured_on', { ascending: false }).limit(1).maybeSingle(),
   ]);
-  const error = streakResult.error ?? weightsResult.error ?? profileResult.error ?? baselineResult.error ?? latestResult.error;
+  const error = weightsResult.error ?? profileResult.error ?? baselineResult.error ?? latestResult.error;
   if (error) throw fromSupabaseError(error);
 
   const { today, currentWeekStart, currentMonthStart, currentMonthAttendances, currentWeekAttendances, latestAttendanceDate } = summary;
   const monthBuckets = summary.attendanceByMonth.map(bucket => ({ ...bucket, label: monthLabel(bucket.period) }));
   const weekBuckets = summary.attendanceByWeek.map(bucket => ({ ...bucket, label: weekLabel(bucket.period) }));
-  const streak = streakResult.data;
   // Preserve the UI's chronological contract, using the most recent 500 rows.
   const weights = [...(weightsResult.data ?? [])].reverse().map((entry) => ({
     id: entry.id,
@@ -244,7 +244,7 @@ export async function getMyProgress(request: Request, response: Response) {
   const currentWeight = latestResult.data == null ? null : Number(latestResult.data.weight_kg);
   const targetWeight = profile?.target_weight_kg == null ? null : Number(profile.target_weight_kg);
   const goal = profile ? computeGoalProgress(profile.goal_type, initialWeight, currentWeight, targetWeight) : null;
-  const motivation = motivationForProgress(Number(streak?.current_streak ?? 0), currentMonthAttendances, latestAttendanceDate, today);
+  const motivation = motivationForProgress(currentMonthAttendances, latestAttendanceDate, today);
   response.json({
     progress: {
       today,
@@ -255,8 +255,6 @@ export async function getMyProgress(request: Request, response: Response) {
       averageWeeklyAttendances: summary.averageWeeklyAttendances,
       attendanceByMonth: monthBuckets,
       attendanceByWeek: weekBuckets,
-      currentStreak: Number(streak?.current_streak ?? 0),
-      longestStreak: Number(streak?.longest_streak ?? 0),
       latestAttendanceDate,
       weights,
       initialWeightKg: initialWeight,

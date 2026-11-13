@@ -7,6 +7,9 @@ import { useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { api, apiErrorMessage } from '../services/api';
 import { refreshMemberQueries } from '../utils/memberQueryInvalidation';
+import { streakQuantity, weeklyStreakLabel, type SharedWeeklyStreak } from '../utils/memberStreaks';
+import { useCurrentPortalDate } from '../utils/currentPortalDate';
+import { gymTimezone } from '../utils/portalTime';
 import '../community.css';
 
 type CommunityFilter = 'all' | 'similar_goal' | 'consistent' | 'new' | 'longest_streak' | 'featured' | 'progress';
@@ -14,8 +17,7 @@ type CommunityMember = {
   id: string;
   name: string;
   avatarUrl: string | null;
-  currentStreak: number | null;
-  longestStreak: number | null;
+  weeklyStreak: SharedWeeklyStreak | null;
   monthlyAttendances: number | null;
   goalType: string | null;
   progressPercent: number | null;
@@ -40,7 +42,7 @@ const filters: Array<{ value: CommunityFilter; label: string }> = [
   { value: 'similar_goal', label: 'Objetivos similares' },
   { value: 'consistent', label: 'Más constantes' },
   { value: 'new', label: 'Nuevas personas' },
-  { value: 'longest_streak', label: 'Rachas más largas' },
+  { value: 'longest_streak', label: 'Mejores rachas semanales' },
   { value: 'featured', label: 'Destacados' },
   { value: 'progress', label: 'Mayor progreso' },
 ];
@@ -62,16 +64,18 @@ export function MemberCommunityPage() {
   const queryClient = useQueryClient();
   const { session } = useAuth();
   const context = [session?.gymUser?.gym_id, session?.gymUser?.id];
+  const today = useCurrentPortalDate(gymTimezone(session?.gymUser?.gym?.timezone), session?.gymUser?.gym_id);
+  const pageKey = (value: CommunityFilter) => ['member-community', ...context, value, today] as const;
   const [filter, setFilter] = useState<CommunityFilter>('all');
   const [rankingMonth, setRankingMonth] = useState('');
   const [rankingTab, setRankingTab] = useState<'attendance' | 'streak' | 'progress'>('attendance');
   const changeFilter = (value: CommunityFilter) => {
     if (value === filter) return;
-    queryClient.removeQueries({ queryKey: ['member-community', ...context, value], exact: true });
+    queryClient.removeQueries({ queryKey: pageKey(value), exact: true });
     setFilter(value);
   };
   const community = useInfiniteQuery({
-    queryKey: ['member-community', ...context, filter],
+    queryKey: pageKey(filter),
     enabled: Boolean(session?.gymUser),
     initialPageParam: null as Record<string, unknown> | null,
     queryFn: async ({ pageParam }) => (await api.get<CommunityResponse>('/members/me/community', {
@@ -101,7 +105,7 @@ export function MemberCommunityPage() {
     </section>
     <section className="panel community-panel"><div className="community-members-heading"><h2>Miembros de la comunidad</h2><p>Conecta, inspira y celebra juntos.</p></div><div className="community-filter-row" role="group" aria-label="Filtrar Comunidad">{filters.slice(0,3).map((item) => <button type="button" key={item.value} aria-pressed={filter===item.value} className={filter === item.value ? 'active' : undefined} onClick={() => changeFilter(item.value)}>{item.label}</button>)}<details className="community-extra-filters"><summary>Más filtros{filters.slice(3).some(item=>item.value===filter)?` · ${filters.find(item=>item.value===filter)?.label}`:''}</summary><div>{filters.slice(3).map(item=><button type="button" key={item.value} aria-pressed={filter===item.value} className={filter===item.value?'active':undefined} onClick={()=>changeFilter(item.value)}>{item.label}</button>)}</div></details></div><QueryFeedback query={community} label="la Comunidad"/>{community.isPending ? <div className="empty compact" role="status"><LoaderCircle className="spin"/><strong>Cargando Comunidad…</strong></div> : members.length ? <div className="community-grid">{members.map((member) => <CommunityCard key={member.id} member={member} pending={react.isPending} onReact={() => react.mutate(member.id)}/>)}</div> : !community.isError && <div className="empty compact"><UsersRound/><strong>Aún no hay perfiles para mostrar</strong><span>Cuando otros miembros habiliten su perfil, aparecerán aquí.</span></div>}{community.hasNextPage && <button className="ghost" disabled={community.isFetchingNextPage} onClick={() => void community.fetchNextPage()}>{community.isFetchingNextPage ? 'Cargando más…' : community.isFetchNextPageError ? 'Reintentar siguiente página' : 'Cargar más'}</button>}{community.isError && !community.data && <button onClick={() => void community.refetch()}>Reintentar Comunidad</button>}{members.length > 0 && !community.hasNextPage && !community.isError && <p role="status">Has llegado al final de la lista.</p>}</section>
     {react.isError && <div className="alert error community-action-error">{apiErrorMessage(react.error)}</div>}
-    {community.isError && community.data && <button onClick={() => void queryClient.resetQueries({ queryKey: ['member-community', ...context, filter], exact: true })}>Volver a cargar la lista</button>}
+    {community.isError && community.data && <button onClick={() => void queryClient.resetQueries({ queryKey: pageKey(filter), exact: true })}>Volver a cargar la lista</button>}
   </div>;
 }
 
@@ -110,5 +114,5 @@ function RankingCategoryCard({ category, icon }: { category: RankingCategory; ic
 }
 
 function CommunityCard({ member, pending, onReact }: { member: CommunityMember; pending: boolean; onReact: () => void }) {
-  return <article className="community-card"><div className="community-card-head">{member.avatarUrl ? <img src={member.avatarUrl} alt={`Foto de ${member.name}`} loading="lazy"/> : <span className="avatar avatar-large">{initials(member.name)}</span>}<div><h2><Link to={`/portal/community/${member.id}`}>{member.name}</Link></h2>{member.goalType && <span className="community-goal"><Dumbbell />{goalLabels[member.goalType] ?? member.goalType}</span>}</div></div>{member.publicMessage && <p className="community-message">“{member.publicMessage}”</p>}<div className="community-metrics">{member.currentStreak !== null && <span><Flame />{member.currentStreak} días de racha</span>}{member.monthlyAttendances !== null && <span><Activity />{member.monthlyAttendances} este mes</span>}{member.weightMaintenance ? <span><Dumbbell /><WeightMaintenanceSummary value={member.weightMaintenance}/></span> : member.progressPercent != null && <span><Dumbbell />{member.progressPercent}% de avance</span>}{member.longestStreak !== null && <small>Mejor racha: {member.longestStreak}</small>}</div><div className="community-card-actions"><div className="community-reactions"><button type="button" aria-pressed={member.reactions.mine==='love'} className={member.reactions.mine === 'love' ? 'selected love' : undefined} disabled={pending} onClick={onReact}><Heart />Me encanta <b>{member.reactions.love}</b></button></div><Link className="small-button" to={`/portal/community/${member.id}`}>Ver perfil<ChevronRight/></Link></div></article>;
+  return <article className="community-card"><div className="community-card-head">{member.avatarUrl ? <img src={member.avatarUrl} alt={`Foto de ${member.name}`} loading="lazy"/> : <span className="avatar avatar-large">{initials(member.name)}</span>}<div><h2><Link to={`/portal/community/${member.id}`}>{member.name}</Link></h2>{member.goalType && <span className="community-goal"><Dumbbell />{goalLabels[member.goalType] ?? member.goalType}</span>}</div></div>{member.publicMessage && <p className="community-message">“{member.publicMessage}”</p>}<div className="community-metrics">{member.weeklyStreak && <span><Flame />Racha semanal: {weeklyStreakLabel(member.weeklyStreak.current, member.weeklyStreak.status)}</span>}{member.monthlyAttendances !== null && <span><Activity />{member.monthlyAttendances} este mes</span>}{member.weightMaintenance ? <span><Dumbbell /><WeightMaintenanceSummary value={member.weightMaintenance}/></span> : member.progressPercent != null && <span><Dumbbell />{member.progressPercent}% de avance</span>}{member.weeklyStreak?.best != null && <small>Mejor racha semanal: {streakQuantity(member.weeklyStreak.best, 'week')}</small>}</div><div className="community-card-actions"><div className="community-reactions"><button type="button" aria-pressed={member.reactions.mine==='love'} className={member.reactions.mine === 'love' ? 'selected love' : undefined} disabled={pending} onClick={onReact}><Heart />Me encanta <b>{member.reactions.love}</b></button></div><Link className="small-button" to={`/portal/community/${member.id}`}>Ver perfil<ChevronRight/></Link></div></article>;
 }

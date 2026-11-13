@@ -18,7 +18,7 @@
 .progress-section-heading h2 {margin:0;color:var(--primary);font:700 .78rem Inter,sans-serif;text-transform:uppercase;letter-spacing:.1em;}
 .progress-section-heading>span {display:flex;align-items:center;gap:.4rem;color:var(--muted);font-size:.75rem;}
 .progress-section-heading svg {width:18px;color:var(--primary);}
-.progress-page .portal-progress-stats {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.65rem;margin:0;}
+.progress-page .portal-progress-stats {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.65rem;margin:0;}
 .progress-page .portal-card {display:grid;grid-template-columns:40px minmax(0,1fr);align-content:center;column-gap:.65rem;row-gap:.05rem;min-width:0;padding:.8rem;border-radius:14px;box-shadow:none;}
 .progress-page .portal-card>svg {grid-row:1/4;align-self:center;width:40px;height:48px;margin:0;padding:9px;box-sizing:border-box;border-radius:11px;background:rgba(225,6,0,.08);}
 .progress-page .portal-card:nth-child(3)>svg {color:var(--warning);background:rgba(245,158,11,.08);}
@@ -50,6 +50,7 @@
 .progress-page .progress-detail-grid {display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);grid-template-areas:'calendar goal' 'calendar history';gap:.8rem;align-items:start;}
 .progress-page .progress-calendar {grid-area:calendar;align-self:start;}
 .progress-page .progress-week-goal {grid-area:goal;}
+.progress-streak-summary {display:grid;gap:.3rem;margin-block:.5rem 1rem;}
 .progress-page .progress-weight-history {grid-area:history;scroll-margin-top:90px;}
 .progress-page .progress-calendar-legend {display:flex;flex-wrap:wrap;gap:.35rem .7rem;}
 .progress-calendar-legend>span {display:inline-flex;align-items:center;gap:.3rem;}

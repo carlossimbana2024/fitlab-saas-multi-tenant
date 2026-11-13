@@ -30,7 +30,7 @@ export async function listMemberCommunity(request: Request, response: Response) 
     catch { throw new AppError(400, 'INVALID_COMMUNITY_CURSOR', 'Vuelve a cargar Comunidad desde la primera página.'); }
     if (!cursor || typeof cursor !== 'object' || Array.isArray(cursor)) throw new AppError(400, 'INVALID_COMMUNITY_CURSOR', 'El cursor no es válido.');
   }
-  const { data, error } = await supabaseAdmin.rpc('list_member_community_page_backend', {
+  const { data, error } = await supabaseAdmin.rpc('list_member_community_weekly_page_backend', {
     target_gym_id: request.tenant!.gymId, actor_member_user_id: request.tenant!.gymUserId,
     requested_filter: input.data.filter, page_size: input.data.pageSize, after_cursor: cursor,
   });
@@ -39,6 +39,7 @@ export async function listMemberCommunity(request: Request, response: Response) 
   const items = await Promise.all(page.items.map(async ({ avatarPath, ...item }) => ({
     ...item, avatarUrl: avatarPath ? await signAvatarUrl(avatarPath) : null,
   })));
+  response.setHeader('Cache-Control', 'no-store');
   response.json({ items, nextCursor: page.nextCursor, hasMore: page.hasMore });
 }
 

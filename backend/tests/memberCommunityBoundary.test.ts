@@ -27,8 +27,8 @@ describe('Comunidad privada del miembro', () => {
     expect(controller).toContain('p_target_gym_id: request.tenant!.gymId');
     expect(controller).toContain('p_target_member_user_id: input.data.targetMemberUserId');
     expect(controller).toContain('p_supplied_reaction_type: input.data.reactionType');
-    const sql = source('supabase/migrations/0054_member_aggregates_pagination.sql');
-    expect(controller).toContain("rpc('list_member_community_page_backend'");
+    const sql = source('supabase/migrations/0058_member_community_weekly_streaks.sql');
+    expect(controller).toContain("rpc('list_member_community_weekly_page_backend'");
     expect(sql).toContain('gu.id<>actor_member_user_id');
     expect(sql).toContain('f.show_in_community');
     expect(routes).toContain("memberRouter.get('/me/community'");
@@ -47,7 +47,8 @@ describe('Comunidad privada del miembro', () => {
     expect(page).toContain('Me encanta');
     expect(page).toContain("reactionType: 'love'");
     expect(page).not.toContain("onReact('like')");
-    expect(page).toContain("['member-community', 'member-social-profile']");
+    expect(page).toContain('refreshMemberQueries(queryClient');
+    expect(source('frontend/src/utils/memberQueryInvalidation.ts')).toContain("reaction: ['member-social-profile', 'member-community']");
     expect(layout).toContain("'/portal/community'");
     expect(app).toContain('MemberCommunityPage');
   });

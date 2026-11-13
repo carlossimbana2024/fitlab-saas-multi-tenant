@@ -9,7 +9,7 @@ const dependencies: Record<MemberChange, string[]> = {
   identity: ['member-social-profile', 'member-community', 'member-community-rankings'],
   social: ['member-social-profile', 'member-community'],
   reaction: ['member-social-profile', 'member-community'],
-  attendance: ['my-attendances', 'my-streak', 'my-weekly-progress', 'my-progress', 'member-social-profile', 'member-community', 'member-community-rankings', 'loyalty-engagement', 'member-training-social'],
+  attendance: ['my-attendances', 'my-personal-streaks', 'my-weekly-progress', 'my-progress', 'member-social-profile', 'member-community', 'member-community-rankings', 'loyalty-engagement', 'member-training-social'],
   classes: ['my-activities'],
   paymentRequest: ['my-membership-payments', 'my-payment-requests-history', 'my-payments-history'],
   paymentHistory: ['my-payment-requests-history', 'my-payments-history'],
@@ -21,7 +21,7 @@ const dependencies: Record<MemberChange, string[]> = {
 
 function belongsToMember(key: QueryKey, context: MemberQueryContext) {
   switch (key[0]) {
-    case 'member-community': case 'member-community-rankings': case 'my-progress': case 'loyalty-engagement':
+    case 'member-community': case 'member-community-rankings': case 'my-progress': case 'my-personal-streaks': case 'loyalty-engagement':
       return key[1] === context.gymId && key[2] === context.memberId;
     case 'my-activities': return key[4] === context.gymId && (key[1] !== 'history' || key[5] === context.memberId);
     case 'my-weekly-progress': return key[3] === context.gymId;

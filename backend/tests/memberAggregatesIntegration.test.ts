@@ -9,12 +9,12 @@ import { getMemberCommunityRankings } from '../src/controllers/memberCommunityRa
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
 const request = (query = {}) => ({ query, tenant: { gymId: id(900), gymUserId: id(901), role: 'member', timezone: 'America/Guayaquil' } }) as unknown as Request;
-const response = () => ({ json: vi.fn() }) as unknown as Response;
+const response = () => ({ json: vi.fn(), setHeader: vi.fn() }) as unknown as Response;
 const summary = (total: number) => ({ today:'2026-11-02',currentWeekStart:'2026-11-02',currentMonthStart:'2026-11-01',
   totalAttendances:total,currentMonthAttendances:2,currentWeekAttendances:1,latestAttendanceDate:'2026-11-02',hasAttendanceToday:true,
   attendanceByMonth:[{period:'2026-11',count:2}],attendanceByWeek:[{period:'2026-11-02',count:1}],averageWeeklyAttendances:0.1 });
 const member = (n: number) => ({ id:id(n),name:`Member ${n}`,avatarPath:null,goalType:null,publicMessage:null,joinedAt:null,
-  currentStreak:null,longestStreak:null,monthlyAttendances:null,progressPercent:null,reactions:{like:0,love:0,mine:null} });
+  weeklyStreak:null,monthlyAttendances:null,progressPercent:null,reactions:{like:0,love:0,mine:null} });
 beforeEach(() => {
   vi.clearAllMocks();
   db.from.mockImplementation(() => { const q: any = { data:null,error:null }; for(const method of ['select','eq','order','limit','maybeSingle']) q[method]=vi.fn(()=>q); return q; });
@@ -26,7 +26,7 @@ describe('FIT-MEMBER-008 consumer boundaries', () => {
     expect(res.json).toHaveBeenCalledWith({progress:expect.objectContaining({totalAttendances:total,hasAttendanceToday:true,currentMonthAttendances:2})});
     expect(db.from).not.toHaveBeenCalledWith('attendances');
     expect(db.rpc).toHaveBeenCalledWith('get_member_attendance_summary_backend',{target_gym_id:id(900),actor_member_user_id:id(901)});
-    const weightQuery = db.from.mock.results[1]!.value;
+    const weightQuery = db.from.mock.results[0]!.value;
     expect(weightQuery.limit).toHaveBeenCalledWith(500); // FIT-MEMBER-011 intentionally unchanged.
   });
   it('walks 360 RPC members by cursor without fetching gym-wide tables',async()=>{
@@ -45,7 +45,7 @@ describe('FIT-MEMBER-008 consumer boundaries', () => {
   it.each(['all','similar_goal','consistent','new','longest_streak','featured','progress'])('forwards %s before SQL pagination and ignores forged tenant IDs',async filter=>{
     db.rpc.mockResolvedValue({data:{items:[],nextCursor:null,hasMore:false},error:null});
     await listMemberCommunity(request({filter,gymId:'other',memberId:'other'}),response());
-    expect(db.rpc).toHaveBeenCalledWith('list_member_community_page_backend',{
+    expect(db.rpc).toHaveBeenCalledWith('list_member_community_weekly_page_backend',{
       target_gym_id:id(900),actor_member_user_id:id(901),requested_filter:filter,page_size:20,after_cursor:null,
     });
   });
