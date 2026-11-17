@@ -76,8 +76,7 @@ export function MembersPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [message, setMessage] = useState('');
   // Esta consulta devuelve un objeto con directorios y sucursales. No debe
-  // compartir cache con Dashboard/Asistencias/Membresias, donde ['members']
-  // contiene exclusivamente Member[].
+  // compartir cache con ['members'], que contiene exclusivamente Member[].
   const members = useQuery({ queryKey: ['members-directory'], queryFn: async () => (await api.get<MembersPayload>('/members')).data });
   const detail = useQuery({ queryKey: ['member-detail', selectedId], queryFn: async () => (await api.get<MemberDetail>(`/members/${selectedId}`)).data, enabled: Boolean(selectedId) });
   const directory = directoryView === 'current' ? members.data?.members ?? [] : members.data?.retiredMembers ?? [];
@@ -95,6 +94,7 @@ export function MembersPage() {
   const refresh = async () => Promise.all([
     queryClient.invalidateQueries({ queryKey: ['members-directory'] }),
     queryClient.invalidateQueries({ queryKey: ['members'] }),
+    queryClient.invalidateQueries({ queryKey: ['dashboard-members-summary', session?.gymUser?.gym_id] }),
     queryClient.invalidateQueries({ queryKey: ['member-detail', selectedId] }),
   ]);
   const invite = useMutation({

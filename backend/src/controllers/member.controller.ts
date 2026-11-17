@@ -288,6 +288,29 @@ export async function recordMyWeight(request: Request, response: Response) {
   response.status(201).json({ weightEntry: { ...weightEntry, weightKg: Number(weightEntry.weight_kg), measuredOn: weightEntry.measured_on, source: weightEntry.source, createdAt: weightEntry.created_at } });
 }
 
+export async function getDashboardMembersSummary(request: Request, response: Response) {
+  const { gymId } = request.tenant!;
+  const [active, names] = await Promise.all([
+    supabaseAdmin.from('gym_users').select('id', { count: 'exact', head: true })
+      .eq('gym_id', gymId).eq('role', 'member').eq('status', 'active'),
+    // Keep the existing recent-activity name lookup, but don't send the directory's private fields.
+    supabaseAdmin.from('gym_users').select('id,status,profiles(full_name)')
+      .eq('gym_id', gymId).eq('role', 'member')
+      .in('status', ['invited', 'active', 'suspended', 'inactive'])
+      .order('created_at', { ascending: false }).limit(250),
+  ]);
+  const error = active.error ?? names.error;
+  if (error) throw fromSupabaseError(error);
+  if (active.count === null) throw new AppError(502, 'ACTIVE_MEMBER_COUNT_UNAVAILABLE', 'No se pudo consultar el total de miembros activos.');
+
+  response.setHeader('Cache-Control', 'private, no-store');
+  response.json({
+    activeMemberCount: active.count,
+    members: (names.data ?? []).filter(member => member.status !== 'inactive')
+      .map(({ id, profiles }) => ({ id, profiles })),
+  });
+}
+
 export async function listMembers(request: Request, response: Response) {
   const search = typeof request.query.search === 'string' ? request.query.search.trim() : '';
   const [membersResult, locationsResult] = await Promise.all([

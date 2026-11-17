@@ -38,12 +38,13 @@ describe('ciclo de vida seguro de miembros', () => {
     expect(controller).not.toMatch(/request\.supabase!\s*\.from\([^)]*\)\s*\.(?:insert|update|upsert|delete)\(/s);
   });
 
-  it('separa el directorio enriquecido del cache de listas usado por el dashboard', () => {
+  it('separa el directorio enriquecido de la consulta resumida del dashboard', () => {
     const membersPage = source('frontend/src/pages/MembersPage.tsx');
     const dashboard = source('frontend/src/pages/DashboardPage.tsx');
     expect(membersPage).toContain("queryKey: ['members-directory']");
     expect(membersPage).toContain("queryClient.invalidateQueries({ queryKey: ['members-directory'] })");
-    expect(dashboard).toContain("queryKey: ['members']");
+    expect(dashboard).toContain("queryKey: ['dashboard-members-summary', session?.gymUser?.gym_id, session?.gymUser?.id]");
+    expect(membersPage).toContain("queryKey: ['dashboard-members-summary', session?.gymUser?.gym_id]");
     expect(membersPage).not.toMatch(/useQuery\(\{ queryKey: \['members'\]/);
   });
 });

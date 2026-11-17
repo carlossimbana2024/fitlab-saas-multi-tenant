@@ -7,7 +7,7 @@ import { useAuth } from '../context/AuthContext';
 import { OwnerAnnouncementsPanel } from '../components/OwnerAnnouncementsPanel';
 import { MembershipPaymentQueueLink } from '../components/MembershipPaymentManagement';
 
-type Member = { id: string; status: string; profiles?: { full_name?: string } };
+type DashboardMembersSummary = { activeMemberCount: number; members: Array<{ id: string; profiles?: { full_name?: string } | null }> };
 type Attendance = { id: string; member_user_id: string; checked_in_at: string; status: 'valid' | 'voided'; source: string };
 type Payment = { id: string; member_user_id: string; amount: number; currency: string; payment_method: string; status: string; paid_at: string };
 type IncomeSlice = { amount: number; count: number };
@@ -30,12 +30,15 @@ export function DashboardPage() {
   const navigate = useNavigate();
   const [showIncome, setShowIncome] = useState(true);
   const today = dateInGuayaquil();
-  const members = useQuery({ queryKey: ['members'], queryFn: async () => (await api.get<{ members: Member[] }>('/members')).data.members });
+  const membersSummary = useQuery({
+    queryKey: ['dashboard-members-summary', session?.gymUser?.gym_id, session?.gymUser?.id],
+    queryFn: async () => (await api.get<DashboardMembersSummary>('/members/dashboard-summary')).data,
+  });
   const attendances = useQuery({ queryKey: ['attendances', today], queryFn: async () => (await api.get<{ attendances: Attendance[] }>('/attendances', { params: { from: today, to: today } })).data.attendances });
   const streaks = useQuery({ queryKey: ['streaks'], queryFn: async () => (await api.get<{ streaks: Streak[] }>('/attendances/streaks')).data.streaks });
   const payments = useQuery({ queryKey: ['payments'], queryFn: async () => (await api.get<{ payments: Payment[] }>('/member-payments')).data.payments, retry: false });
   const incomeSummary = useQuery({ queryKey: ['dashboard-income-summary'], queryFn: async () => (await api.get<{ summary: DashboardIncomeSummary }>('/member-payments/dashboard-summary')).data.summary, retry: false });
-  const names = new Map((members.data ?? []).map((member) => [member.id, member.profiles?.full_name ?? 'Miembro']));
+  const names = new Map((membersSummary.data?.members ?? []).map((member) => [member.id, member.profiles?.full_name ?? 'Miembro']));
   const incomeCurrencies = incomeSummary.data?.currencies ?? [];
   const incomeValue = incomeCurrencies.map((summary) => `${summary.amount.toFixed(2)} ${summary.currency}`).join(' · ') || '0.00 USD';
   const primaryIncome = incomeCurrencies[0];
@@ -44,7 +47,6 @@ export function DashboardPage() {
     : 'Sin cobros confirmados este mes';
   const validAttendances = (attendances.data ?? []).filter((attendance) => attendance.status === 'valid');
   const bestStreak = Math.max(0, ...(streaks.data ?? []).map((streak) => streak.longest_streak));
-  const loading = members.isLoading || attendances.isLoading || streaks.isLoading;
 
   const activity: ActivityItem[] = [
     ...(attendances.data ?? []).map((attendance) => ({ id: attendance.id, kind: 'attendance' as const, memberUserId: attendance.member_user_id, date: attendance.checked_in_at, label: attendance.status === 'valid' ? 'Asistencia registrada' : 'Asistencia anulada', detail: attendance.source === 'staff' ? 'Registro manual' : 'Registro QR' })),
@@ -52,7 +54,7 @@ export function DashboardPage() {
   ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 6);
 
   const stats = [
-    { label: 'Miembros activos', value: loading ? '…' : String((members.data ?? []).filter((member) => member.status === 'active').length), detail: 'Con acceso activo', icon: Users, tone: 'red', privateValue: false },
+    { label: 'Miembros activos', value: membersSummary.isLoading ? '…' : membersSummary.isError || membersSummary.data === undefined ? 'No disponible' : String(membersSummary.data.activeMemberCount), detail: 'Con acceso activo', icon: Users, tone: 'red', privateValue: false },
     { label: 'Ingresos del mes', value: incomeSummary.isLoading ? '…' : incomeSummary.isError ? 'Restringido' : showIncome ? incomeValue : `•••••• ${incomeCurrencies.map((summary) => summary.currency).join(' · ') || 'USD'}`, detail: incomeSummary.isError ? 'Sin permiso financiero' : showIncome ? incomeBreakdown : 'Desglose oculto', icon: CreditCard, tone: 'yellow', privateValue: true },
     { label: 'Asistencias hoy', value: attendances.isLoading ? '…' : String(validAttendances.length), detail: 'Registros válidos', icon: Activity, tone: 'green', privateValue: false },
     { label: 'Mejor racha', value: streaks.isLoading ? '…' : String(bestStreak), detail: 'Récord del gimnasio', icon: Flame, tone: 'orange', privateValue: false },
