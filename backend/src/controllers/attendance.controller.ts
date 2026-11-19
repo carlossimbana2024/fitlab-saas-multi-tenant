@@ -3,7 +3,7 @@ import { supabaseAdmin } from '../config/supabase.js';
 import { AppError } from '../errors/AppError.js';
 import { dateInTimezone } from '../utils/gymDate.js';
 import { fromSupabaseError } from '../utils/supabaseError.js';
-import { attendanceListSchema, staffAttendanceSchema, voidAttendanceSchema } from '../validators/attendance.validator.js';
+import { attendanceListSchema, dashboardAttendanceSummarySchema, staffAttendanceSchema, voidAttendanceSchema } from '../validators/attendance.validator.js';
 import { writeAuditLog } from '../services/audit.service.js';
 
 const attendanceFields = 'id,gym_id,location_id,member_user_id,membership_id,attendance_date,checked_in_at,source,counts_toward_streak,status,voided_at,voided_by,void_reason';
@@ -185,6 +185,31 @@ export async function listAttendances(request: Request, response: Response) {
   const { data, error } = await query;
   if (error) throw fromSupabaseError(error);
   response.json({ attendances: data });
+}
+
+export async function getDashboardAttendanceSummary(request: Request, response: Response) {
+  const input = dashboardAttendanceSummarySchema.safeParse(request.query);
+  if (!input.success) throw new AppError(400, 'INVALID_ATTENDANCE_FILTERS', 'Indica un día de asistencia válido.');
+
+  const { gymId, gymUserId, role } = request.tenant!;
+  const client = request.supabase!;
+  // Match gym-wide read visibility under attendances_select. A temporary PIN does not widen RLS.
+  if (role === 'staff') {
+    const { data, error } = await client.from('staff_permissions').select('access_mode')
+      .eq('gym_id', gymId).eq('staff_user_id', gymUserId).eq('permission_key', 'members.view').maybeSingle();
+    if (error) throw new AppError(500, 'PERMISSION_LOOKUP_FAILED', 'No se pudo comprobar el permiso.');
+    if (data?.access_mode !== 'allowed') throw new AppError(403, 'PERMISSION_DENIED', 'No tienes permiso para consultar el total del gimnasio.');
+  } else if (role !== 'owner') {
+    throw new AppError(403, 'PERMISSION_DENIED', 'No tienes permiso para consultar el total del gimnasio.');
+  }
+
+  const { count, error } = await client.from('attendances').select('id', { count: 'exact', head: true })
+    .eq('gym_id', gymId).eq('attendance_date', input.data.date).eq('status', 'valid');
+  if (error) throw fromSupabaseError(error);
+  if (count === null) throw new AppError(502, 'ATTENDANCE_COUNT_UNAVAILABLE', 'No se pudo consultar el total de asistencias.');
+
+  response.setHeader('Cache-Control', 'private, no-store');
+  response.json({ validTodayCount: count });
 }
 
 export async function listStreaks(request: Request, response: Response) {

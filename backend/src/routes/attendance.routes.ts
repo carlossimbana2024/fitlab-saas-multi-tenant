@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getReceptionOverview, listAttendances, listStreaks, listWeeklyProgress, registerStaffAttendance, voidAttendance } from '../controllers/attendance.controller.js';
+import { getDashboardAttendanceSummary, getReceptionOverview, listAttendances, listStreaks, listWeeklyProgress, registerStaffAttendance, voidAttendance } from '../controllers/attendance.controller.js';
 import { listAttendanceQr, manageAttendanceQr, previewQrAttendance, registerQrAttendance } from '../controllers/attendanceQr.controller.js';
 import { checkPermission } from '../middlewares/checkPermission.js';
 import { tenantContext } from '../middlewares/tenantContext.js';
@@ -10,6 +10,7 @@ import { databaseRateLimit, requestNetworkKey } from '../middlewares/rateLimit.j
 export const attendanceRouter = Router();
 attendanceRouter.use(verifyJWT, tenantContext);
 attendanceRouter.get('/reception', checkPermission('members.view'), asyncHandler(getReceptionOverview));
+attendanceRouter.get('/dashboard-summary', asyncHandler(getDashboardAttendanceSummary));
 attendanceRouter.get('/', asyncHandler(listAttendances));
 attendanceRouter.get('/streaks', asyncHandler(listStreaks));
 attendanceRouter.get('/weekly-progress', asyncHandler(listWeeklyProgress));

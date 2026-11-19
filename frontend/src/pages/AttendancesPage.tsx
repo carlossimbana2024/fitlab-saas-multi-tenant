@@ -78,7 +78,10 @@ export function AttendancesPage() {
     queryKey: ['attendance-reception'],
     queryFn: async () => (await api.get<ReceptionOverview>('/attendances/reception')).data,
   });
-  const refresh = async () => queryClient.invalidateQueries({ queryKey: ['attendance-reception'] });
+  const refresh = async () => Promise.all([
+    queryClient.invalidateQueries({ queryKey: ['attendance-reception'] }),
+    queryClient.invalidateQueries({ queryKey: ['dashboard-attendance-summary', session?.gymUser?.gym_id] }),
+  ]);
   const registerAttendance = useMutation({
     mutationFn: async (member: ReceptionMember) => api.post('/attendances/staff', {
       locationId: reception.data?.receptionLocation?.id,

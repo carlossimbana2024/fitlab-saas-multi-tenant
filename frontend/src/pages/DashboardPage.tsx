@@ -35,6 +35,10 @@ export function DashboardPage() {
     queryFn: async () => (await api.get<DashboardMembersSummary>('/members/dashboard-summary')).data,
   });
   const attendances = useQuery({ queryKey: ['attendances', today], queryFn: async () => (await api.get<{ attendances: Attendance[] }>('/attendances', { params: { from: today, to: today } })).data.attendances });
+  const attendanceSummary = useQuery({
+    queryKey: ['dashboard-attendance-summary', session?.gymUser?.gym_id, session?.gymUser?.id, today],
+    queryFn: async () => (await api.get<{ validTodayCount: number }>('/attendances/dashboard-summary', { params: { date: today } })).data.validTodayCount,
+  });
   const streaks = useQuery({ queryKey: ['streaks'], queryFn: async () => (await api.get<{ streaks: Streak[] }>('/attendances/streaks')).data.streaks });
   const payments = useQuery({ queryKey: ['payments'], queryFn: async () => (await api.get<{ payments: Payment[] }>('/member-payments')).data.payments, retry: false });
   const incomeSummary = useQuery({ queryKey: ['dashboard-income-summary'], queryFn: async () => (await api.get<{ summary: DashboardIncomeSummary }>('/member-payments/dashboard-summary')).data.summary, retry: false });
@@ -45,7 +49,6 @@ export function DashboardPage() {
   const incomeBreakdown = primaryIncome
     ? `Membresías ${primaryIncome.categories.memberships.amount.toFixed(2)} · Ventas ${primaryIncome.categories.stockSales.amount.toFixed(2)} · Actividades ${primaryIncome.categories.activities.amount.toFixed(2)}${primaryIncome.categories.other.amount ? ` · Otros ${primaryIncome.categories.other.amount.toFixed(2)}` : ''}`
     : 'Sin cobros confirmados este mes';
-  const validAttendances = (attendances.data ?? []).filter((attendance) => attendance.status === 'valid');
   const bestStreak = Math.max(0, ...(streaks.data ?? []).map((streak) => streak.longest_streak));
 
   const activity: ActivityItem[] = [
@@ -56,7 +59,7 @@ export function DashboardPage() {
   const stats = [
     { label: 'Miembros activos', value: membersSummary.isLoading ? '…' : membersSummary.isError || membersSummary.data === undefined ? 'No disponible' : String(membersSummary.data.activeMemberCount), detail: 'Con acceso activo', icon: Users, tone: 'red', privateValue: false },
     { label: 'Ingresos del mes', value: incomeSummary.isLoading ? '…' : incomeSummary.isError ? 'Restringido' : showIncome ? incomeValue : `•••••• ${incomeCurrencies.map((summary) => summary.currency).join(' · ') || 'USD'}`, detail: incomeSummary.isError ? 'Sin permiso financiero' : showIncome ? incomeBreakdown : 'Desglose oculto', icon: CreditCard, tone: 'yellow', privateValue: true },
-    { label: 'Asistencias hoy', value: attendances.isLoading ? '…' : String(validAttendances.length), detail: 'Registros válidos', icon: Activity, tone: 'green', privateValue: false },
+    { label: 'Asistencias hoy', value: attendanceSummary.isLoading ? '…' : attendanceSummary.isError || attendanceSummary.data === undefined ? 'No disponible' : String(attendanceSummary.data), detail: 'Registros válidos', icon: Activity, tone: 'green', privateValue: false },
     { label: 'Mejor racha', value: streaks.isLoading ? '…' : String(bestStreak), detail: 'Récord del gimnasio', icon: Flame, tone: 'orange', privateValue: false },
   ];
 

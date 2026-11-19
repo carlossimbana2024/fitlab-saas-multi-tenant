@@ -26,3 +26,7 @@ export const attendanceListSchema = z.object({
   to: z.string().date().optional(),
   memberUserId: uuid.optional(),
 });
+
+export const dashboardAttendanceSummarySchema = z.object({
+  date: z.string().date(),
+});
