@@ -2,6 +2,8 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import ts from 'typescript';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import * as currentPortalDate from '../../frontend/src/utils/currentPortalDate';
+import * as portalTime from '../../frontend/src/utils/portalTime';
 
 const req = createRequire(new URL('../../frontend/package.json', import.meta.url));
 const axios = req('axios/dist/node/axios.cjs');
@@ -92,7 +94,7 @@ function fakeApi() {
         if (afterPin) throw new axios.AxiosError(afterPin.code, afterPin.code, cfg);
       }
       return url === payments ? ok({ payments: [] }) : url === summary
-        ? ok({ summary: { month: '2026-11', currencies: [] } }) : ok({ done: true });
+        ? ok({ summary: { month: currentPortalDate.portalDate().slice(0, 7), currencies: [] } }) : ok({ done: true });
     }
     if (url === '/members/dashboard-summary') return ok({ members: [], activeMemberCount: 1 });
     if (url === '/attendances') return ok({ attendances: [] });
@@ -138,6 +140,7 @@ async function mount(s: ReturnType<typeof fakeApi>, withDashboard = false) {
   const { DashboardPage } = compile('pages/DashboardPage.tsx', {
     'lucide-react': empty, '../context/AuthContext': auth, '../services/api': s.deps,
     '../components/OwnerAnnouncementsPanel': empty, '../components/MembershipPaymentManagement': empty,
+    '../utils/currentPortalDate': currentPortalDate, '../utils/portalTime': portalTime,
   });
   const h = React.createElement;
   const child = withDashboard ? h(Routes, null, h(Route, { element: h(AppLayout) },
@@ -190,7 +193,7 @@ it('real Dashboard makes both financial GET requests and finishes both, one expl
   await enter(ui.tree);
   await waitFor(() => {
     expect(ui.queryClient.getQueryState(['payments'])?.status).toBe('success');
-    expect(ui.queryClient.getQueryState(['dashboard-income-summary'])?.status).toBe('success');
+    expect(ui.queryClient.getQueryState(['dashboard-income-summary', 'gym-a', 'staff-a', currentPortalDate.portalDate().slice(0, 7), portalTime.DEFAULT_TIMEZONE])?.status).toBe('success');
     expect(label(ui.tree)).toContain('0.00 USD');
   });
   expect(new Set(s.authorized.map(a => a.token)).size).toBe(2);

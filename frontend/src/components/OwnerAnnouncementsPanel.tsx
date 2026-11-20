@@ -8,7 +8,7 @@ type Announcement = { id: string; location_id: string | null; body: string; crea
 type Location = { id: string; name: string };
 type AnnouncementList = { announcements: Announcement[]; locations: Location[] };
 
-export function OwnerAnnouncementsPanel() {
+export function OwnerAnnouncementsPanel({ timezone }: { timezone: string }) {
   const { session } = useAuth();
   const queryClient = useQueryClient();
   const [body, setBody] = useState('');
@@ -36,6 +36,6 @@ export function OwnerAnnouncementsPanel() {
     {archive.isError && <div className="alert error">{apiErrorMessage(archive.error)}</div>}
     {list.isError && <div className="alert error">No se pudieron cargar los avisos. {apiErrorMessage(list.error)}</div>}
     {list.isLoading && <p className="muted">Cargando avisos…</p>}
-    {Boolean(list.data?.announcements.length) && <div className="announcement-list"><h3>Avisos publicados</h3>{list.data!.announcements.map((announcement) => <article className="announcement-item" key={announcement.id}><div><small>{announcement.location_id ? locations.find((location) => location.id === announcement.location_id)?.name ?? 'Sucursal' : 'Todas las sucursales'} · {new Date(announcement.created_at).toLocaleDateString('es-EC')}</small><p>{announcement.body}</p></div><button type="button" className="ghost" aria-label="Retirar aviso" title="Retirar aviso" disabled={archive.isPending} onClick={() => archive.mutate(announcement.id)}><Trash2 size={17}/></button></article>)}</div>}
+    {Boolean(list.data?.announcements.length) && <div className="announcement-list"><h3>Avisos publicados</h3>{list.data!.announcements.map((announcement) => <article className="announcement-item" key={announcement.id}><div><small>{announcement.location_id ? locations.find((location) => location.id === announcement.location_id)?.name ?? 'Sucursal' : 'Todas las sucursales'} · {new Date(announcement.created_at).toLocaleDateString('es-EC', { timeZone: timezone })}</small><p>{announcement.body}</p></div><button type="button" className="ghost" aria-label="Retirar aviso" title="Retirar aviso" disabled={archive.isPending} onClick={() => archive.mutate(announcement.id)}><Trash2 size={17}/></button></article>)}</div>}
   </section>;
 }
