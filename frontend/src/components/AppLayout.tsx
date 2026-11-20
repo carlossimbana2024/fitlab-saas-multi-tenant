@@ -47,7 +47,7 @@ export function AppLayout() {
     </aside>
     {open && <button type="button" className="sidebar-backdrop" aria-label="Cerrar menú" onClick={() => setOpen(false)}/>}
     <main className="main"><header className="topbar"><button className="menu" aria-label={open ? 'Cerrar menú' : 'Abrir menú'} aria-controls="app-sidebar" aria-expanded={open} onClick={() => setOpen(!open)}><Menu/></button><div><strong>{session?.gymUser?.profiles?.full_name ?? session?.user.email}</strong><span>{session?.gymUser?.role}</span></div><ThemeToggle/></header><Outlet/></main>
-    {session?.gymUser?.role === 'staff' && <AdminPinDialog/>}
+    {session?.gymUser?.role === 'staff' && <AdminPinDialog key={JSON.stringify([session.user.id, session.gymUser.gym_id, session.gymUser.id, location.key])}/>}
   </div>;
 }
 

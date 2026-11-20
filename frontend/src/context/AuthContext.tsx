@@ -16,6 +16,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [unavailable, setUnavailable] = useState(false);
   const generation = useRef(0);
   const pending = useRef<Promise<void> | null>(null);
+  const identity = useRef<string | null>(null);
   // Only confirmed profile writes may update these fields; never recreate a cleared session.
   const applyConfirmedProfile: AuthValue['applyConfirmedProfile'] = (userId, profile) => {
     setSession(previous => !previous?.gymUser || previous.user.id !== userId ? previous : {
@@ -26,6 +27,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const clear = () => {
     generation.current++;
     pending.current = null;
+    identity.current = null;
     void queryClient.cancelQueries();
     queryClient.clear();
     setSession(null); setUnavailable(false); setLoading(false);
@@ -37,7 +39,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!background) setLoading(true);
     setUnavailable(false);
     const task = api.get<Session>('/auth/me').then(({ data }) => {
-      if (current === generation.current) setSession(data);
+      if (current !== generation.current) return;
+      const nextIdentity = JSON.stringify([data.user.id, data.gymUser?.gym_id, data.gymUser?.id, data.gymUser?.role]);
+      if (identity.current !== null && identity.current !== nextIdentity) {
+        sessionRecovery.invalidateIdentity();
+        void queryClient.cancelQueries();
+        queryClient.clear();
+      }
+      identity.current = nextIdentity;
+      setSession(data);
     }).catch(error => {
       if (current === generation.current && !axios.isCancel(error)) {
         if (isSessionExpired(error)) clear();

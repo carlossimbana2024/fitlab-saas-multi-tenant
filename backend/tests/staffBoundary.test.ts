@@ -64,9 +64,11 @@ describe('limite de seguridad del modulo de personal', () => {
     const api = source('frontend/src/services/api.ts');
     const middleware = source('backend/src/middlewares/checkPermission.ts');
     expect(middleware).toContain('{ permission: permissionKey }');
-    expect(api).toContain("error.response?.data?.error?.code === 'REQUIRES_ADMIN_PIN'");
-    expect(api).toContain('original._elevationRetried = true');
-    expect(api).toContain("original.headers.set('x-admin-elevation-token', token)");
+    const interceptor = source('frontend/src/services/adminPinElevation.ts');
+    expect(api).toContain('installAdminPinElevation(api, sessionRecovery)');
+    expect(interceptor).toContain("error.response?.data?.error?.code !== 'REQUIRES_ADMIN_PIN'");
+    expect(interceptor).toContain('original._elevationRetried = true');
+    expect(interceptor).toContain("original.headers.set('x-admin-elevation-token', grant.token)");
   });
 
   it('reincorpora la misma identidad con todos los permisos denegados', () => {

@@ -32,7 +32,7 @@ export function DashboardPage() {
   const today = dateInGuayaquil();
   const membersSummary = useQuery({
     queryKey: ['dashboard-members-summary', session?.gymUser?.gym_id, session?.gymUser?.id],
-    queryFn: async () => (await api.get<DashboardMembersSummary>('/members/dashboard-summary')).data,
+    queryFn: async ({ signal }) => (await api.get<DashboardMembersSummary>('/members/dashboard-summary', { signal })).data,
   });
   const attendances = useQuery({ queryKey: ['attendances', today], queryFn: async () => (await api.get<{ attendances: Attendance[] }>('/attendances', { params: { from: today, to: today } })).data.attendances });
   const attendanceSummary = useQuery({
@@ -40,8 +40,8 @@ export function DashboardPage() {
     queryFn: async () => (await api.get<{ validTodayCount: number }>('/attendances/dashboard-summary', { params: { date: today } })).data.validTodayCount,
   });
   const streaks = useQuery({ queryKey: ['streaks'], queryFn: async () => (await api.get<{ streaks: Streak[] }>('/attendances/streaks')).data.streaks });
-  const payments = useQuery({ queryKey: ['payments'], queryFn: async () => (await api.get<{ payments: Payment[] }>('/member-payments')).data.payments, retry: false });
-  const incomeSummary = useQuery({ queryKey: ['dashboard-income-summary'], queryFn: async () => (await api.get<{ summary: DashboardIncomeSummary }>('/member-payments/dashboard-summary')).data.summary, retry: false });
+  const payments = useQuery({ queryKey: ['payments'], queryFn: async ({ signal }) => (await api.get<{ payments: Payment[] }>('/member-payments', { signal })).data.payments, retry: false });
+  const incomeSummary = useQuery({ queryKey: ['dashboard-income-summary'], queryFn: async ({ signal }) => (await api.get<{ summary: DashboardIncomeSummary }>('/member-payments/dashboard-summary', { signal })).data.summary, retry: false });
   const names = new Map((membersSummary.data?.members ?? []).map((member) => [member.id, member.profiles?.full_name ?? 'Miembro']));
   const incomeCurrencies = incomeSummary.data?.currencies ?? [];
   const incomeValue = incomeCurrencies.map((summary) => `${summary.amount.toFixed(2)} ${summary.currency}`).join(' · ') || '0.00 USD';

@@ -1,6 +1,6 @@
 import axios, { type AxiosInstance, type InternalAxiosRequestConfig } from 'axios';
 
-type Config = InternalAxiosRequestConfig & { _sessionRetry?: boolean; _sessionVersion?: number; _sessionEpoch?: number };
+type Config = InternalAxiosRequestConfig & { _sessionRetry?: boolean; _sessionVersion?: number; _sessionEpoch?: number; _elevationRetried?: boolean };
 const path = (url = '') => new URL(url, 'https://fitlab.invalid').pathname.replace(/^\/api(?=\/)/, '').replace(/\/$/, '');
 const accessFailure = (error: any) => error.response?.status === 401 && ['AUTH_REQUIRED', 'INVALID_SESSION'].includes(error.response?.data?.error?.code);
 export const isSessionExpired = (error: unknown) => axios.isAxiosError(error) && error.response?.status === 401
@@ -13,11 +13,18 @@ export function installSessionRecovery(client: AxiosInstance) {
   let epoch = 0;
   let expired = false;
   let changingSession = false;
+  let sessionScope = new AbortController();
   const listeners = new Set<() => void>();
+  const invalidateIdentity = () => {
+    epoch++;
+    const oldScope = sessionScope;
+    sessionScope = new AbortController();
+    oldScope.abort();
+  };
   const expire = () => {
     if (expired) return;
     expired = true;
-    epoch++;
+    invalidateIdentity();
     listeners.forEach(listener => listener());
   };
   const assertCurrent = (config: Config) => {
@@ -47,6 +54,8 @@ export function installSessionRecovery(client: AxiosInstance) {
     }
     const eligible = endpoint === '/auth/me' || !endpoint.startsWith('/auth/');
     if (!eligible || !accessFailure(error)) throw error;
+    // An elevated request has a single-use token and is dispatched at most once.
+    if (original._elevationRetried) throw error;
     if (original._sessionRetry || expired) { expire(); throw error; }
     original._sessionRetry = true;
     if (original._sessionVersion === version) {
@@ -57,10 +66,12 @@ export function installSessionRecovery(client: AxiosInstance) {
     return client(original);
   });
   return {
+    get signal() { return sessionScope.signal; },
+    invalidateIdentity,
     subscribe(listener: () => void) { listeners.add(listener); return () => { listeners.delete(listener); }; },
     // Serialize login/logout after any cookie-writing refresh. Invalidate stale responses first.
     async boundary() {
-      changingSession = true; epoch++; expired = false;
+      changingSession = true; invalidateIdentity(); expired = false;
       await flight?.catch(() => undefined);
       return () => { changingSession = false; };
     },

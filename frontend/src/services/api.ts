@@ -1,17 +1,6 @@
-import axios, { type InternalAxiosRequestConfig } from 'axios';
+import axios from 'axios';
 import { installSessionRecovery } from './sessionRecovery';
-
-type ElevationHandler = (permission: string) => Promise<string>;
-type RetriableConfig = InternalAxiosRequestConfig & {
-  _elevationRetried?: boolean;
-};
-
-let elevationHandler: ElevationHandler | null = null;
-
-export function registerAdminPinElevationHandler(handler: ElevationHandler) {
-  elevationHandler = handler;
-  return () => { if (elevationHandler === handler) elevationHandler = null; };
-}
+import { installAdminPinElevation } from './adminPinElevation';
 
 export const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL ?? 'http://localhost:3000/api',
@@ -20,29 +9,7 @@ export const api = axios.create({
 });
 
 export const sessionRecovery = installSessionRecovery(api);
-
-api.interceptors.response.use(undefined, async (error) => {
-  const original = error.config as RetriableConfig;
-  const permission = error.response?.data?.error?.details?.permission;
-  if (
-    error.response?.status === 403
-    && error.response?.data?.error?.code === 'REQUIRES_ADMIN_PIN'
-    && typeof permission === 'string'
-    && elevationHandler
-    && !original?._elevationRetried
-  ) {
-    original._elevationRetried = true;
-    const token = await elevationHandler(permission);
-    original.headers = original.headers ?? {};
-    if ('set' in original.headers && typeof original.headers.set === 'function') {
-      original.headers.set('x-admin-elevation-token', token);
-    } else {
-      (original.headers as Record<string, string>)['x-admin-elevation-token'] = token;
-    }
-    return api(original);
-  }
-  return Promise.reject(error);
-});
+export const registerAdminPinElevationHandler = installAdminPinElevation(api, sessionRecovery);
 
 export function apiErrorMessage(error: unknown): string {
   if (axios.isAxiosError(error)) return error.response?.data?.error?.message ?? 'No se pudo completar la solicitud.';
